@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paithosh File Chooser</title>
+  <style>
+    :root {
+      --win-bg: #111113;
+      --sidebar-bg: #18181b;
+      --card-bg: rgba(255, 255, 255, 0.045);
+      --card-hover: rgba(255, 255, 255, 0.09);
+      --border: rgba(255, 255, 255, 0.09);
+      --text: #f4f4f5;
+      --text-sub: rgba(255, 255, 255, 0.56);
+      --accent: #ffffff;
+      --spring: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: var(--win-bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .app {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      background: var(--win-bg);
+      overflow: hidden;
+      animation: winIn 0.45s var(--spring) both;
+    }
+
+    @keyframes winIn {
+      from { opacity: 0; transform: scale(0.98) translateY(6px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* Left Sidebar (Inherits Files) */
+    .sidebar {
+      width: 230px;
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--border);
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .app-brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 4px 8px 8px;
+    }
+
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #ffffff 0%, #9ca3af 100%);
+      color: #09090b;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+    }
+
+    .brand-meta {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .brand-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-sub);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .search-box {
+      position: relative;
+    }
+
+    .search-box input {
+      width: 100%;
+      height: 32px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 28px 0 10px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .search-box input:focus {
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .search-icon {
+      position: absolute;
+      right: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 12px;
+      color: var(--text-sub);
+      pointer-events: none;
+    }
+
+    .nav-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      position: relative;
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .nav-indicator {
+      position: absolute;
+      left: 0;
+      width: 3px;
+      height: 18px;
+      border-radius: 999px;
+      background: var(--accent);
+      transition: transform 0.28s var(--spring), opacity 0.2s ease;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    .nav-item {
+      font-family: inherit;
+      width: 100%;
+      height: 34px;
+      padding: 0 12px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-sub);
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.18s ease, color 0.18s ease, transform 0.18s var(--spring);
+    }
+
+    .nav-item:hover {
+      background: var(--card-bg);
+      color: var(--text);
+    }
+
+    .nav-item:active {
+      transform: scale(0.98);
+    }
+
+    .nav-item.active {
+      background: rgba(255, 255, 255, 0.09);
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .nav-icon {
+      width: 18px;
+      text-align: center;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    .tree-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tree-chevron {
+      margin-left: auto;
+      font-size: 12px;
+      opacity: 0.6;
+      transition: transform 0.25s var(--spring);
+    }
+
+    .tree-group.is-open > .nav-item .tree-chevron {
+      transform: rotate(90deg);
+    }
+
+    .tree-children {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      padding-left: 18px;
+      position: relative;
+      transition: max-height 0.32s var(--spring), opacity 0.24s ease;
+    }
+
+    .tree-children::before {
+      content: "";
+      position: absolute;
+      left: 19px;
+      top: 6px;
+      bottom: 8px;
+      width: 1px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .tree-group.is-open > .tree-children {
+      max-height: 260px;
+      opacity: 1;
+      margin-top: 2px;
+      margin-bottom: 4px;
+    }
+
+    .nav-sub {
+      height: 30px;
+      font-size: 12.5px;
+      padding-left: 16px;
+    }
+
+    .mode-badge {
+      margin-top: auto;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .mode-badge-k {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-sub);
+    }
+
+    .mode-badge-v {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    /* Right Content Pane */
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 22px 16px;
+      gap: 12px;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .content-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .breadcrumb {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+      cursor: text;
+      padding: 3px 8px;
+      margin-left: -8px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      transition: background 0.18s ease, border-color 0.18s ease;
+      overflow: hidden;
+    }
+
+    .breadcrumb:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .breadcrumb.is-editing {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.35);
+      padding: 0 8px;
+    }
+
+    .path-edit-input {
+      width: 100%;
+      height: 32px;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .breadcrumb span {
+      color: var(--text-sub);
+      font-weight: 500;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .icon-btn {
+      font-family: inherit;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      font-size: 13px;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      transition: background 0.18s ease, transform 0.2s var(--spring);
+    }
+
+    .icon-btn:hover { background: var(--card-hover); }
+    .icon-btn:active { transform: scale(0.92); }
+    .icon-btn.active { background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.28); }
+
+    /* File Grid / List Area */
+    .file-area {
+      flex: 1;
+      overflow-y: auto;
+      padding-right: 4px;
+      min-height: 0;
+    }
+
+    .file-area::-webkit-scrollbar { width: 6px; }
+    .file-area::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+    }
+
+    .file-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+      gap: 10px;
+      padding: 2px;
+    }
+
+    .file-grid.is-list {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+
+    .file-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 10px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      text-align: center;
+      min-width: 0;
+      overflow: hidden;
+      transition: background 0.18s ease, border-color 0.18s ease, transform 0.24s var(--spring);
+      animation: itemIn 0.34s var(--spring) both;
+    }
+
+    @keyframes itemIn {
+      from { opacity: 0; transform: translateY(6px) scale(0.97); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .file-card:hover {
+      background: var(--card-hover);
+      transform: translateY(-1px);
+    }
+
+    .file-card:active {
+      transform: scale(0.97);
+    }
+
+    .file-card.selected {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.45);
+    }
+
+    .file-icon {
+      color: var(--text);
+      opacity: 0.9;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .file-name {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-sub {
+      font-size: 11px;
+      color: var(--text-sub);
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-grid.is-list .file-card {
+      flex-direction: row;
+      padding: 9px 14px;
+      gap: 12px;
+      border-radius: 9px;
+    }
+
+    .file-grid.is-list .file-icon svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .file-grid.is-list .file-name {
+      text-align: left;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .file-grid.is-list .file-sub {
+      width: auto;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    /* Portal Bottom Picker Bar (Name, File Type, Open/Save & Cancel) */
+    .picker-footer {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .picker-field-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .picker-label {
+      width: 66px;
+      font-size: 12px;
+      color: var(--text-sub);
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .picker-input,
+    .picker-select {
+      flex: 1;
+      min-width: 0;
+      height: 32px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 11px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.2s ease, background 0.2s ease;
+    }
+
+    .picker-input:focus,
+    .picker-select:focus {
+      border-color: rgba(255, 255, 255, 0.42);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .picker-select option {
+      background: #141416;
+      color: #ffffff;
+    }
+
+    .picker-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding-top: 2px;
+    }
+
+    .picker-status {
+      font-size: 11.5px;
+      color: var(--text-sub);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .picker-btns {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .picker-btn {
+      font-family: inherit;
+      height: 32px;
+      padding: 0 15px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.18s ease, transform 0.2s var(--spring), opacity 0.18s ease;
+    }
+
+    .picker-btn:hover:not(:disabled) {
+      background: var(--card-hover);
+    }
+
+    .picker-btn:active:not(:disabled) {
+      transform: scale(0.96);
+    }
+
+    .picker-btn.primary {
+      background: #ffffff;
+      color: #000000;
+      border-color: #ffffff;
+    }
+
+    .picker-btn.primary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .picker-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Left Sidebar -->
+    <aside class="sidebar">
+      <div class="app-brand">
+        <div class="brand-icon">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div class="brand-meta">
+          <span class="brand-title" id="brandTitle">File Chooser</span>
+          <span class="brand-sub" id="brandSub">xdg-desktop-portal</span>
+        </div>
+      </div>
+
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Filter files..." />
+        <span class="search-icon">⌕</span>
+      </div>
+
+      <nav class="nav-list" id="navList">
+        <div class="nav-indicator" id="navIndicator"></div>
+        <button class="nav-item active" data-dir="Home"><span class="nav-icon">⌂</span><span>Home</span></button>
+
+        <div class="tree-group is-open">
+          <button class="nav-item tree-toggle" data-dir="Home">
+            <span class="nav-icon">▤</span><span>Places</span><span class="tree-chevron">›</span>
+          </button>
+          <div class="tree-children">
+            <button class="nav-item nav-sub" data-dir="Documents"><span>Documents</span></button>
+            <button class="nav-item nav-sub" data-dir="Dev"><span>Dev</span></button>
+            <button class="nav-item nav-sub" data-dir="Downloads"><span>Downloads</span></button>
+            <button class="nav-item nav-sub" data-dir="Music"><span>Music</span></button>
+            <button class="nav-item nav-sub" data-dir="Pictures"><span>Pictures</span></button>
+          </div>
+        </div>
+
+        <button class="nav-item" data-dir="Root"><span class="nav-icon">◫</span><span>/ (Root)</span></button>
+      </nav>
+
+      <div class="mode-badge">
+        <span class="mode-badge-k">Portal Mode</span>
+        <span class="mode-badge-v" id="modeBadgeVal">Upload (Open File)</span>
+      </div>
+    </aside>
+
+    <!-- Right Content Pane -->
+    <main class="content">
+      <div class="content-header">
+        <div class="breadcrumb" id="breadcrumb" title="Click to edit path"><span>~</span></div>
+        <div class="toolbar-actions">
+          <button class="icon-btn" id="backBtn" title="Back">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <button class="icon-btn" id="fwdBtn" title="Forward">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <button class="icon-btn" id="viewGridBtn" title="Grid view">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          </button>
+          <button class="icon-btn active" id="viewListBtn" title="List view">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="file-area">
+        <div class="file-grid is-list" id="fileGrid"></div>
+      </div>
+
+      <!-- Bottom Upload / Download Dialog Controls -->
+      <div class="picker-footer">
+        <div class="picker-field-row">
+          <label class="picker-label" for="nameInput">Name:</label>
+          <input type="text" class="picker-input" id="nameInput" placeholder="Select a file or type filename..." />
+        </div>
+        <div class="picker-field-row">
+          <label class="picker-label" for="typeSelect">File type:</label>
+          <select class="picker-select" id="typeSelect">
+            <option value="all" selected>All Files (*.*)</option>
+            <option value="code">Config &amp; Code (*.conf, *.html, *.yaml)</option>
+            <option value="archive">Archives (*.zip)</option>
+          </select>
+        </div>
+        <div class="picker-actions">
+          <span class="picker-status" id="pickerStatus">10 items</span>
+          <div class="picker-btns">
+            <button class="picker-btn" id="cancelBtn">✕ Cancel</button>
+            <button class="picker-btn primary" id="confirmBtn" disabled>✓ Open</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const ICONS = {
+      folder: `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+      file:   `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>`,
+      code:   `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><polyline points="10 13 8 15 10 17"/><polyline points="14 13 16 15 14 17"/></svg>`,
+      archive:`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>`
+    };
+
+    const FS = {
+      Home: [
+        { name: "Documents", type: "folder", meta: "14 items" },
+        { name: "Dev", type: "folder", meta: "8 items" },
+        { name: "Downloads", type: "folder", meta: "23 items" },
+        { name: "Music", type: "folder", meta: "42 items" },
+        { name: "Pictures", type: "folder", meta: "19 items" },
+        { name: "hyprland.conf", type: "code", meta: "4.2 KB" },
+        { name: "waybar.css", type: "code", meta: "2.8 KB" },
+        { name: "notes.txt", type: "file", meta: "1.1 KB" }
+      ],
+      Dev: [
+        { name: "paithosh", type: "folder", meta: "3 files" },
+        { name: "index.html", type: "code", meta: "28 KB" },
+        { name: "settings.html", type: "code", meta: "19 KB" },
+        { name: "files.html", type: "code", meta: "15 KB" }
+      ],
+      Documents: [
+        { name: "Hyprland-Rice-Spec.md", type: "file", meta: "8.5 KB" },
+        { name: "Keybindings.txt", type: "file", meta: "2.1 KB" }
+      ],
+      Downloads: [
+        { name: "archlinux-2026.iso", type: "file", meta: "1.1 GB" },
+        { name: "OpenSans.zip", type: "archive", meta: "4.8 MB" },
+        { name: "paithosh-oled-2026.json", type: "code", meta: "2.4 KB" }
+      ],
+      Music: [
+        { name: "Lofi Beats — Chillhop.flac", type: "file", meta: "34 MB" }
+      ],
+      Pictures: [
+        { name: "wallpaper-oled.png", type: "file", meta: "3.2 MB" },
+        { name: "desktop-shot.png", type: "file", meta: "1.8 MB" }
+      ],
+      Root: [
+        { name: "etc", type: "folder", meta: "System" },
+        { name: "home", type: "folder", meta: "Users" },
+        { name: "usr", type: "folder", meta: "Binaries" }
+      ]
+    };
+
+    const DIR_PATHS = {
+      Home: "/home/paithon",
+      Documents: "/home/paithon/Documents",
+      Dev: "/home/paithon/Dev",
+      Downloads: "/home/paithon/Downloads",
+      Music: "/home/paithon/Music",
+      Pictures: "/home/paithon/Pictures",
+      Root: "/"
+    };
+
+    let currentDir = "Home";
+    let hist = ["Home"];
+    let histIdx = 0;
+    let pickerMode = new URLSearchParams(location.search).get("mode") === "download" ? "download" : "upload";
+    let selectedFile = null;
+
+    const fileGrid = document.getElementById("fileGrid");
+    const breadcrumb = document.getElementById("breadcrumb");
+    const nameInput = document.getElementById("nameInput");
+    const typeSelect = document.getElementById("typeSelect");
+    const confirmBtn = document.getElementById("confirmBtn");
+    const searchInput = document.getElementById("searchInput");
+    const navIndicator = document.getElementById("navIndicator");
+
+    function updateIndicator(btn) {
+      if (!btn || !navIndicator) return;
+      const listRect = document.getElementById("navList").getBoundingClientRect();
+      const rect = btn.getBoundingClientRect();
+      navIndicator.style.transform = `translateY(${rect.top - listRect.top + (rect.height - 18) / 2}px)`;
+    }
+
+    function updateConfirmState() {
+      confirmBtn.disabled = !nameInput.value.trim();
+    }
+
+    function applyMode(mode) {
+      pickerMode = mode === "download" ? "download" : "upload";
+      if (pickerMode === "download") {
+        document.getElementById("modeBadgeVal").textContent = "Download (Save As)";
+        confirmBtn.textContent = "✓ Save";
+        nameInput.value = "paithosh-theme-2026.json";
+        navigateTo("Downloads", false);
+      } else {
+        document.getElementById("modeBadgeVal").textContent = "Upload (Open File)";
+        confirmBtn.textContent = "✓ Open";
+        nameInput.value = "";
+        navigateTo("Home", false);
+      }
+      updateConfirmState();
+    }
+
+    function renderDir(dir, query = "") {
+      currentDir = FS[dir] ? dir : "Home";
+      breadcrumb.innerHTML = currentDir === "Home" ? "<span>~</span>" : `<span>~ › </span>${currentDir}`;
+      document.querySelectorAll(".nav-item[data-dir]").forEach(b => {
+        const active = b.dataset.dir === currentDir && !b.classList.contains("tree-toggle");
+        b.classList.toggle("active", active);
+        if (active) updateIndicator(b);
+      });
+
+      const fType = typeSelect.value;
+      const q = (query || "").trim().toLowerCase();
+      const items = (FS[currentDir] || []).filter(it => {
+        if (q && !it.name.toLowerCase().includes(q)) return false;
+        if (it.type !== "folder" && fType !== "all" && it.type !== fType) return false;
+        return true;
+      });
+
+      fileGrid.innerHTML = "";
+      items.forEach((it, idx) => {
+        const card = document.createElement("div");
+        card.className = "file-card" + (selectedFile === it.name ? " selected" : "");
+        card.style.animationDelay = `${Math.min(idx, 12) * 18}ms`;
+        card.innerHTML = `
+          <div class="file-icon">${ICONS[it.type] || ICONS.file}</div>
+          <div class="file-name">${it.name}</div>
+          <div class="file-sub">${it.meta}</div>
+        `;
+        card.addEventListener("click", () => {
+          if (it.type === "folder") {
+            if (FS[it.name]) navigateTo(it.name);
+            return;
+          }
+          selectedFile = it.name;
+          nameInput.value = it.name;
+          updateConfirmState();
+          fileGrid.querySelectorAll(".file-card").forEach(c => c.classList.remove("selected"));
+          card.classList.add("selected");
+        });
+        card.addEventListener("dblclick", () => {
+          if (it.type !== "folder" && nameInput.value.trim()) submitPicker();
+        });
+        fileGrid.appendChild(card);
+      });
+
+      document.getElementById("pickerStatus").textContent = `${items.length} items • ${DIR_PATHS[currentDir] || "/home/paithon"}`;
+    }
+
+    function navigateTo(dir, push = true) {
+      if (push && hist[histIdx] !== dir) {
+        hist = hist.slice(0, histIdx + 1);
+        hist.push(dir);
+        histIdx = hist.length - 1;
+      }
+      selectedFile = null;
+      renderDir(dir, searchInput.value);
+    }
+
+    function submitPicker() {
+      const file = nameInput.value.trim();
+      if (!file) return;
+      const fullPath = `${DIR_PATHS[currentDir] || "/home/paithon"}/${file}`.replace("//", "/");
+      window.parent?.postMessage({ type: "paithosh-picker-done", mode: pickerMode, path: fullPath }, "*");
+    }
+
+    let indRafId = null;
+    function trackIndicatorDuringTree(activeBtn) {
+      if (indRafId) cancelAnimationFrame(indRafId);
+      const start = performance.now();
+      function tick(now) {
+        updateIndicator(activeBtn);
+        if (now - start < 380) indRafId = requestAnimationFrame(tick);
+      }
+      indRafId = requestAnimationFrame(tick);
+    }
+
+    document.querySelectorAll(".nav-item[data-dir]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (btn.classList.contains("tree-toggle")) {
+          btn.closest(".tree-group")?.classList.toggle("is-open");
+          trackIndicatorDuringTree(document.querySelector(".nav-item.active"));
+          return;
+        }
+        navigateTo(btn.dataset.dir);
+      });
+    });
+
+    breadcrumb.addEventListener("click", () => {
+      if (breadcrumb.classList.contains("is-editing")) return;
+      breadcrumb.classList.add("is-editing");
+      const inp = document.createElement("input");
+      inp.type = "text";
+      inp.className = "path-edit-input";
+      inp.value = DIR_PATHS[currentDir] || "/home/paithon";
+      breadcrumb.innerHTML = "";
+      breadcrumb.appendChild(inp);
+      inp.focus();
+      inp.select();
+      const finish = apply => {
+        breadcrumb.classList.remove("is-editing");
+        if (apply) {
+          const seg = inp.value.replace(/\/+$/, "").split("/").pop();
+          const match = Object.keys(FS).find(k => k.toLowerCase() === (seg || "").toLowerCase());
+          navigateTo(match || "Home");
+        } else {
+          renderDir(currentDir, searchInput.value);
+        }
+      };
+      inp.addEventListener("keydown", e => {
+        if (e.key === "Enter") finish(true);
+        else if (e.key === "Escape") finish(false);
+      });
+      inp.addEventListener("blur", () => finish(false));
+    });
+
+    document.getElementById("backBtn").addEventListener("click", () => {
+      if (histIdx > 0) { histIdx--; navigateTo(hist[histIdx], false); }
+    });
+    document.getElementById("fwdBtn").addEventListener("click", () => {
+      if (histIdx < hist.length - 1) { histIdx++; navigateTo(hist[histIdx], false); }
+    });
+    document.getElementById("viewGridBtn").addEventListener("click", e => {
+      fileGrid.classList.remove("is-list");
+      e.currentTarget.classList.add("active");
+      document.getElementById("viewListBtn").classList.remove("active");
+      renderDir(currentDir, searchInput.value);
+    });
+    document.getElementById("viewListBtn").addEventListener("click", e => {
+      fileGrid.classList.add("is-list");
+      e.currentTarget.classList.add("active");
+      document.getElementById("viewGridBtn").classList.remove("active");
+      renderDir(currentDir, searchInput.value);
+    });
+
+    nameInput.addEventListener("input", updateConfirmState);
+    typeSelect.addEventListener("change", () => renderDir(currentDir, searchInput.value));
+    searchInput.addEventListener("input", () => renderDir(currentDir, searchInput.value));
+    confirmBtn.addEventListener("click", submitPicker);
+    document.getElementById("cancelBtn").addEventListener("click", () => {
+      window.parent?.postMessage({ type: "paithosh-picker-cancel" }, "*");
+    });
+
+    window.addEventListener("message", e => {
+      if (e.data?.type === "paithosh-picker-mode") {
+        applyMode(e.data.mode);
+      } else if (e.data?.type === "paithosh-theme") {
+        const t = e.data;
+        const root = document.documentElement.style;
+        root.setProperty("--win-bg", t.bgBase);
+        root.setProperty("--sidebar-bg", t.bgBase);
+        root.setProperty("--text", t.textColor);
+        root.setProperty("--text-sub", t.isLightText ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.62)");
+        root.setProperty("--card-bg", t.isLightText ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)");
+        root.setProperty("--card-hover", t.isLightText ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.11)");
+        root.setProperty("--border", t.isLightText ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.14)");
+        root.setProperty("--accent", t.isLightText ? "#ffffff" : "#000000");
+      }
+    });
+
+    applyMode(pickerMode);
+    window.addEventListener("load", () => updateIndicator(document.querySelector(".nav-item.active")));
+  </script>
+</body>
+</html>

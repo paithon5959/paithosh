@@ -1,0 +1,583 @@
+import QtQuick
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+import ".."
+import "../services"
+import "common"
+
+PanelWindow {
+    id: root
+
+    required property var shellState
+
+    readonly property bool isOpen: shellState.modalKind !== ""
+    readonly property string kind: shellState.modalKind
+
+    property string monitorMode: CompositorService.previewMonitorMode
+    property string portalTab: "display" // "display" | "portal"
+    property int selectedPortalIdx: 0
+    property bool shareAudio: true
+    property int progressVal: 0
+
+    screen: shellState.activeScreen || (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
+    anchors {
+        top: true
+        bottom: true
+        left: true
+        right: true
+    }
+    color: "transparent"
+    visible: isOpen || backdrop.opacity > 0.01
+
+    WlrLayershell.exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "paithosh-modal"
+    WlrLayershell.keyboardFocus: isOpen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+
+    Item {
+        id: emptyMask
+        width: 0
+        height: 0
+    }
+
+    Item {
+        id: fullMask
+        anchors.fill: parent
+    }
+
+    mask: Region {
+        item: root.isOpen ? fullMask : emptyMask
+    }
+
+    onKindChanged: {
+        if (kind === "progress") {
+            progressVal = 0;
+            progTimer.restart();
+        } else {
+            progTimer.stop();
+        }
+        if (kind === "monitor") {
+            portalTab = "display";
+            monitorMode = CompositorService.previewMonitorMode;
+        }
+        if (kind !== "") {
+            modalFocus.forceActiveFocus();
+        }
+    }
+
+    Timer {
+        id: progTimer
+        interval: 240
+        repeat: true
+        onTriggered: {
+            root.progressVal = Math.min(100, root.progressVal + 12);
+            if (root.progressVal >= 100) progTimer.stop();
+        }
+    }
+
+    Item {
+        id: modalFocus
+        anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: root.shellState.closeModal()
+    }
+
+    Rectangle {
+        id: backdrop
+        anchors.fill: parent
+        color: Qt.rgba(0, 0, 0, 0.52)
+        opacity: root.isOpen ? 1.0 : 0.0
+
+        Behavior on opacity {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: root.isOpen
+            onClicked: root.shellState.closeModal()
+        }
+
+        Rectangle {
+            id: card
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 32, root.kind === "monitor" ? 520 : 380)
+            height: cardCol.implicitHeight + 40
+            radius: 20
+            color: Theme.surfaceBg
+            border.width: 1
+            border.color: Theme.borderSubtle
+            clip: true
+            scale: root.isOpen ? 1.0 : 0.92
+            anchors.verticalCenterOffset: root.isOpen ? 0 : 10
+
+            Behavior on width { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+            Behavior on height { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.25 } }
+            Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack } }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: function(mouse) { mouse.accepted = true; }
+            }
+
+            ColumnLayout {
+                id: cardCol
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: 20
+                spacing: 14
+
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        if (root.kind === "confirm") return "Reload Hyprland Config?";
+                        if (root.kind === "multi") return "Select Output Profile";
+                        if (root.kind === "monitor") return "Display & XDG Portal";
+                        if (root.kind === "progress") return "Updating System Packages";
+                        return "";
+                    }
+                    color: Theme.text
+                    font.family: Theme.fontSans
+                    font.pixelSize: 16
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        if (root.kind === "confirm") return "Unsaved decoration tweaks will be applied immediately across all windows.";
+                        if (root.kind === "multi") return "Choose a display & power preset for your current session:";
+                        if (root.kind === "monitor") return "Configure connected monitors or pick a source to share (Discord / OBS):";
+                        if (root.kind === "progress") return "Installing hyprland 0.45.2-1 (18.4 MB)...";
+                        return "";
+                    }
+                    color: Theme.textSub
+                    font.family: Theme.fontSans
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                // Multi-Option Body
+                ColumnLayout {
+                    visible: root.kind === "multi"
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    Repeater {
+                        model: [
+                            { title: "Presentation (Mirror)", sub: "1920×1080", mode: "mirror" },
+                            { title: "Extend Workspace", sub: "2560×1600", mode: "extend-right" },
+                            { title: "External Monitor Only", sub: "165Hz", mode: "ext-only" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            height: 42
+                            radius: 12
+                            color: optMouse.containsMouse ? Theme.cardHover : Qt.rgba(1, 1, 1, 0.07)
+                            border.width: 1
+                            border.color: Qt.rgba(1, 1, 1, 0.08)
+                            scale: optMouse.pressed ? 0.97 : 1.0
+
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 14
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.title
+                                    color: Theme.text
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    text: modelData.sub
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontMono
+                                    font.pixelSize: 11
+                                }
+                            }
+
+                            MouseArea {
+                                id: optMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    CompositorService.applyMonitorLayout(modelData.mode);
+                                    root.shellState.closeModal();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Monitor + XDG Portal Body
+                ColumnLayout {
+                    visible: root.kind === "monitor"
+                    Layout.fillWidth: true
+                    spacing: 10
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 36
+                        radius: 12
+                        color: Qt.rgba(1, 1, 1, 0.06)
+
+                        GridLayout {
+                            anchors.fill: parent
+                            anchors.margins: 4
+                            columns: 2
+                            columnSpacing: 4
+
+                            Repeater {
+                                model: [
+                                    { key: "display", label: "Monitor Arrangement" },
+                                    { key: "portal", label: "XDG Portal (Screen Share)" }
+                                ]
+                                delegate: PillButton {
+                                    required property var modelData
+                                    text: modelData.label
+                                    active: root.portalTab === modelData.key
+                                    fillWidth: true
+                                    fontSize: 11
+                                    radius: 9
+                                    onClicked: root.portalTab = modelData.key
+                                }
+                            }
+                        }
+                    }
+
+                    // Display Arrangement Subtab
+                    ColumnLayout {
+                        visible: root.portalTab === "display"
+                        Layout.fillWidth: true
+                        spacing: 10
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 110
+                            radius: 14
+                            color: "#060607"
+                            border.width: 1
+                            border.color: Qt.rgba(1, 1, 1, 0.12)
+                            clip: true
+
+                            readonly property var mons: CompositorService.monitorsList()
+                            readonly property string nameA: mons.length > 0 ? mons[0].name : "eDP-1"
+                            readonly property string resA: mons.length > 0 ? (mons[0].width + "×" + mons[0].height) : "2560×1600"
+                            readonly property string nameB: mons.length > 1 ? mons[1].name : "HDMI-A-1"
+                            readonly property string resB: mons.length > 1 ? (mons[1].width + "×" + mons[1].height) : "1920×1080"
+
+                            Rectangle {
+                                id: primaryMonBox
+                                width: 108
+                                height: 64
+                                radius: 8
+                                color: Qt.rgba(1, 1, 1, 0.10)
+                                border.width: 1.5
+                                border.color: Qt.rgba(1, 1, 1, 0.45)
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: {
+                                    if (root.monitorMode === "extend-left") return 260;
+                                    if (root.monitorMode === "mirror") return 174;
+                                    if (root.monitorMode === "ext-only") return 96;
+                                    return 112;
+                                }
+                                scale: root.monitorMode === "mirror" ? 0.95 : (root.monitorMode === "ext-only" ? 0.85 : 1.0)
+                                opacity: root.monitorMode === "mirror" ? 0.45 : (root.monitorMode === "ext-only" ? 0.20 : 1.0)
+
+                                Behavior on x { NumberAnimation { duration: 380; easing.type: Easing.OutBack } }
+                                Behavior on scale { NumberAnimation { duration: 380; easing.type: Easing.OutBack } }
+                                Behavior on opacity { NumberAnimation { duration: 260 } }
+
+                                Column {
+                                    anchors.centerIn: parent
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: primaryMonBox.parent.nameA; color: Theme.text; font.pixelSize: 11; font.weight: Font.Bold }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: primaryMonBox.parent.resA; color: Theme.textSub; font.pixelSize: 9 }
+                                }
+                            }
+
+                            Rectangle {
+                                id: extMonBox
+                                width: 118
+                                height: 68
+                                radius: 8
+                                color: Qt.rgba(1, 1, 1, 0.18)
+                                border.width: 1.5
+                                border.color: Theme.text
+                                anchors.verticalCenter: parent.verticalCenter
+                                x: {
+                                    if (root.monitorMode === "extend-left") return 124;
+                                    if (root.monitorMode === "mirror") return 184;
+                                    if (root.monitorMode === "ext-only") return 181;
+                                    return 234;
+                                }
+                                scale: root.monitorMode === "ext-only" ? 1.06 : 1.0
+
+                                Behavior on x { NumberAnimation { duration: 380; easing.type: Easing.OutBack } }
+                                Behavior on scale { NumberAnimation { duration: 380; easing.type: Easing.OutBack } }
+
+                                Column {
+                                    anchors.centerIn: parent
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: extMonBox.parent.nameB; color: Theme.text; font.pixelSize: 11; font.weight: Font.Bold }
+                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: extMonBox.parent.resB; color: Theme.textSub; font.pixelSize: 9 }
+                                }
+                            }
+                        }
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+
+                            Repeater {
+                                model: [
+                                    { key: "extend-right", label: "Extend Right", sub: "eDP → HDMI" },
+                                    { key: "extend-left", label: "Extend Left", sub: "HDMI → eDP" },
+                                    { key: "mirror", label: "Mirror", sub: "1 = 2" },
+                                    { key: "ext-only", label: "External Only", sub: "HDMI-A-1" }
+                                ]
+                                delegate: PillButton {
+                                    required property var modelData
+                                    text: modelData.label + " (" + modelData.sub + ")"
+                                    active: root.monitorMode === modelData.key
+                                    fillWidth: true
+                                    fontSize: 11
+                                    radius: 12
+                                    verticalPadding: 8
+                                    onClicked: root.monitorMode = modelData.key
+                                }
+                            }
+                        }
+                    }
+
+                    // XDG Portal Subtab
+                    ColumnLayout {
+                        visible: root.portalTab === "portal"
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            columnSpacing: 8
+                            rowSpacing: 8
+
+                            Repeater {
+                                model: [
+                                    { name: "Screen: eDP-1", sub: "Primary • 165Hz", thumb: "2560 × 1600" },
+                                    { name: "Screen: HDMI-A-1", sub: "External • 144Hz", thumb: "1920 × 1080" },
+                                    { name: "Window: kitty", sub: "Wayland Capture", thumb: "Window" },
+                                    { name: "Game: osu!lazer", sub: "PipeWire Stream", thumb: "Game" }
+                                ]
+                                delegate: Rectangle {
+                                    required property int index
+                                    required property var modelData
+                                    readonly property bool sel: root.selectedPortalIdx === index
+                                    Layout.fillWidth: true
+                                    height: 118
+                                    radius: 12
+                                    color: sel ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06)
+                                    border.width: 1.5
+                                    border.color: sel ? Theme.text : Qt.rgba(1, 1, 1, 0.10)
+                                    clip: true
+
+                                    ColumnLayout {
+                                        anchors.fill: parent
+                                        anchors.margins: 10
+                                        spacing: 6
+
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            height: 58
+                                            radius: 8
+                                            color: "#060607"
+                                            border.width: 1
+                                            border.color: Qt.rgba(1, 1, 1, 0.12)
+
+                                            Rectangle {
+                                                width: 30
+                                                height: 5
+                                                radius: 2.5
+                                                color: Qt.rgba(1, 1, 1, 0.35)
+                                                anchors.top: parent.top
+                                                anchors.topMargin: 6
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                            }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: modelData.thumb
+                                                color: Theme.textSub
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.name
+                                            color: Theme.text
+                                            font.pixelSize: 12
+                                            font.weight: Font.Bold
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: modelData.sub
+                                            color: Theme.textSub
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.selectedPortalIdx = index
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 36
+                            radius: 10
+                            color: Qt.rgba(1, 1, 1, 0.06)
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 10
+
+                                Rectangle {
+                                    width: 16
+                                    height: 16
+                                    radius: 4
+                                    color: root.shareAudio ? Theme.accent : "transparent"
+                                    border.width: 1.5
+                                    border.color: root.shareAudio ? Theme.accent : Qt.rgba(1, 1, 1, 0.4)
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "✓"
+                                        color: Theme.accentFg
+                                        font.pixelSize: 10
+                                        font.weight: Font.Bold
+                                        visible: root.shareAudio
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Share system audio via PipeWire"
+                                    color: Qt.rgba(1, 1, 1, 0.85)
+                                    font.pixelSize: 12
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.shareAudio = !root.shareAudio
+                            }
+                        }
+                    }
+                }
+
+                // Progress Body
+                ColumnLayout {
+                    visible: root.kind === "progress"
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        height: 6
+                        radius: 3
+                        color: Qt.rgba(1, 1, 1, 0.14)
+                        clip: true
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            radius: 3
+                            color: Theme.text
+                            width: parent.width * (root.progressVal / 100.0)
+                            Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: {
+                                if (root.progressVal >= 100) return "Done ✓";
+                                if (root.progressVal >= 60) return "Installing hyprland...";
+                                if (root.progressVal >= 30) return "Verifying PGP...";
+                                return "Downloading...";
+                            }
+                            color: Theme.textSub
+                            font.pixelSize: 11
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: root.progressVal + "%"
+                            color: Theme.textSub
+                            font.family: Theme.fontMono
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+
+                // Footer Actions
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+
+                    Item { Layout.fillWidth: true }
+
+                    PillButton {
+                        visible: root.kind !== "progress" || root.progressVal < 100
+                        text: "Cancel"
+                        horizontalPadding: 16
+                        verticalPadding: 8
+                        onClicked: root.shellState.closeModal()
+                    }
+
+                    PillButton {
+                        visible: root.kind === "confirm" || root.kind === "monitor" || (root.kind === "progress" && root.progressVal >= 100)
+                        text: {
+                            if (root.kind === "monitor") return root.portalTab === "portal" ? "Share Stream" : "Apply";
+                            if (root.kind === "progress") return "Done";
+                            return "Confirm";
+                        }
+                        active: true
+                        horizontalPadding: 16
+                        verticalPadding: 8
+                        onClicked: {
+                            if (root.kind === "confirm" && CompositorService.isHyprland) {
+                                Quickshell.execDetached(["hyprctl", "reload"]);
+                            } else if (root.kind === "monitor" && root.portalTab === "display") {
+                                CompositorService.applyMonitorLayout(root.monitorMode);
+                            }
+                            root.shellState.closeModal();
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
