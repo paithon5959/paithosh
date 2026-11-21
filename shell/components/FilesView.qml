@@ -916,13 +916,11 @@ Item {
                     }
                 }
 
-                // Grid / List File View
-                Flickable {
-                    id: filesFlick
+                // Virtualized Grid / List File View (prevents memory bloat on large directories)
+                Item {
+                    id: filesViewport
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    contentWidth: width
-                    contentHeight: root.isListView ? listCol.implicitHeight : gridFlow.implicitHeight
                     clip: true
 
                     MouseArea {
@@ -939,21 +937,28 @@ Item {
                         }
                     }
 
-                    GridLayout {
-                        id: gridFlow
+                    GridView {
+                        id: filesGrid
                         visible: !root.isListView
-                        width: filesFlick.width
-                        columns: Math.max(2, Math.floor((filesFlick.width + 10) / 150))
-                        columnSpacing: 10
-                        rowSpacing: 10
+                        anchors.fill: parent
+                        clip: true
+                        reuseItems: true
+                        cacheBuffer: 240
+                        readonly property int cols: Math.max(2, Math.floor((width + 10) / 150))
+                        cellWidth: Math.floor((width + 10) / cols)
+                        cellHeight: 116
+                        model: !root.isListView ? root.visibleItems : []
 
-                        Repeater {
-                            model: root.visibleItems
-                            delegate: Rectangle {
-                                required property var modelData
+                        delegate: Item {
+                            required property var modelData
+                            width: filesGrid.cellWidth
+                            height: filesGrid.cellHeight
+
+                            Rectangle {
                                 readonly property bool isSel: root.selectedName === modelData.name
-                                Layout.fillWidth: true
-                                height: 106
+                                anchors.fill: parent
+                                anchors.rightMargin: 10
+                                anchors.bottomMargin: 10
                                 radius: 12
                                 color: isSel ? Theme.cardHover : (gMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
                                 border.width: 1
@@ -983,41 +988,42 @@ Item {
                         }
                     }
 
-                    ColumnLayout {
-                        id: listCol
+                    ListView {
+                        id: filesList
                         visible: root.isListView
-                        width: filesFlick.width
+                        anchors.fill: parent
+                        clip: true
+                        reuseItems: true
+                        cacheBuffer: 240
                         spacing: 4
+                        model: root.isListView ? root.visibleItems : []
 
-                        Repeater {
-                            model: root.visibleItems
-                            delegate: Rectangle {
-                                required property var modelData
-                                readonly property bool isSel: root.selectedName === modelData.name
-                                Layout.fillWidth: true
-                                height: 38; radius: 9
-                                color: isSel ? Theme.cardHover : (rowMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                border.width: 1
-                                border.color: isSel ? Qt.rgba(1, 1, 1, 0.35) : Theme.borderSubtle
+                        delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool isSel: root.selectedName === modelData.name
+                            width: filesList.width
+                            height: 38; radius: 9
+                            color: isSel ? Theme.cardHover : (rowMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                            border.width: 1
+                            border.color: isSel ? Qt.rgba(1, 1, 1, 0.35) : Theme.borderSubtle
 
-                                RowLayout {
-                                    anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
-                                    SvgIcon { sourceName: root.iconFor(modelData.type); iconSize: 16; color: Theme.text }
-                                    Text { Layout.fillWidth: true; text: modelData.name; color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                                    Text { text: modelData.meta; color: Theme.textSub; font.pixelSize: 11 }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
+                                SvgIcon { sourceName: root.iconFor(modelData.type); iconSize: 16; color: Theme.text }
+                                Text { Layout.fillWidth: true; text: modelData.name; color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                                Text { text: modelData.meta; color: Theme.textSub; font.pixelSize: 11 }
+                            }
+
+                            MouseArea {
+                                id: rowMouse
+                                anchors.fill: parent; hoverEnabled: true
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: (mouse) => {
+                                    root.selectedName = modelData.name;
+                                    root.selectedItem = modelData;
+                                    if (mouse.button === Qt.RightButton) ctxMenu.popup();
                                 }
-
-                                MouseArea {
-                                    id: rowMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                    onClicked: (mouse) => {
-                                        root.selectedName = modelData.name;
-                                        root.selectedItem = modelData;
-                                        if (mouse.button === Qt.RightButton) ctxMenu.popup();
-                                    }
-                                    onDoubleClicked: root.openItem(modelData)
-                                }
+                                onDoubleClicked: root.openItem(modelData)
                             }
                         }
                     }
