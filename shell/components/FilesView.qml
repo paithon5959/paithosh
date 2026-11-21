@@ -1042,35 +1042,7 @@ Item {
                 }
             }
 
-        function openContextMenu(srcItem, mouse) {
-            const pt = srcItem.mapToItem(root, mouse.x, mouse.y);
-            const sel = root.selectedItem;
-            const hasSel = sel !== null;
-            ctxMenu.openAt(pt.x, pt.y, [
-                { text: "Open", icon: "↗", enabled: hasSel, action: () => root.openItem(sel) },
-                { text: "Open in Terminal", icon: ">_", action: () => FileService.openTerminal((sel && sel.type === "folder") ? sel.path : root.currentPath) },
-                { separator: true },
-                { text: "Copy", icon: "⧉", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "copy"; root.statusMessage = "Copied " + sel.name; } },
-                { text: "Cut", icon: "✂", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "cut"; root.statusMessage = "Cut " + sel.name; } },
-                { text: "Paste (" + root.clipboardPaths.length + ")", icon: "📋", enabled: root.clipboardPaths.length > 0 && root.virtualMode === "", action: () => root.performPaste() },
-                { text: "Copy Path", icon: "⌗", enabled: hasSel, action: () => { FileService.copyToClipboard(sel.path); root.statusMessage = "Path copied to clipboard"; } },
-                { separator: true },
-                { text: "Rename", icon: "✎", enabled: hasSel && root.virtualMode === "", action: () => root.openInputModal("rename", "Rename Item", sel.name, sel.name) },
-                { text: (sel && root.isStarred(sel.path)) ? "Unstar" : "Star", icon: "★", enabled: hasSel, action: () => root.toggleStar(sel) },
-                { text: "Compress (.zip)", icon: "▤", enabled: hasSel && root.virtualMode === "", action: () => root.compressItem(sel) },
-                { text: "Extract Here", icon: "⇪", enabled: hasSel && sel.type === "archive" && root.virtualMode === "", action: () => root.beginExtract(sel.path, sel.name, "") },
-                { separator: true },
-                { text: "Move to Trash", icon: "🗑", enabled: hasSel, action: () => root.requestDelete(sel, false) },
-                { text: "Delete Permanently", icon: "✕", enabled: hasSel, danger: true, action: () => root.requestDelete(sel, true) },
-                { separator: true },
-                { text: "Properties", icon: "ⓘ", enabled: hasSel, action: () => root.openProperties(sel) }
-            ]);
-        }
-
-        // Right-Click Context Menu (matches files.html .ctx-menu)
-        ContextMenu {
-            id: ctxMenu
-        }
+        // Right-Click Context Menu moved to root level below
 
             // Password Modal for Encrypted Archives
             Rectangle {
@@ -1240,5 +1212,34 @@ Item {
                 }
             }
         }
+    }
+
+    function openContextMenu(srcItem, mouse) {
+        const pt = srcItem.mapToItem(root, mouse.x, mouse.y);
+        const sel = root.selectedItem;
+        const hasSel = sel !== null;
+        ctxMenu.openAt(pt.x, pt.y, [
+            { text: "Open", icon: "↗", enabled: hasSel, action: () => root.openItem(sel) },
+            { text: "Open in Terminal", icon: ">_", action: () => FileService.openTerminal((sel && sel.type === "folder") ? sel.path : root.currentPath) },
+            { separator: true },
+            { text: "Copy", icon: "⧉", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "copy"; root.statusMessage = "Copied " + sel.name; } },
+            { text: "Cut", icon: "✂", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "cut"; root.statusMessage = "Cut " + sel.name; } },
+            { text: "Paste (" + root.clipboardPaths.length + ")", icon: "📋", enabled: root.clipboardPaths.length > 0 && root.virtualMode === "", action: () => root.performPaste() },
+            { text: "Copy Path", icon: "⌗", enabled: hasSel, action: () => { FileService.copyToClipboard(sel.path); root.statusMessage = "Path copied to clipboard"; } },
+            { separator: true },
+            { text: "Rename", icon: "✎", enabled: hasSel && root.virtualMode === "", action: () => root.openInputModal("rename", "Rename Item", sel.name, sel.name) },
+            { text: (sel && root.isStarred(sel.path)) ? "Unstar" : "Star", icon: "★", enabled: hasSel, action: () => root.toggleStar(sel) },
+            { text: "Compress (.zip)", icon: "▤", enabled: hasSel && root.virtualMode === "", action: () => root.compressItem(sel) },
+            { text: "Extract Here", icon: "⇪", enabled: hasSel && sel.type === "archive" && root.virtualMode === "", action: () => root.beginExtract(sel.path, sel.name, "") },
+            { separator: true },
+            { text: "Move to Trash", icon: "🗑", enabled: hasSel, action: () => root.requestDelete(sel, false) },
+            { text: "Delete Permanently", icon: "✕", enabled: hasSel, danger: true, action: () => root.requestDelete(sel, true) },
+            { separator: true },
+            { text: "Properties", icon: "ⓘ", enabled: hasSel, action: () => root.openProperties(sel) }
+        ]);
+    }
+
+    ContextMenu {
+        id: ctxMenu
     }
 }
