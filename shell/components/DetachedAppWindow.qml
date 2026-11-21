@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Widgets
 import ".."
 import "common"
 
@@ -32,12 +33,12 @@ FloatingWindow {
         }
     }
 
-    Rectangle {
+    ClippingRectangle {
         anchors.fill: parent
+        radius: 14
         color: Theme.surfaceBg
         border.width: 1
         border.color: Theme.borderSubtle
-        clip: true
 
         ColumnLayout {
             anchors.fill: parent

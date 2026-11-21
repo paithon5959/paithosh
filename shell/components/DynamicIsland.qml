@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Widgets
 import ".."
 import "../services"
 import "common"
@@ -229,14 +230,13 @@ PanelWindow {
             spacing: 0
 
             // Main Status Pill (expands smoothly to host Settings / Files / Picker)
-            Rectangle {
+            ClippingRectangle {
                 id: mainPill
                 readonly property int compactWidth: Math.max(260, Math.ceil(weatherLabel.implicitWidth + centerSlotsRow.implicitWidth + clockLabel.implicitWidth + 68))
                 height: root.isAppExpandedOnScreen ? Math.min(626, root.height - 96) : Theme.islandHeight
                 width: root.isAppExpandedOnScreen ? Math.min(920, root.width - 48) : compactWidth
                 radius: root.isAppExpandedOnScreen ? 18 : Theme.islandRadius
                 color: "transparent"
-                clip: true
                 border.width: root.dropHovered ? 2 : (root.isAppExpandedOnScreen ? 1 : 0)
                 border.color: root.dropHovered ? Theme.accent : Theme.borderSubtle
 

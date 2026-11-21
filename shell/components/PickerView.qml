@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
 import ".."
-import "../services"
 import "common"
 
 Item {
@@ -11,12 +10,16 @@ Item {
 
     property string pickerMode: "upload" // "upload" | "download"
     property string currentDir: "Home"
+    property var historyStack: ["Home"]
+    property int historyIdx: 0
     property bool isListView: true
     property bool isEditingPath: false
+    property bool placesOpen: true
+    property string searchQuery: ""
     property string selectedName: ""
     property string filterType: "all" // "all" | "code" | "archive"
 
-    implicitWidth: 860
+    implicitWidth: 880
     implicitHeight: 540
 
     readonly property var dirPaths: ({
@@ -68,48 +71,63 @@ Item {
         ]
     })
 
+    readonly property var visibleItems: {
+        const items = fsData[currentDir] || fsData["Home"] || [];
+        const q = searchQuery.trim().toLowerCase();
+        const out = [];
+        for (let i = 0; i < items.length; ++i) {
+            const it = items[i];
+            if (q !== "" && it.name.toLowerCase().indexOf(q) === -1) continue;
+            if (it.type !== "folder" && filterType !== "all" && it.type !== filterType) continue;
+            out.push(it);
+        }
+        return out;
+    }
+
     function setMode(mode) {
         pickerMode = mode === "download" ? "download" : "upload";
         if (pickerMode === "download") {
             nameField.text = "paithosh-theme-2026.json";
-            navigateTo("Downloads");
+            navigateTo("Downloads", false);
         } else {
             nameField.text = "";
-            navigateTo("Home");
+            navigateTo("Home", false);
         }
     }
 
-    function navigateTo(dirKey) {
-        currentDir = fsData[dirKey] ? dirKey : "Home";
+    function navigateTo(dirKey, pushHist) {
+        const key = fsData[dirKey] ? dirKey : "Home";
+        currentDir = key;
         selectedName = "";
         isEditingPath = false;
+        if (pushHist !== false && historyStack[historyIdx] !== key) {
+            const next = historyStack.slice(0, historyIdx + 1);
+            next.push(key);
+            historyStack = next;
+            historyIdx = next.length - 1;
+        }
     }
 
-    function filteredItems() {
-        const list = fsData[currentDir] || [];
-        if (filterType === "all") return list;
-        return list.filter(function(it) {
-            return it.type === "folder" || it.type === filterType;
-        });
+    function iconFor(type) {
+        if (type === "folder") return "folder";
+        if (type === "archive") return "archive";
+        if (type === "code") return "code";
+        return "file";
     }
 
-    function confirmSelection() {
+    function submit() {
         const f = nameField.text.trim();
         if (f === "") return;
-        const full = (dirPaths[currentDir] || "/home/paithon") + "/" + f;
-        NotificationService.pushPreviewNotification(
-            pickerMode === "download" ? "Download Location" : "Upload Location",
-            pickerMode === "download" ? "Saved File" : "Selected File",
-            full
-        );
         shellState.closePopovers();
     }
+
+    Component.onCompleted: setMode(shellState.pickerMode || "upload")
 
     RowLayout {
         anchors.fill: parent
         spacing: 0
 
-        // Left Sidebar (Inherits FilesView)
+        // Left Sidebar
         Rectangle {
             Layout.preferredWidth: 226
             Layout.fillHeight: true
@@ -128,7 +146,7 @@ Item {
             ColumnLayout {
                 anchors.fill: parent
                 anchors.margins: 12
-                spacing: 8
+                spacing: 10
 
                 RowLayout {
                     Layout.fillWidth: true
@@ -138,291 +156,288 @@ Item {
                         height: 34
                         radius: 10
                         color: Theme.accent
-                        SvgIcon {
-                            anchors.centerIn: parent
-                            sourceName: "folder"
-                            iconSize: 16
-                            color: Theme.accentFg
-                        }
+                        SvgIcon { anchors.centerIn: parent; sourceName: "folder"; iconSize: 16; color: Theme.accentFg }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Text {
+                        Text { Layout.fillWidth: true; text: "File Chooser"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Bold; color: Theme.text; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; text: "xdg-desktop-portal"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 32
+                    radius: 8
+                    color: Qt.rgba(1, 1, 1, filterBox.activeFocus ? 0.10 : 0.05)
+                    border.width: 1
+                    border.color: filterBox.activeFocus ? Theme.accent : Theme.borderSubtle
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 10
+                        anchors.rightMargin: 8
+                        spacing: 6
+                        TextInput {
+                            id: filterBox
                             Layout.fillWidth: true
-                            text: root.pickerMode === "download" ? "Save Location" : "This page wants to open"
-                            font.family: Theme.fontSans
-                            font.pixelSize: 12
-                            font.weight: Font.Bold
                             color: Theme.text
-                            elide: Text.ElideRight
+                            font.pixelSize: 12
+                            clip: true
+                            onTextChanged: root.searchQuery = text
+                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Filter files..."; color: Theme.textMuted; visible: filterBox.text === "" }
                         }
-                        Text {
+                        SvgIcon { sourceName: "search"; iconSize: 13; color: Theme.textSub }
+                    }
+                }
+
+                Flickable {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    contentHeight: pNavCol.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    ColumnLayout {
+                        id: pNavCol
+                        width: parent.width
+                        spacing: 2
+
+                        Rectangle {
                             Layout.fillWidth: true
-                            text: "xdg-desktop-portal"
-                            font.family: Theme.fontSans
-                            font.pixelSize: 11
-                            color: Theme.textSub
-                            elide: Text.ElideRight
+                            height: 34
+                            radius: 8
+                            color: root.currentDir === "Home" ? Qt.rgba(1, 1, 1, 0.09) : (pHomeMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.05) : "transparent")
+                            Rectangle { width: 3; height: 18; radius: 1.5; color: Theme.accent; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; opacity: root.currentDir === "Home" ? 1 : 0 }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; spacing: 10
+                                SvgIcon { sourceName: "folder"; iconSize: 14; color: Theme.text }
+                                Text { text: "Home"; color: Theme.text; font.pixelSize: 13; font.weight: root.currentDir === "Home" ? Font.DemiBold : Font.Normal }
+                            }
+                            MouseArea { id: pHomeMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.navigateTo("Home", true) }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 34
+                            radius: 8
+                            color: pPlaceHdr.containsMouse ? Qt.rgba(1, 1, 1, 0.05) : "transparent"
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
+                                SvgIcon { sourceName: "folder"; iconSize: 14; color: Theme.text }
+                                Text { Layout.fillWidth: true; text: "Places"; color: Theme.text; font.pixelSize: 13 }
+                                SvgIcon {
+                                    sourceName: "chevron-right"
+                                    iconSize: 12
+                                    color: Theme.textSub
+                                    rotation: root.placesOpen ? 90 : 0
+                                    Behavior on rotation { NumberAnimation { duration: 240; easing.type: Easing.OutBack } }
+                                }
+                            }
+                            MouseArea { id: pPlaceHdr; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.placesOpen = !root.placesOpen }
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: root.placesOpen ? pSubCol.implicitHeight : 0
+                            opacity: root.placesOpen ? 1.0 : 0.0
+                            clip: true
+                            Behavior on Layout.preferredHeight { NumberAnimation { duration: 280; easing.type: Easing.OutCubic } }
+                            Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                            Rectangle { width: 1; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.topMargin: 4; anchors.bottomMargin: 6; x: 18; color: Qt.rgba(1, 1, 1, 0.12) }
+
+                            ColumnLayout {
+                                id: pSubCol
+                                anchors.left: parent.left; anchors.right: parent.right; anchors.leftMargin: 24
+                                spacing: 2
+                                Repeater {
+                                    model: ["Documents", "Dev", "Downloads", "Music", "Pictures"]
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        readonly property bool active: root.currentDir === modelData
+                                        Layout.fillWidth: true; height: 30; radius: 7
+                                        color: active ? Qt.rgba(1, 1, 1, 0.09) : (pm.containsMouse ? Qt.rgba(1, 1, 1, 0.05) : "transparent")
+                                        Rectangle { width: 3; height: 16; radius: 1.5; color: Theme.accent; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; opacity: active ? 1 : 0 }
+                                        Text { anchors.fill: parent; anchors.leftMargin: 12; verticalAlignment: Text.AlignVCenter; text: modelData; color: active ? Theme.text : Theme.textSub; font.pixelSize: 12; font.weight: active ? Font.DemiBold : Font.Normal }
+                                        MouseArea { id: pm; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.navigateTo(modelData, true) }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 34
+                            radius: 8
+                            color: root.currentDir === "Root" ? Qt.rgba(1, 1, 1, 0.09) : (pRootMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.05) : "transparent")
+                            Rectangle { width: 3; height: 18; radius: 1.5; color: Theme.accent; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; opacity: root.currentDir === "Root" ? 1 : 0 }
+                            RowLayout {
+                                anchors.fill: parent; anchors.leftMargin: 12; spacing: 10
+                                SvgIcon { sourceName: "terminal"; iconSize: 14; color: Theme.text }
+                                Text { text: "/ (Root)"; color: Theme.text; font.pixelSize: 13; font.weight: root.currentDir === "Root" ? Font.DemiBold : Font.Normal }
+                            }
+                            MouseArea { id: pRootMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.navigateTo("Root", true) }
                         }
                     }
                 }
 
-                Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
-
-                ListView {
+                Rectangle {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    spacing: 2
-                    model: ["Home", "Documents", "Dev", "Downloads", "Music", "Pictures", "Root"]
-
-                    delegate: Rectangle {
-                        required property string modelData
-                        readonly property bool isActive: root.currentDir === modelData
-                        width: ListView.view.width
-                        height: 32
-                        radius: 8
-                        color: isActive ? Theme.cardHover : (pSideMouse.containsMouse ? Theme.cardBg : "transparent")
-                        Behavior on color { ColorAnimation { duration: 140 } }
-
-                        Rectangle {
-                            width: 3
-                            height: 16
-                            radius: 2
-                            anchors.left: parent.left
-                            anchors.leftMargin: 3
-                            anchors.verticalCenter: parent.verticalCenter
-                            color: Theme.accent
-                            opacity: isActive ? 1.0 : 0.0
-                            Behavior on opacity { NumberAnimation { duration: 160 } }
-                        }
-
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: 14
-                            anchors.rightMargin: 10
-                            text: modelData === "Root" ? "/ (Root)" : modelData
-                            font.family: Theme.fontSans
-                            font.pixelSize: 12
-                            font.weight: isActive ? Font.DemiBold : Font.Normal
-                            color: isActive ? Theme.text : Theme.textSub
-                            elide: Text.ElideRight
-                        }
-
-                        MouseArea {
-                            id: pSideMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.navigateTo(modelData)
-                        }
+                    height: 50
+                    radius: 10
+                    color: Theme.cardBg
+                    border.width: 1
+                    border.color: Theme.borderSubtle
+                    ColumnLayout {
+                        anchors.fill: parent; anchors.margins: 9; spacing: 2
+                        Text { text: "PORTAL MODE"; color: Theme.textSub; font.pixelSize: 10; font.weight: Font.Bold; font.letterSpacing: 0.5 }
+                        Text { text: root.pickerMode === "download" ? "Download (Save As)" : "Upload (Open File)"; color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold }
                     }
                 }
             }
         }
 
-        // Right Content + Portal Bottom Bar
+        // Right Content Pane
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            Layout.leftMargin: 18
-            Layout.rightMargin: 4
+            Layout.margins: 18
             spacing: 10
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: 6
 
-                Rectangle {
+                Text {
                     Layout.fillWidth: true
-                    height: 36
-                    radius: 9
-                    color: root.isEditingPath ? Theme.cardHover : (pPathMouse.containsMouse ? Theme.cardBg : "transparent")
-                    border.width: root.isEditingPath ? 1 : 0
-                    border.color: Theme.borderSubtle
-                    clip: true
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.leftMargin: 8
-                        anchors.rightMargin: 8
-                        visible: !root.isEditingPath
-                        text: root.currentDir === "Home" ? "~" : ("~ › " + root.currentDir)
-                        font.family: Theme.fontSans
-                        font.pixelSize: 18
-                        font.weight: Font.Bold
-                        color: Theme.text
-                        elide: Text.ElideRight
-                    }
-
-                    TextField {
-                        id: pPathField
-                        anchors.fill: parent
-                        anchors.margins: 2
-                        visible: root.isEditingPath
-                        color: Theme.text
-                        font.family: Theme.fontSans
-                        font.pixelSize: 13
-                        background: Item {}
-                        onAccepted: {
-                            const seg = text.replace(/\/+$/, "").split("/").pop().toLowerCase();
-                            const keys = Object.keys(root.fsData);
-                            let target = "Home";
-                            for (let i = 0; i < keys.length; i++) {
-                                if (keys[i].toLowerCase() === seg) { target = keys[i]; break; }
-                            }
-                            root.navigateTo(target);
-                        }
-                        Keys.onEscapePressed: root.isEditingPath = false
-                    }
-
-                    MouseArea {
-                        id: pPathMouse
-                        anchors.fill: parent
-                        visible: !root.isEditingPath
-                        hoverEnabled: true
-                        cursorShape: Qt.IBeamCursor
-                        onClicked: {
-                            pPathField.text = root.dirPaths[root.currentDir] || "/home/paithon";
-                            root.isEditingPath = true;
-                            pPathField.forceActiveFocus();
-                            pPathField.selectAll();
-                        }
-                    }
+                    text: root.currentDir === "Home" ? "~" : ("~ › " + root.currentDir)
+                    color: Theme.text
+                    font.pixelSize: 20
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
                 }
 
                 PillButton {
-                    text: root.isListView ? "Grid" : "List"
-                    onClicked: root.isListView = !root.isListView
+                    text: "‹"
+                    horizontalPadding: 9; verticalPadding: 4
+                    onClicked: {
+                        if (root.historyIdx > 0) { root.historyIdx -= 1; root.navigateTo(root.historyStack[root.historyIdx], false); }
+                    }
                 }
+                PillButton {
+                    text: "›"
+                    horizontalPadding: 9; verticalPadding: 4
+                    onClicked: {
+                        if (root.historyIdx < root.historyStack.length - 1) { root.historyIdx += 1; root.navigateTo(root.historyStack[root.historyIdx], false); }
+                    }
+                }
+                PillButton { text: "Grid"; active: !root.isListView; horizontalPadding: 10; verticalPadding: 4; onClicked: root.isListView = false }
+                PillButton { text: "List"; active: root.isListView; horizontalPadding: 10; verticalPadding: 4; onClicked: root.isListView = true }
             }
 
             GridView {
-                id: pickerGrid
+                id: pGrid
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                cellWidth: root.isListView ? width : 148
-                cellHeight: root.isListView ? 44 : 102
-                model: root.filteredItems()
+                cellWidth: root.isListView ? width : Math.max(126, Math.floor(width / 4))
+                cellHeight: root.isListView ? 44 : 108
+                model: root.visibleItems
+                boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Item {
                     required property var modelData
-                    width: pickerGrid.cellWidth
-                    height: pickerGrid.cellHeight
+                    width: pGrid.cellWidth
+                    height: pGrid.cellHeight
 
                     Rectangle {
                         anchors.fill: parent
-                        anchors.margins: 4
-                        radius: 10
-                        readonly property bool isSel: root.selectedName === modelData.name
-                        color: isSel ? Theme.cardHover : (pfMouse.containsMouse ? Theme.cardBg : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.03))
+                        anchors.margins: root.isListView ? 2 : 4
+                        radius: root.isListView ? 9 : 11
+                        color: root.selectedName === modelData.name ? Qt.rgba(1, 1, 1, 0.13) : (pmMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
                         border.width: 1
-                        border.color: isSel ? Theme.accent : Theme.borderSubtle
-                        scale: pfMouse.pressed ? 0.97 : 1.0
-                        clip: true
-
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        border.color: root.selectedName === modelData.name ? Qt.rgba(1, 1, 1, 0.45) : Theme.borderSubtle
+                        scale: pmMouse.pressed ? 0.97 : 1.0
+                        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack } }
 
                         RowLayout {
-                            anchors.fill: parent
-                            anchors.margins: 10
                             visible: root.isListView
-                            spacing: 10
-                            SvgIcon { sourceName: modelData.type === "folder" ? "folder" : "file"; iconSize: 16; color: Theme.text }
-                            Text { Layout.fillWidth: true; text: modelData.name; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                            Text { text: modelData.meta; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub }
+                            anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
+                            SvgIcon { sourceName: root.iconFor(modelData.type); iconSize: 18; color: Theme.text }
+                            Text { Layout.fillWidth: true; text: modelData.name; color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                            Text { text: modelData.meta; color: Theme.textSub; font.pixelSize: 11 }
                         }
 
                         ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 10
                             visible: !root.isListView
-                            spacing: 4
-                            SvgIcon { Layout.alignment: Qt.AlignHCenter; sourceName: modelData.type === "folder" ? "folder" : "file"; iconSize: 24; color: Theme.text }
-                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: modelData.name; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: modelData.meta; font.family: Theme.fontSans; font.pixelSize: 10; color: Theme.textSub; elide: Text.ElideRight }
+                            anchors.fill: parent; anchors.margins: 10; spacing: 6
+                            SvgIcon { Layout.alignment: Qt.AlignHCenter; sourceName: root.iconFor(modelData.type); iconSize: 26; color: Theme.text }
+                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: modelData.name; color: Theme.text; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                            Text { Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; text: modelData.meta; color: Theme.textSub; font.pixelSize: 10; elide: Text.ElideRight }
                         }
 
                         MouseArea {
-                            id: pfMouse
+                            id: pmMouse
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 if (modelData.type === "folder") {
-                                    if (root.fsData[modelData.name]) root.navigateTo(modelData.name);
+                                    if (root.fsData[modelData.name]) root.navigateTo(modelData.name, true);
                                     return;
                                 }
                                 root.selectedName = modelData.name;
                                 nameField.text = modelData.name;
                             }
                             onDoubleClicked: {
-                                if (modelData.type !== "folder") {
-                                    nameField.text = modelData.name;
-                                    root.confirmSelection();
-                                }
+                                if (modelData.type !== "folder" && nameField.text.trim() !== "") root.submit();
                             }
                         }
                     }
                 }
             }
 
-            // Bottom Upload / Download Dialog Controls
             Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
 
-            GridLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                columns: 2
-                columnSpacing: 10
-                rowSpacing: 8
+                spacing: 10
+                Text { Layout.preferredWidth: 64; horizontalAlignment: Text.AlignRight; text: "Name:"; color: Theme.textSub; font.pixelSize: 12 }
+                Rectangle {
+                    Layout.fillWidth: true; height: 32; radius: 8
+                    color: Qt.rgba(1, 1, 1, 0.05)
+                    border.width: 1
+                    border.color: nameField.activeFocus ? Qt.rgba(1, 1, 1, 0.42) : Theme.borderSubtle
+                    TextInput {
+                        id: nameField
+                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
+                        verticalAlignment: TextInput.AlignVCenter
+                        color: Theme.text; font.pixelSize: 12; clip: true
+                        Keys.onReturnPressed: root.submit()
+                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Select a file or type filename..."; color: Theme.textMuted; visible: nameField.text === "" }
+                    }
+                }
+            }
 
-                Text {
-                    text: "Name:"
-                    font.family: Theme.fontSans
-                    font.pixelSize: 12
-                    color: Theme.textSub
-                    horizontalAlignment: Text.AlignRight
-                    Layout.preferredWidth: 64
-                }
-                TextField {
-                    id: nameField
-                    Layout.fillWidth: true
-                    placeholderText: "Select a file or type filename..."
-                    color: Theme.text
-                    font.family: Theme.fontSans
-                    font.pixelSize: 12
-                    background: Rectangle { radius: 8; color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle }
-                    onAccepted: root.confirmSelection()
-                }
-
-                Text {
-                    text: "File type:"
-                    font.family: Theme.fontSans
-                    font.pixelSize: 12
-                    color: Theme.textSub
-                    horizontalAlignment: Text.AlignRight
-                    Layout.preferredWidth: 64
-                }
-                RowLayout {
-                    Layout.fillWidth: true
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 10
+                Text { Layout.preferredWidth: 64; horizontalAlignment: Text.AlignRight; text: "File type:"; color: Theme.textSub; font.pixelSize: 12 }
+                Row {
                     spacing: 6
                     Repeater {
                         model: [
                             { key: "all", label: "All Files (*.*)" },
                             { key: "code", label: "Config & Code" },
-                            { key: "archive", label: "Archives (.zip)" }
+                            { key: "archive", label: "Archives (*.zip)" }
                         ]
                         delegate: PillButton {
                             required property var modelData
                             text: modelData.label
                             active: root.filterType === modelData.key
+                            fontSize: 11
                             onClicked: root.filterType = modelData.key
                         }
                     }
@@ -431,25 +446,18 @@ Item {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
                 Text {
                     Layout.fillWidth: true
-                    text: root.dirPaths[root.currentDir] || "/home/paithon"
-                    font.family: Theme.fontSans
-                    font.pixelSize: 11
+                    text: root.visibleItems.length + " items • " + (root.dirPaths[root.currentDir] || "/home/paithon")
                     color: Theme.textSub
+                    font.pixelSize: 11
                     elide: Text.ElideRight
                 }
-                PillButton {
-                    text: "✕ Cancel"
-                    onClicked: root.shellState.closePopovers()
-                }
+                PillButton { text: "✕ Cancel"; onClicked: root.shellState.closePopovers() }
                 PillButton {
                     text: root.pickerMode === "download" ? "✓ Save" : "✓ Open"
-                    active: true
-                    enabled: nameField.text.trim() !== ""
-                    opacity: enabled ? 1.0 : 0.4
-                    onClicked: root.confirmSelection()
+                    active: nameField.text.trim() !== ""
+                    onClicked: { if (nameField.text.trim() !== "") root.submit(); }
                 }
             }
         }

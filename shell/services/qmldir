@@ -9,3 +9,4 @@ singleton NetworkService 1.0 NetworkService.qml
 singleton TelemetryService 1.0 TelemetryService.qml
 singleton KdeConnectService 1.0 KdeConnectService.qml
 singleton AppService 1.0 AppService.qml
+singleton FileService 1.0 FileService.qml
