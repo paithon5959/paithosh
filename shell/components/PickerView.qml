@@ -111,13 +111,19 @@ Item {
 
         // Left Sidebar (Inherits FilesView)
         Rectangle {
-            Layout.preferredWidth: 220
+            Layout.preferredWidth: 226
             Layout.fillHeight: true
             color: Theme.surfaceRaised
-            radius: 16
-            border.width: 1
-            border.color: Theme.borderSubtle
+            radius: 0
             clip: true
+
+            Rectangle {
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.borderSubtle
+            }
 
             ColumnLayout {
                 anchors.fill: parent

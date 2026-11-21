@@ -105,13 +105,21 @@ PanelWindow {
             NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
         }
         Behavior on y {
-            NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+            NumberAnimation {
+                duration: root.showCard ? Theme.springMs : 200
+                easing.type: root.showCard ? Easing.OutBack : Easing.OutCubic
+                easing.overshoot: 1.15
+            }
         }
         Behavior on opacity {
-            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: root.showCard ? 220 : 160; easing.type: Easing.OutCubic }
         }
         Behavior on scale {
-            NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+            NumberAnimation {
+                duration: root.showCard ? Theme.springMs : 200
+                easing.type: root.showCard ? Easing.OutBack : Easing.OutCubic
+                easing.overshoot: 1.15
+            }
         }
 
         // Prevent clicks inside card from propagating to outside-click MouseArea

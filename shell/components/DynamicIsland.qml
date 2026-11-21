@@ -195,26 +195,28 @@ PanelWindow {
 
             Rectangle {
                 id: mediaBg
-                x: Theme.shaderPad + mediaSlotWrap.x + Theme.splitGap
-                y: Theme.shaderPad
-                width: Math.max(0, mediaSlotWrap.width - Theme.splitGap)
+                x: Theme.shaderPad + mediaSlotWrap.x + mediaPill.x
+                y: Theme.shaderPad + (Theme.islandHeight - height) / 2
+                width: Math.max(0, Math.min(mediaPill.width, mediaSlotWrap.width - mediaPill.x))
                 height: mediaPill.height
                 radius: Theme.islandRadius
                 color: Theme.pillBg
+                scale: mediaPill.scale
                 opacity: mediaSlotWrap.opacity
-                visible: width > 1
+                visible: width > 1 && opacity > 0.01
             }
 
             Rectangle {
                 id: alertBg
-                x: Theme.shaderPad + alertSlotWrap.x + Theme.splitGap
-                y: Theme.shaderPad
-                width: Math.max(0, alertSlotWrap.width - Theme.splitGap)
+                x: Theme.shaderPad + alertSlotWrap.x + alertPill.x
+                y: Theme.shaderPad + (Theme.islandHeight - height) / 2
+                width: Math.max(0, Math.min(alertPill.width, alertSlotWrap.width - alertPill.x))
                 height: alertPill.height
                 radius: Theme.islandRadius
                 color: Theme.pillBg
+                scale: alertPill.scale
                 opacity: alertSlotWrap.opacity
-                visible: width > 1
+                visible: width > 1 && opacity > 0.01
             }
         }
 
@@ -229,8 +231,9 @@ PanelWindow {
             // Main Status Pill (expands smoothly to host Settings / Files / Picker)
             Rectangle {
                 id: mainPill
+                readonly property int compactWidth: Math.max(260, Math.ceil(weatherLabel.implicitWidth + centerSlotsRow.implicitWidth + clockLabel.implicitWidth + 68))
                 height: root.isAppExpandedOnScreen ? Math.min(626, root.height - 96) : Theme.islandHeight
-                width: root.isAppExpandedOnScreen ? Math.min(900, root.width - 48) : Math.max(260, Math.ceil(pillInner.implicitWidth) + 48)
+                width: root.isAppExpandedOnScreen ? Math.min(920, root.width - 48) : compactWidth
                 radius: root.isAppExpandedOnScreen ? 18 : Theme.islandRadius
                 color: "transparent"
                 clip: true
@@ -239,16 +242,16 @@ PanelWindow {
 
                 Behavior on width {
                     NumberAnimation {
-                        duration: Theme.springMs
+                        duration: root.isAppExpandedOnScreen ? Theme.springMs : Theme.smoothMs
                         easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
-                        easing.overshoot: 1.06
+                        easing.overshoot: 0.85
                     }
                 }
                 Behavior on height {
                     NumberAnimation {
-                        duration: Theme.springMs
+                        duration: root.isAppExpandedOnScreen ? Theme.springMs : Theme.smoothMs
                         easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
-                        easing.overshoot: 1.06
+                        easing.overshoot: 0.75
                     }
                 }
                 Behavior on radius {
@@ -272,22 +275,25 @@ PanelWindow {
                     anchors.right: parent.right
                     height: Theme.islandHeight
 
-                    Row {
-                        id: pillInner
-                        anchors.centerIn: parent
-                        height: Theme.islandHeight
-                        spacing: 0
-
                     // Left Edge: Outdoor Weather Temperature
                     Text {
                         id: weatherLabel
+                        anchors.left: parent.left
+                        anchors.leftMargin: 24
                         anchors.verticalCenter: parent.verticalCenter
                         text: WeatherService.tempText
                         color: Theme.text
                         font.family: Theme.fontSans
-                        font.pixelSize: 23
-                        font.weight: Font.DemiBold
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
                     }
+
+                    // Center Expanding Slots
+                    Row {
+                        id: centerSlotsRow
+                        anchors.centerIn: parent
+                        height: Theme.islandHeight
+                        spacing: 0
 
                     // 1. Focused Window Title Slot
                     IslandSlot {
@@ -595,27 +601,30 @@ PanelWindow {
                         }
                     }
 
-                    // 8. Normal Mode Spacer
-                    Item {
-                        id: slotTimeSep
-                        height: 1
-                        width: (!root.hasFocus && !root.hasNotifBadge && !root.anyTransientSlot) ? 16 : 0
-                        Behavior on width {
-                            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                        // 8. Normal Mode Spacer
+                        Item {
+                            id: slotTimeSep
+                            height: 1
+                            width: 0
                         }
                     }
 
                     // Right Edge: Clock
                     Text {
                         id: clockLabel
+                        anchors.right: parent.right
+                        anchors.rightMargin: root.isAppExpandedOnScreen ? 56 : 24
                         anchors.verticalCenter: parent.verticalCenter
                         text: root.clockText
                         color: Theme.text
                         font.family: Theme.fontSans
-                        font.pixelSize: 23
-                        font.weight: Font.DemiBold
+                        font.pixelSize: 22
+                        font.weight: Font.Bold
+
+                        Behavior on anchors.rightMargin {
+                            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                        }
                     }
-                }
 
                     MouseArea {
                         anchors.fill: parent
@@ -695,24 +704,27 @@ PanelWindow {
                     }
                 }
 
-                Item {
+                Rectangle {
                     id: appBody
                     anchors.top: appStrip.bottom
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
+                    color: Theme.surfaceBg
                     clip: true
                     opacity: root.isAppExpandedOnScreen ? 1.0 : 0.0
                     visible: opacity > 0.01
 
                     Behavior on opacity {
-                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                        NumberAnimation {
+                            duration: root.isAppExpandedOnScreen ? 240 : 140
+                            easing.type: Easing.OutCubic
+                        }
                     }
 
                     SettingsView {
                         id: settingsView
                         anchors.fill: parent
-                        anchors.margins: 14
                         shellState: root.shellState
                         visible: root.shellState.islandApp === "settings"
                     }
@@ -720,7 +732,6 @@ PanelWindow {
                     FilesView {
                         id: filesView
                         anchors.fill: parent
-                        anchors.margins: 14
                         shellState: root.shellState
                         visible: root.shellState.islandApp === "files"
                     }
@@ -728,7 +739,6 @@ PanelWindow {
                     PickerView {
                         id: pickerView
                         anchors.fill: parent
-                        anchors.margins: 14
                         shellState: root.shellState
                         visible: root.shellState.islandApp === "picker"
                     }
@@ -763,17 +773,29 @@ PanelWindow {
                 visible: width > 0.5 || opacity > 0.01
 
                 Behavior on width {
-                    NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    NumberAnimation {
+                        duration: root.hasMedia ? Theme.springMs : Theme.smoothMs
+                        easing.type: root.hasMedia ? Easing.OutBack : Easing.OutCubic
+                        easing.overshoot: 0.75
+                    }
                 }
                 Behavior on opacity {
-                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: root.hasMedia ? 220 : 160; easing.type: Easing.OutCubic }
                 }
 
                 Item {
                     id: mediaPill
-                    x: Theme.splitGap
+                    x: root.hasMedia ? Theme.splitGap : 0
                     height: Theme.islandHeight
                     width: Math.min(360, Math.max(150, Math.ceil(mediaRow.implicitWidth) + 40))
+                    scale: root.hasMedia ? 1.0 : 0.86
+
+                    Behavior on x {
+                        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    }
+                    Behavior on scale {
+                        NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                    }
 
                     Row {
                         id: mediaRow
@@ -826,17 +848,29 @@ PanelWindow {
                 visible: width > 0.5 || opacity > 0.01
 
                 Behavior on width {
-                    NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    NumberAnimation {
+                        duration: root.hasAlert ? Theme.springMs : Theme.smoothMs
+                        easing.type: root.hasAlert ? Easing.OutBack : Easing.OutCubic
+                        easing.overshoot: 0.75
+                    }
                 }
                 Behavior on opacity {
-                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: root.hasAlert ? 220 : 160; easing.type: Easing.OutCubic }
                 }
 
                 Item {
                     id: alertPill
-                    x: Theme.splitGap
+                    x: root.hasAlert ? Theme.splitGap : 0
                     height: Theme.islandHeight
                     width: Math.min(240, Math.max(140, Math.ceil(alertRow.implicitWidth) + 38))
+                    scale: root.hasAlert ? 1.0 : 0.86
+
+                    Behavior on x {
+                        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    }
+                    Behavior on scale {
+                        NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                    }
 
                     readonly property color alertTint: root.alertMode === 1 ? Theme.dangerText : Theme.warn
                     readonly property string alertMsg: root.alertMode === 1

@@ -18,30 +18,30 @@ Item {
 
     Behavior on implicitWidth {
         NumberAnimation {
-            duration: Theme.smoothMs
-            easing.type: Easing.OutCubic
+            duration: root.open ? Theme.springMs : Theme.smoothMs
+            easing.type: root.open ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: 0.75
         }
     }
 
     Behavior on opacity {
         NumberAnimation {
-            duration: Math.round(Theme.smoothMs * 0.75)
+            duration: root.open ? 240 : 160
             easing.type: Easing.OutCubic
         }
     }
 
     Behavior on scale {
         NumberAnimation {
-            duration: Theme.springMs
-            easing.type: Easing.OutBack
-            easing.overshoot: Theme.springOvershoot
+            duration: root.open ? Theme.springMs : 200
+            easing.type: root.open ? Easing.OutBack : Easing.OutCubic
+            easing.overshoot: 1.15
         }
     }
 
     Row {
         id: inner
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.left: parent.left
+        anchors.centerIn: parent
         spacing: root.spacing
     }
 }
