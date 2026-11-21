@@ -18,7 +18,7 @@ Singleton {
         return list[0] || null;
     }
 
-    readonly property bool active: previewMediaActive || player !== null
+    readonly property bool active: previewMediaActive || (player !== null && ((player.trackTitle || "") !== "" || player.isPlaying))
     readonly property bool isPlaying: player ? player.isPlaying : (previewMediaActive ? previewPlaying : false)
     readonly property string trackTitle: (player && player.trackTitle) ? player.trackTitle : "Lofi Beats"
     readonly property string trackArtist: (player && player.trackArtist) ? player.trackArtist : "Chillhop Music"
