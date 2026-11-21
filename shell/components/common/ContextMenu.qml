@@ -17,7 +17,7 @@ Item {
     function openAt(px, py, menuItems) {
         if (menuItems !== undefined) items = menuItems;
         const maxX = Math.max(8, width - menuWidth - 8);
-        const estH = Math.min(340, (items ? items.length : 1) * 32 + 12);
+        const estH = Math.min(460, (items ? items.length : 1) * 28 + 12);
         const maxY = Math.max(8, height - estH - 8);
         targetX = Math.max(8, Math.min(px, maxX));
         targetY = Math.max(8, Math.min(py, maxY));
@@ -38,21 +38,25 @@ Item {
     Rectangle {
         id: menuBox
         x: root.targetX
-        y: root.targetY + (root.isOpen ? 0 : -4)
+        y: root.targetY
         width: root.menuWidth
-        height: Math.min(360, menuCol.implicitHeight + 10)
+        height: Math.min(460, menuCol.implicitHeight + 10)
         radius: 12
         color: "#121214"
         border.width: 1
         border.color: Qt.rgba(1, 1, 1, 0.16)
         opacity: root.isOpen ? 1.0 : 0.0
-        scale: root.isOpen ? 1.0 : 0.92
+        scale: root.isOpen ? 1.0 : 0.95
         transformOrigin: Item.TopLeft
         clip: true
 
-        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
-        Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+        transform: Translate {
+            y: root.isOpen ? 0 : -4
+            Behavior on y { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        }
+
+        Behavior on opacity { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
         MouseArea {
             anchors.fill: parent
@@ -78,7 +82,7 @@ Item {
                         readonly property bool isSep: modelData.separator === true
                         readonly property bool isEnabled: modelData.enabled !== false
                         Layout.fillWidth: true
-                        Layout.preferredHeight: isSep ? 7 : 30
+                        Layout.preferredHeight: isSep ? 7 : 27
 
                         Rectangle {
                             visible: isSep
