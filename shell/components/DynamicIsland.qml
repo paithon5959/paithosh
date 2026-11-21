@@ -91,10 +91,10 @@ PanelWindow {
 
     onIsAppExpandedOnScreenChanged: {
         if (isAppExpandedOnScreen) {
-            if (shellState.islandApp === "settings") {
-                settingsView.openPage(shellState.settingsPage || "home");
-            } else if (shellState.islandApp === "picker") {
-                pickerView.setMode(shellState.pickerMode || "upload");
+            if (shellState.islandApp === "settings" && settingsLoader.item) {
+                settingsLoader.item.openPage(shellState.settingsPage || "home");
+            } else if (shellState.islandApp === "picker" && pickerLoader.item) {
+                pickerLoader.item.setMode(shellState.pickerMode || "upload");
             }
             expandedFocusItem.forceActiveFocus();
         }
@@ -104,10 +104,10 @@ PanelWindow {
         target: root.shellState
         function onIslandAppChanged() {
             if (root.isAppExpandedOnScreen) {
-                if (root.shellState.islandApp === "settings") {
-                    settingsView.openPage(root.shellState.settingsPage || "home");
-                } else if (root.shellState.islandApp === "picker") {
-                    pickerView.setMode(root.shellState.pickerMode || "upload");
+                if (root.shellState.islandApp === "settings" && settingsLoader.item) {
+                    settingsLoader.item.openPage(root.shellState.settingsPage || "home");
+                } else if (root.shellState.islandApp === "picker" && pickerLoader.item) {
+                    pickerLoader.item.setMode(root.shellState.pickerMode || "upload");
                 }
             }
         }
@@ -744,25 +744,33 @@ PanelWindow {
                         }
                     }
 
-                    SettingsView {
-                        id: settingsView
+                    Loader {
+                        id: settingsLoader
                         anchors.fill: parent
-                        shellState: root.shellState
-                        visible: root.shellState.islandApp === "settings"
+                        active: appBody.visible && root.shellState.islandApp === "settings"
+                        onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
+                        sourceComponent: SettingsView {
+                            shellState: root.shellState
+                        }
                     }
 
-                    FilesView {
-                        id: filesView
+                    Loader {
+                        id: filesLoader
                         anchors.fill: parent
-                        shellState: root.shellState
-                        visible: root.shellState.islandApp === "files"
+                        active: appBody.visible && root.shellState.islandApp === "files"
+                        sourceComponent: FilesView {
+                            shellState: root.shellState
+                        }
                     }
 
-                    PickerView {
-                        id: pickerView
+                    Loader {
+                        id: pickerLoader
                         anchors.fill: parent
-                        shellState: root.shellState
-                        visible: root.shellState.islandApp === "picker"
+                        active: appBody.visible && root.shellState.islandApp === "picker"
+                        onLoaded: if (item) item.setMode(root.shellState.pickerMode || "upload")
+                        sourceComponent: PickerView {
+                            shellState: root.shellState
+                        }
                     }
                 }
 
