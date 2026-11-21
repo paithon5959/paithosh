@@ -242,14 +242,14 @@ PanelWindow {
 
                 Behavior on width {
                     NumberAnimation {
-                        duration: root.isAppExpandedOnScreen ? Theme.springMs : Theme.smoothMs
+                        duration: root.isAppExpandedOnScreen ? Theme.springMs : 150
                         easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
                         easing.overshoot: 0.85
                     }
                 }
                 Behavior on height {
                     NumberAnimation {
-                        duration: root.isAppExpandedOnScreen ? Theme.springMs : Theme.smoothMs
+                        duration: root.isAppExpandedOnScreen ? Theme.springMs : 150
                         easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
                         easing.overshoot: 0.75
                     }
