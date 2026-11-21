@@ -295,6 +295,16 @@ PanelWindow {
                         height: Theme.islandHeight
                         spacing: 0
 
+                        SequentialAnimation {
+                            id: centerFadeAnim
+                            PropertyAction { target: centerSlotsRow; property: "opacity"; value: 0.25 }
+                            PauseAnimation { duration: 45 }
+                            NumberAnimation { target: centerSlotsRow; property: "opacity"; to: 1.0; duration: 140; easing.type: Easing.OutCubic }
+                        }
+                        onImplicitWidthChanged: {
+                            if (implicitWidth > 4 && !root.isAppExpandedOnScreen) centerFadeAnim.restart();
+                        }
+
                     // 1. Focused Window Title Slot
                     IslandSlot {
                         id: slotWindow
@@ -735,9 +745,12 @@ PanelWindow {
                     visible: opacity > 0.01
 
                     Behavior on opacity {
-                        NumberAnimation {
-                            duration: root.isAppExpandedOnScreen ? 240 : 140
-                            easing.type: Easing.OutCubic
+                        SequentialAnimation {
+                            PauseAnimation { duration: root.isAppExpandedOnScreen ? 90 : 0 }
+                            NumberAnimation {
+                                duration: root.isAppExpandedOnScreen ? 180 : 110
+                                easing.type: Easing.OutCubic
+                            }
                         }
                     }
 
