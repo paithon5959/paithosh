@@ -14,6 +14,7 @@ ShellRoot {
         property var activeScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         property string openPopover: "" // "" | "launcher" | "dashboard" | "search"
         property string islandApp: "" // "" | "settings" | "files" | "picker"
+        property string detachedApp: "" // "" | "settings" | "files" | "picker"
         property string dashboardTab: "mission" // "mission" | "tasks" | "kde" | "power"
         property string settingsPage: "home"
         property string pickerMode: "upload"
@@ -74,6 +75,24 @@ ShellRoot {
 
         function collapseIslandApp() {
             islandApp = "";
+        }
+
+        function detachIslandApp(appKind) {
+            if (!appKind || appKind === "") return;
+            islandApp = "";
+            detachedApp = appKind;
+        }
+
+        function reattachIslandApp(appKind) {
+            detachedApp = "";
+            if (appKind && appKind !== "") {
+                openPopover = "";
+                islandApp = appKind;
+            }
+        }
+
+        function closeDetachedApp() {
+            detachedApp = "";
         }
 
         function showOsd(kind, val) {
@@ -200,6 +219,11 @@ ShellRoot {
         shellState: stateObj
     }
 
+    // Independent Floating Window for Detached Settings / Files / Picker
+    DetachedAppWindow {
+        shellState: stateObj
+    }
+
     // IPC API for Hyprland keybindings & KDE preview verification
     IpcHandler {
         target: "paithosh"
@@ -229,6 +253,14 @@ ShellRoot {
         function openPicker(mode: string): void {
             stateObj.pickerMode = mode === "download" ? "download" : "upload";
             stateObj.openIslandApp("picker", null);
+        }
+
+        function detachApp(appKind: string): void {
+            stateObj.detachIslandApp(appKind !== "" ? appKind : stateObj.islandApp);
+        }
+
+        function reattachApp(appKind: string): void {
+            stateObj.reattachIslandApp(appKind !== "" ? appKind : stateObj.detachedApp);
         }
 
         function toggleHideBar(): void {

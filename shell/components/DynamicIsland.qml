@@ -691,16 +691,35 @@ PanelWindow {
 
                     Text {
                         anchors.centerIn: parent
-                        text: "─── Attached to Dynamic Island • Click or Esc to collapse"
+                        text: "─── Drag down / out to detach into independent window"
                         color: Theme.textSub
                         font.family: Theme.fontSans
                         font.pixelSize: 11
                     }
 
                     MouseArea {
+                        id: detachMouse
                         anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: shellState.collapseIslandApp()
+                        cursorShape: Qt.OpenHandCursor
+                        property real startX: 0
+                        property real startY: 0
+                        property bool triggered: false
+                        onPressed: function(mouse) {
+                            startX = mouse.x;
+                            startY = mouse.y;
+                            triggered = false;
+                        }
+                        onPositionChanged: function(mouse) {
+                            if (!pressed || triggered) return;
+                            const dist = Math.hypot(mouse.x - startX, mouse.y - startY);
+                            if (dist > 32) {
+                                triggered = true;
+                                shellState.detachIslandApp(shellState.islandApp);
+                            }
+                        }
+                        onClicked: {
+                            if (!triggered) shellState.collapseIslandApp();
+                        }
                     }
                 }
 
