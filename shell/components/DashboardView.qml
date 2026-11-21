@@ -22,13 +22,6 @@ Item {
         return missionTab.implicitHeight;
     }
 
-    Behavior on implicitWidth {
-        NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.05 }
-    }
-    Behavior on implicitHeight {
-        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
-    }
-
     onVisibleChanged: TelemetryService.setMonitorActive(visible && activeTab === "tasks")
     onActiveTabChanged: {
         TelemetryService.setMonitorActive(visible && activeTab === "tasks");

@@ -99,10 +99,10 @@ PanelWindow {
         transformOrigin: Item.Top
 
         Behavior on width {
-            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         Behavior on height {
-            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         Behavior on y {
             NumberAnimation {
