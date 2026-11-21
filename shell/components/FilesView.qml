@@ -929,7 +929,7 @@ Item {
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton) {
                                 root.selectedItem = null;
-                                ctxMenu.popup();
+                                openContextMenu(this, mouse);
                             } else {
                                 root.selectedName = "";
                                 root.selectedItem = null;
@@ -980,7 +980,7 @@ Item {
                                     onClicked: (mouse) => {
                                         root.selectedName = modelData.name;
                                         root.selectedItem = modelData;
-                                        if (mouse.button === Qt.RightButton) ctxMenu.popup();
+                                        if (mouse.button === Qt.RightButton) openContextMenu(this, mouse);
                                     }
                                     onDoubleClicked: root.openItem(modelData)
                                 }
@@ -1042,92 +1042,35 @@ Item {
                 }
             }
 
-            // Right-Click Context Menu
-            Menu {
-                id: ctxMenu
-                MenuItem {
-                    text: "Open"
-                    enabled: root.selectedItem !== null
-                    onTriggered: root.openItem(root.selectedItem)
-                }
-                MenuItem {
-                    text: "Open in Terminal"
-                    onTriggered: {
-                        const target = (root.selectedItem && root.selectedItem.type === "folder") ? root.selectedItem.path : root.currentPath;
-                        FileService.openTerminal(target);
-                    }
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: "Copy"
-                    enabled: root.selectedItem !== null
-                    onTriggered: {
-                        root.clipboardPaths = [root.selectedItem.path];
-                        root.clipboardMode = "copy";
-                        root.statusMessage = "Copied " + root.selectedItem.name;
-                    }
-                }
-                MenuItem {
-                    text: "Cut"
-                    enabled: root.selectedItem !== null
-                    onTriggered: {
-                        root.clipboardPaths = [root.selectedItem.path];
-                        root.clipboardMode = "cut";
-                        root.statusMessage = "Cut " + root.selectedItem.name;
-                    }
-                }
-                MenuItem {
-                    text: "Paste (" + root.clipboardPaths.length + ")"
-                    enabled: root.clipboardPaths.length > 0 && root.virtualMode === ""
-                    onTriggered: root.performPaste()
-                }
-                MenuItem {
-                    text: "Copy Path"
-                    enabled: root.selectedItem !== null
-                    onTriggered: {
-                        FileService.copyToClipboard(root.selectedItem.path);
-                        root.statusMessage = "Path copied to clipboard";
-                    }
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: "Rename"
-                    enabled: root.selectedItem !== null && root.virtualMode === ""
-                    onTriggered: root.openInputModal("rename", "Rename Item", root.selectedItem.name, root.selectedItem.name)
-                }
-                MenuItem {
-                    text: (root.selectedItem && root.isStarred(root.selectedItem.path)) ? "Unstar" : "Star"
-                    enabled: root.selectedItem !== null
-                    onTriggered: root.toggleStar(root.selectedItem)
-                }
-                MenuItem {
-                    text: "Compress (.zip)"
-                    enabled: root.selectedItem !== null && root.virtualMode === ""
-                    onTriggered: root.compressItem(root.selectedItem)
-                }
-                MenuItem {
-                    text: "Extract Here"
-                    enabled: root.selectedItem !== null && root.selectedItem.type === "archive" && root.virtualMode === ""
-                    onTriggered: root.beginExtract(root.selectedItem.path, root.selectedItem.name, "")
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: "Move to Trash"
-                    enabled: root.selectedItem !== null
-                    onTriggered: root.requestDelete(root.selectedItem, false)
-                }
-                MenuItem {
-                    text: "Delete Permanently"
-                    enabled: root.selectedItem !== null
-                    onTriggered: root.requestDelete(root.selectedItem, true)
-                }
-                MenuSeparator {}
-                MenuItem {
-                    text: "Properties"
-                    enabled: root.selectedItem !== null
-                    onTriggered: root.openProperties(root.selectedItem)
-                }
-            }
+        function openContextMenu(srcItem, mouse) {
+            const pt = srcItem.mapToItem(root, mouse.x, mouse.y);
+            const sel = root.selectedItem;
+            const hasSel = sel !== null;
+            ctxMenu.openAt(pt.x, pt.y, [
+                { text: "Open", icon: "↗", enabled: hasSel, action: () => root.openItem(sel) },
+                { text: "Open in Terminal", icon: ">_", action: () => FileService.openTerminal((sel && sel.type === "folder") ? sel.path : root.currentPath) },
+                { separator: true },
+                { text: "Copy", icon: "⧉", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "copy"; root.statusMessage = "Copied " + sel.name; } },
+                { text: "Cut", icon: "✂", enabled: hasSel, action: () => { root.clipboardPaths = [sel.path]; root.clipboardMode = "cut"; root.statusMessage = "Cut " + sel.name; } },
+                { text: "Paste (" + root.clipboardPaths.length + ")", icon: "📋", enabled: root.clipboardPaths.length > 0 && root.virtualMode === "", action: () => root.performPaste() },
+                { text: "Copy Path", icon: "⌗", enabled: hasSel, action: () => { FileService.copyToClipboard(sel.path); root.statusMessage = "Path copied to clipboard"; } },
+                { separator: true },
+                { text: "Rename", icon: "✎", enabled: hasSel && root.virtualMode === "", action: () => root.openInputModal("rename", "Rename Item", sel.name, sel.name) },
+                { text: (sel && root.isStarred(sel.path)) ? "Unstar" : "Star", icon: "★", enabled: hasSel, action: () => root.toggleStar(sel) },
+                { text: "Compress (.zip)", icon: "▤", enabled: hasSel && root.virtualMode === "", action: () => root.compressItem(sel) },
+                { text: "Extract Here", icon: "⇪", enabled: hasSel && sel.type === "archive" && root.virtualMode === "", action: () => root.beginExtract(sel.path, sel.name, "") },
+                { separator: true },
+                { text: "Move to Trash", icon: "🗑", enabled: hasSel, action: () => root.requestDelete(sel, false) },
+                { text: "Delete Permanently", icon: "✕", enabled: hasSel, danger: true, action: () => root.requestDelete(sel, true) },
+                { separator: true },
+                { text: "Properties", icon: "ⓘ", enabled: hasSel, action: () => root.openProperties(sel) }
+            ]);
+        }
+
+        // Right-Click Context Menu (matches files.html .ctx-menu)
+        ContextMenu {
+            id: ctxMenu
+        }
 
             // Password Modal for Encrypted Archives
             Rectangle {

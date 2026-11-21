@@ -412,25 +412,30 @@ Item {
             Text { text: "▾"; color: Theme.textMuted; font.pixelSize: 11 }
         }
 
-        Menu {
-            id: selMenu
-            Repeater {
-                model: cSel.options
-                delegate: MenuItem {
-                    required property string modelData
-                    text: modelData
-                    onTriggered: cSel.selected(modelData)
-                }
-            }
-        }
-
         MouseArea {
             id: selMouse
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: selMenu.popup()
+            onClicked: {
+                const pt = cSel.mapToItem(root, 0, cSel.height + 4);
+                const opts = [];
+                for (let i = 0; i < cSel.options.length; ++i) {
+                    const optVal = cSel.options[i];
+                    opts.push({
+                        text: optVal,
+                        checked: optVal === cSel.currentText,
+                        action: () => cSel.selected(optVal)
+                    });
+                }
+                selectMenu.menuWidth = Math.max(196, cSel.width);
+                selectMenu.openAt(pt.x, pt.y, opts);
+            }
         }
+    }
+
+    ContextMenu {
+        id: selectMenu
     }
 
     component CtrlBtn: Rectangle {
