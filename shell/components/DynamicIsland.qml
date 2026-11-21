@@ -232,7 +232,7 @@ PanelWindow {
             // Main Status Pill (expands smoothly to host Settings / Files / Picker)
             ClippingRectangle {
                 id: mainPill
-                readonly property int compactWidth: Math.max(260, Math.ceil(weatherLabel.implicitWidth + centerSlotsRow.implicitWidth + clockLabel.implicitWidth + 68))
+                readonly property int compactWidth: Math.max(260, Math.ceil(weatherLabel.implicitWidth + centerSlotsRow.implicitWidth + clockLabel.implicitWidth + 84))
                 height: root.isAppExpandedOnScreen ? Math.min(626, root.height - 96) : Theme.islandHeight
                 width: root.isAppExpandedOnScreen ? Math.min(920, root.width - 48) : compactWidth
                 radius: root.isAppExpandedOnScreen ? 18 : Theme.islandRadius
@@ -288,12 +288,15 @@ PanelWindow {
                         font.weight: Font.Bold
                     }
 
-                    // Center Expanding Slots
+                    // Center Expanding Slots (centered in remaining gap between weatherLabel and clockLabel, never overlapping)
                     Row {
                         id: centerSlotsRow
-                        anchors.centerIn: parent
+                        x: Math.round(weatherLabel.x + weatherLabel.implicitWidth + Math.max(12, (clockLabel.x - (weatherLabel.x + weatherLabel.implicitWidth) - width) / 2))
+                        y: Math.round((parent.height - height) / 2)
+                        width: Math.min(implicitWidth, Math.max(0, clockLabel.x - (weatherLabel.x + weatherLabel.implicitWidth) - 24))
                         height: Theme.islandHeight
                         spacing: 0
+                        clip: true
 
                         SequentialAnimation {
                             id: centerFadeAnim

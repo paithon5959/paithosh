@@ -3,27 +3,42 @@ set -euo pipefail
 
 OUT_VIDEO="${1:-/tmp/paithosh-test-recording.mp4}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FRAME_DIR="/tmp/paithosh-frames-$$"
 
-rm -f "$OUT_VIDEO"
+rm -rf "$FRAME_DIR" "$OUT_VIDEO"
+mkdir -p "$FRAME_DIR"
 
-echo "Starting screen recording -> $OUT_VIDEO"
-spectacle --background --nonotify --record screen --output "$OUT_VIDEO" &
+echo "Starting frame capture -> $FRAME_DIR"
+(
+    idx=0
+    while true; do
+        printf -v fname "%s/frame_%05d.png" "$FRAME_DIR" "$idx"
+        spectacle -b -n -f -o "$fname" >/dev/null 2>&1 || true
+        idx=$((idx + 1))
+        sleep 0.05
+    done
+) &
 REC_PID=$!
-sleep 1.2
 
 set +e
 bash "$SCRIPT_DIR/test-states.sh"
 TEST_RC=$?
 set -e
 
-# Stop spectacle recording cleanly with SIGINT so MP4 moov atom is written
-kill -INT "$REC_PID" 2>/dev/null || true
+kill "$REC_PID" 2>/dev/null || true
 wait "$REC_PID" 2>/dev/null || true
 
-if [[ -f "$OUT_VIDEO" ]]; then
+FRAME_COUNT=$(ls -1 "$FRAME_DIR"/frame_*.png 2>/dev/null | wc -l)
+echo "Captured $FRAME_COUNT frames, encoding video..."
+
+if [[ "$FRAME_COUNT" -gt 0 ]]; then
+    ffmpeg -y -loglevel error -framerate 6 -pattern_type glob -i "$FRAME_DIR/frame_*.png" \
+        -vf "crop=iw:min(ih\,760):0:0,scale=trunc(iw/2)*2:trunc(ih/2)*2" \
+        -c:v libx264 -pix_fmt yuv420p -movflags +faststart "$OUT_VIDEO"
     echo "Recording saved: $OUT_VIDEO ($(du -h "$OUT_VIDEO" | cut -f1))"
 else
-    echo "WARNING: Recording file was not created at $OUT_VIDEO" >&2
+    echo "WARNING: No frames captured" >&2
 fi
 
+rm -rf "$FRAME_DIR"
 exit "$TEST_RC"
