@@ -191,14 +191,23 @@ Item {
                 visible: root.filteredApps.length > 0
                 clip: true
                 cellWidth: Math.floor(width / 4)
-                cellHeight: 88
+                cellHeight: 76
                 model: root.filteredApps
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Item {
+                    id: tileWrap
                     required property var modelData
                     width: grid.cellWidth
                     height: grid.cellHeight
+
+                    Component.onCompleted: hitInAnim.restart()
+
+                    ParallelAnimation {
+                        id: hitInAnim
+                        NumberAnimation { target: tile; property: "opacity"; from: 0.0; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: tile; property: "scale"; from: 0.98; to: 1.0; duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.1 }
+                    }
 
                     Rectangle {
                         id: tile
@@ -206,31 +215,34 @@ Item {
                         anchors.margins: 4
                         radius: 14
                         clip: true
-                        color: tileMouse.containsMouse ? Theme.cardHover : Qt.rgba(1, 1, 1, 0.07)
+                        color: tileMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.07)
                         border.width: 1
                         border.color: Qt.rgba(1, 1, 1, tileMouse.containsMouse ? 0.16 : 0.08)
                         y: tileMouse.containsMouse && !tileMouse.pressed ? -2 : 0
                         scale: tileMouse.pressed ? 0.94 : 1.0
 
-                        Behavior on color { ColorAnimation { duration: 160 } }
-                        Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutBack } }
-                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                        Behavior on color { ColorAnimation { duration: 180 } }
+                        Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+                        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: 8
-                            spacing: 6
+                            anchors.topMargin: 10
+                            anchors.bottomMargin: 8
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            spacing: 7
 
                             Item {
                                 Layout.alignment: Qt.AlignHCenter
-                                width: 24
-                                height: 24
+                                width: 20
+                                height: 20
 
                                 readonly property string resolvedIcon: modelData.iconName ? Quickshell.iconPath(modelData.iconName, true) : ""
 
                                 IconImage {
                                     anchors.fill: parent
-                                    implicitSize: 24
+                                    implicitSize: 20
                                     mipmap: true
                                     source: parent.resolvedIcon
                                     visible: parent.resolvedIcon !== ""
