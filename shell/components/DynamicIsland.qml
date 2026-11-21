@@ -15,26 +15,35 @@ PanelWindow {
     screen: modelData
     anchors {
         top: true
+        bottom: true
         left: true
         right: true
     }
-    implicitHeight: 132
     color: "transparent"
 
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.namespace: "paithosh-island"
-    WlrLayershell.keyboardFocus: isSearchOnThisScreen ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: (isSearchOnThisScreen || isAppExpandedOnScreen) ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
 
     readonly property bool isActiveScreen: shellState.activeScreen === modelData
     readonly property bool isPopoverOpenOnThisScreen: isActiveScreen && shellState.openPopover !== ""
     readonly property bool isSearchOnThisScreen: isActiveScreen && shellState.openPopover === "search"
+    readonly property bool isAppExpandedOnScreen: isActiveScreen && shellState.islandApp !== ""
     readonly property bool isHidden: shellState.manualHideBar || CompositorService.isFullscreenFor(modelData)
 
-    readonly property string activeTitle: CompositorService.activeTitleFor(modelData)
+    readonly property string attachedTitle: {
+        if (shellState.islandApp === "settings") return "Settings (Island)";
+        if (shellState.islandApp === "files") return "Files (Island)";
+        if (shellState.islandApp === "picker") {
+            return shellState.pickerMode === "download" ? "Save Location (Island)" : "Upload Location (Island)";
+        }
+        return "";
+    }
+    readonly property string activeTitle: isAppExpandedOnScreen ? attachedTitle : CompositorService.activeTitleFor(modelData)
     readonly property bool hasFocus: activeTitle !== ""
     readonly property bool hasNotifBadge: NotificationService.hasUnreadBadge
-    readonly property bool hasMedia: MediaService.active
+    readonly property bool hasMedia: MediaService.active && !isAppExpandedOnScreen
     readonly property int currentWs: CompositorService.workspaceIdFor(modelData)
 
     readonly property int alertMode: {
@@ -43,7 +52,7 @@ PanelWindow {
         if (PowerService.lowBatteryAlert) return 2;
         return 0;
     }
-    readonly property bool hasAlert: alertMode > 0
+    readonly property bool hasAlert: alertMode > 0 && !isAppExpandedOnScreen
 
     readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen
 
@@ -79,14 +88,58 @@ PanelWindow {
         onTriggered: root.clockText = Qt.formatTime(new Date(), "hh:mm")
     }
 
+    onIsAppExpandedOnScreenChanged: {
+        if (isAppExpandedOnScreen) {
+            if (shellState.islandApp === "settings") {
+                settingsView.openPage(shellState.settingsPage || "home");
+            } else if (shellState.islandApp === "picker") {
+                pickerView.setMode(shellState.pickerMode || "upload");
+            }
+            expandedFocusItem.forceActiveFocus();
+        }
+    }
+
+    Connections {
+        target: root.shellState
+        function onIslandAppChanged() {
+            if (root.isAppExpandedOnScreen) {
+                if (root.shellState.islandApp === "settings") {
+                    settingsView.openPage(root.shellState.settingsPage || "home");
+                } else if (root.shellState.islandApp === "picker") {
+                    pickerView.setMode(root.shellState.pickerMode || "upload");
+                }
+            }
+        }
+    }
+
     Item {
         id: emptyMask
         width: 0
         height: 0
     }
 
+    Item {
+        id: fullScreenMask
+        anchors.fill: parent
+    }
+
     mask: Region {
-        item: root.isHidden ? emptyMask : hitbox
+        item: root.isHidden ? emptyMask : (root.isAppExpandedOnScreen ? fullScreenMask : hitbox)
+    }
+
+    Item {
+        id: expandedFocusItem
+        anchors.fill: parent
+        focus: true
+        Keys.onEscapePressed: {
+            if (root.isAppExpandedOnScreen) root.shellState.collapseIslandApp();
+        }
+    }
+
+    MouseArea {
+        anchors.fill: parent
+        enabled: root.isAppExpandedOnScreen
+        onClicked: root.shellState.collapseIslandApp()
     }
 
     Item {
@@ -100,9 +153,9 @@ PanelWindow {
     Item {
         id: stageContainer
         anchors.horizontalCenter: parent.horizontalCenter
-        y: (root.hovered || root.isPopoverOpenOnThisScreen ? Theme.topOffsetHover : Theme.topOffsetRest) - Theme.shaderPad + (root.isHidden ? -26 : 0)
+        y: (root.hovered || root.isPopoverOpenOnThisScreen || root.isAppExpandedOnScreen ? Theme.topOffsetHover : Theme.topOffsetRest) - Theme.shaderPad + (root.isHidden ? -26 : 0)
         width: contentRow.width + Theme.shaderPad * 2
-        height: Theme.islandHeight + Theme.shaderPad * 2
+        height: mainPill.height + Theme.shaderPad * 2
         opacity: root.isHidden ? 0.0 : 1.0
         scale: root.isHidden ? 0.65 : 1.0
         transformOrigin: Item.Top
@@ -117,11 +170,11 @@ PanelWindow {
             NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
         }
 
-        // Liquid Gooey Background Layer (1:1 geometry sync with foreground pills)
+        // Liquid Gooey Background Layer (1:1 geometry sync with foreground pills; auto-disabled when app expanded)
         Item {
             id: gooSource
             anchors.fill: parent
-            layer.enabled: Theme.gooeyEnabled
+            layer.enabled: Theme.gooeyEnabled && !root.isAppExpandedOnScreen
             layer.effect: ShaderEffect {
                 fragmentShader: Qt.resolvedUrl("../assets/shaders/gooey.frag.qsb")
                 property size texelSize: Qt.size(1.0 / Math.max(1, gooSource.width), 1.0 / Math.max(1, gooSource.height))
@@ -136,7 +189,7 @@ PanelWindow {
                 y: Theme.shaderPad
                 width: mainPill.width
                 height: mainPill.height
-                radius: Theme.islandRadius
+                radius: mainPill.radius
                 color: Theme.pillBg
             }
 
@@ -170,32 +223,60 @@ PanelWindow {
             id: contentRow
             x: Theme.shaderPad
             y: Theme.shaderPad
-            height: Theme.islandHeight
+            height: mainPill.height
             spacing: 0
 
-            // Main Status Pill
+            // Main Status Pill (expands smoothly to host Settings / Files / Picker)
             Rectangle {
                 id: mainPill
-                height: Theme.islandHeight
-                width: Math.max(260, Math.ceil(pillInner.implicitWidth) + 48)
-                radius: Theme.islandRadius
+                height: root.isAppExpandedOnScreen ? Math.min(626, root.height - 96) : Theme.islandHeight
+                width: root.isAppExpandedOnScreen ? Math.min(900, root.width - 48) : Math.max(260, Math.ceil(pillInner.implicitWidth) + 48)
+                radius: root.isAppExpandedOnScreen ? 18 : Theme.islandRadius
                 color: "transparent"
                 clip: true
-                border.width: root.dropHovered ? 2 : 0
-                border.color: Theme.accent
+                border.width: root.dropHovered ? 2 : (root.isAppExpandedOnScreen ? 1 : 0)
+                border.color: root.dropHovered ? Theme.accent : Theme.borderSubtle
 
                 Behavior on width {
+                    NumberAnimation {
+                        duration: Theme.springMs
+                        easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
+                        easing.overshoot: 1.06
+                    }
+                }
+                Behavior on height {
+                    NumberAnimation {
+                        duration: Theme.springMs
+                        easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
+                        easing.overshoot: 1.06
+                    }
+                }
+                Behavior on radius {
                     NumberAnimation {
                         duration: Theme.smoothMs
                         easing.type: Easing.OutCubic
                     }
                 }
 
-                Row {
-                    id: pillInner
-                    anchors.centerIn: parent
+                // Prevent clicks inside expanded island app from hitting outside-click MouseArea
+                MouseArea {
+                    anchors.fill: parent
+                    enabled: root.isAppExpandedOnScreen
+                    onClicked: function(mouse) { mouse.accepted = true; }
+                }
+
+                Item {
+                    id: pillHeader
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
                     height: Theme.islandHeight
-                    spacing: 0
+
+                    Row {
+                        id: pillInner
+                        anchors.centerIn: parent
+                        height: Theme.islandHeight
+                        spacing: 0
 
                     // Left Edge: Outdoor Weather Temperature
                     Text {
@@ -536,32 +617,126 @@ PanelWindow {
                     }
                 }
 
-                MouseArea {
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                    propagateComposedEvents: true
-                    cursorShape: Qt.PointingHandCursor
-                    onEntered: root.hovered = true
-                    onExited: root.hovered = false
-                    onClicked: function(mouse) {
-                        if (root.isSearchOnThisScreen) {
-                            const pt = mapToItem(slotSearch, mouse.x, mouse.y);
-                            if (pt.x >= 0 && pt.x <= slotSearch.width) {
-                                mouse.accepted = false;
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        propagateComposedEvents: true
+                        cursorShape: Qt.PointingHandCursor
+                        onEntered: root.hovered = true
+                        onExited: root.hovered = false
+                        onClicked: function(mouse) {
+                            if (root.isAppExpandedOnScreen) {
+                                shellState.collapseIslandApp();
                                 return;
                             }
+                            if (root.isSearchOnThisScreen) {
+                                const pt = mapToItem(slotSearch, mouse.x, mouse.y);
+                                if (pt.x >= 0 && pt.x <= slotSearch.width) {
+                                    mouse.accepted = false;
+                                    return;
+                                }
+                            }
+                            if (mouse.button === Qt.RightButton) {
+                                shellState.togglePopover("dashboard", root.modelData);
+                            } else {
+                                shellState.togglePopover("launcher", root.modelData);
+                            }
                         }
-                        if (mouse.button === Qt.RightButton) {
-                            shellState.togglePopover("dashboard", root.modelData);
-                        } else {
-                            shellState.togglePopover("launcher", root.modelData);
-                        }
+                    }
+
+                    PillButton {
+                        visible: root.isAppExpandedOnScreen
+                        anchors.right: parent.right
+                        anchors.rightMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconName: "close"
+                        iconSize: 12
+                        horizontalPadding: 8
+                        verticalPadding: 6
+                        radius: 10
+                        onClicked: shellState.collapseIslandApp()
+                    }
+                }
+
+                // Hairline Divider + Attached Strip + Embedded App Body
+                Rectangle {
+                    id: appHeaderSep
+                    anchors.top: pillHeader.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: 1
+                    color: Qt.rgba(1, 1, 1, 0.08)
+                    visible: root.isAppExpandedOnScreen
+                }
+
+                Rectangle {
+                    id: appStrip
+                    anchors.top: appHeaderSep.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    height: root.isAppExpandedOnScreen ? 26 : 0
+                    color: Qt.rgba(1, 1, 1, 0.04)
+                    clip: true
+                    visible: height > 0
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "─── Attached to Dynamic Island • Click or Esc to collapse"
+                        color: Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 11
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: shellState.collapseIslandApp()
+                    }
+                }
+
+                Item {
+                    id: appBody
+                    anchors.top: appStrip.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    clip: true
+                    opacity: root.isAppExpandedOnScreen ? 1.0 : 0.0
+                    visible: opacity > 0.01
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    }
+
+                    SettingsView {
+                        id: settingsView
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        shellState: root.shellState
+                        visible: root.shellState.islandApp === "settings"
+                    }
+
+                    FilesView {
+                        id: filesView
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        shellState: root.shellState
+                        visible: root.shellState.islandApp === "files"
+                    }
+
+                    PickerView {
+                        id: pickerView
+                        anchors.fill: parent
+                        anchors.margins: 14
+                        shellState: root.shellState
+                        visible: root.shellState.islandApp === "picker"
                     }
                 }
 
                 DropArea {
                     anchors.fill: parent
+                    enabled: !root.isAppExpandedOnScreen
                     onEntered: function(drag) {
                         root.dropHovered = true;
                         drag.accepted = true;

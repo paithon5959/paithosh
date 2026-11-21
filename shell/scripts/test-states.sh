@@ -90,6 +90,18 @@ for m in confirm multi monitor progress; do
     sleep 0.35
 done
 ipc closeModal
+
+echo "[7b/8] Testing Attached Settings, Files & Upload/Download Picker..."
+ipc openSettings "system"
+sleep 0.35
+ipc openSettings "themes"
+sleep 0.35
+ipc openFiles
+sleep 0.35
+ipc openPicker "upload"
+sleep 0.35
+ipc openPicker "download"
+sleep 0.35
 ipc applyState normal
 
 echo "[8/8] Auditing Quickshell logs for QML/JS errors..."

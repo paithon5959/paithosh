@@ -27,7 +27,7 @@ Item {
                 category: "System",
                 iconName: "",
                 fallbackSvg: "folder",
-                action: function() { AppService.openExternalFiles(); }
+                action: function() { root.shellState.openIslandApp("files", null); }
             });
             pinned.push({
                 id: "paithosh-settings",
@@ -35,7 +35,32 @@ Item {
                 category: "System",
                 iconName: "",
                 fallbackSvg: "settings",
-                action: function() { AppService.openExternalSettings(); }
+                action: function() {
+                    root.shellState.settingsPage = "home";
+                    root.shellState.openIslandApp("settings", null);
+                }
+            });
+            pinned.push({
+                id: "paithosh-upload",
+                name: "Upload Picker",
+                category: "System",
+                iconName: "",
+                fallbackSvg: "folder",
+                action: function() {
+                    root.shellState.pickerMode = "upload";
+                    root.shellState.openIslandApp("picker", null);
+                }
+            });
+            pinned.push({
+                id: "paithosh-download",
+                name: "Download Picker",
+                category: "System",
+                iconName: "",
+                fallbackSvg: "folder",
+                action: function() {
+                    root.shellState.pickerMode = "download";
+                    root.shellState.openIslandApp("picker", null);
+                }
             });
         }
         const q = query.trim().toLowerCase();

@@ -56,7 +56,15 @@ Singleton {
                 root.text = colors[1];
                 root.accent = colors[1];
                 root.accentFg = colors[0];
-                if (colors.length >= 3) root.surfaceBg = colors[2];
+                root.textSub = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.62);
+                root.textMuted = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.45);
+                root.cardBg = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.07);
+                root.cardHover = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.13);
+                root.borderSubtle = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.15);
+                if (colors.length >= 3) {
+                    root.surfaceBg = colors[2];
+                    root.surfaceRaised = colors[2];
+                }
             }
             if (obj.palette && typeof obj.palette.islandRadius === "number") {
                 root.islandRadius = obj.palette.islandRadius;
@@ -66,5 +74,16 @@ Singleton {
             console.warn("Theme.loadBundle failed:", e);
             return false;
         }
+    }
+
+    function exportBundle() {
+        return JSON.stringify({
+            name: "Paithosh Custom",
+            version: "1.2",
+            palette: {
+                colors: [String(root.pillBg), String(root.text), String(root.surfaceBg)],
+                islandRadius: root.islandRadius
+            }
+        });
     }
 }

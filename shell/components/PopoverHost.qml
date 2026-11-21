@@ -21,7 +21,6 @@ PanelWindow {
         left: true
         right: true
     }
-    margins.top: Theme.topOffsetHover + Theme.islandHeight + 8
     color: "transparent"
     visible: showCard || cardBox.opacity > 0.01
 
@@ -73,7 +72,9 @@ PanelWindow {
     Rectangle {
         id: cardBox
         anchors.horizontalCenter: parent.horizontalCenter
-        y: root.showCard ? 0 : -12
+        y: root.showCard
+            ? (Theme.topOffsetHover + Theme.islandHeight + 10)
+            : (Theme.topOffsetHover + Theme.islandHeight - 2)
         width: {
             if (root.activeMode === "launcher") return launcherView.implicitWidth + 32;
             if (root.activeMode === "dashboard") return dashboardView.implicitWidth + 32;

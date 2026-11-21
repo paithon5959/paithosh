@@ -13,7 +13,10 @@ ShellRoot {
 
         property var activeScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         property string openPopover: "" // "" | "launcher" | "dashboard" | "search"
+        property string islandApp: "" // "" | "settings" | "files" | "picker"
         property string dashboardTab: "mission" // "mission" | "tasks" | "kde" | "power"
+        property string settingsPage: "home"
+        property string pickerMode: "upload"
         property bool manualHideBar: false
 
         property bool osdOpen: false
@@ -44,16 +47,33 @@ ShellRoot {
         function closePopovers() {
             openPopover = "";
             searchQuery = "";
+            islandApp = "";
         }
 
         function togglePopover(kind, scr) {
             ensureScreen(scr);
+            islandApp = "";
             if (openPopover === kind && (!scr || activeScreen === scr)) {
                 closePopovers();
             } else {
                 openPopover = kind;
                 if (kind === "search") searchQuery = "";
             }
+        }
+
+        function openIslandApp(appKind, scr) {
+            ensureScreen(scr);
+            openPopover = "";
+            searchQuery = "";
+            if (islandApp === appKind && (!scr || activeScreen === scr)) {
+                islandApp = "";
+            } else {
+                islandApp = appKind;
+            }
+        }
+
+        function collapseIslandApp() {
+            islandApp = "";
         }
 
         function showOsd(kind, val) {
@@ -195,6 +215,20 @@ ShellRoot {
 
         function toggleSearch(): void {
             stateObj.togglePopover("search", null);
+        }
+
+        function openSettings(page: string): void {
+            stateObj.settingsPage = page !== "" ? page : "home";
+            stateObj.openIslandApp("settings", null);
+        }
+
+        function openFiles(): void {
+            stateObj.openIslandApp("files", null);
+        }
+
+        function openPicker(mode: string): void {
+            stateObj.pickerMode = mode === "download" ? "download" : "upload";
+            stateObj.openIslandApp("picker", null);
         }
 
         function toggleHideBar(): void {
