@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Controls
+import Quickshell
 import ".."
 import "../services"
 import "common"
@@ -1070,18 +1071,31 @@ Item {
 
                 // Profile Header
                 RowLayout {
+                    id: profileHeader
+                    readonly property string currentUser: {
+                        var u = (Quickshell.env("USER") || Quickshell.env("LOGNAME") || "").trim();
+                        if (u.length === 0) {
+                            var home = (Quickshell.env("HOME") || "").trim();
+                            if (home.length > 0) {
+                                var parts = home.split("/").filter(function(p) { return p.length > 0; });
+                                if (parts.length > 0) u = parts[parts.length - 1];
+                            }
+                        }
+                        return u.length > 0 ? u : "user";
+                    }
+                    readonly property string displayUser: currentUser.charAt(0).toUpperCase() + currentUser.slice(1)
                     Layout.fillWidth: true
                     spacing: 10
                     Rectangle {
                         width: 34; height: 34; radius: 17
                         color: Theme.accent
-                        Text { anchors.centerIn: parent; text: "P"; font.family: Theme.fontSans; font.pixelSize: 15; font.weight: Font.Bold; color: Theme.accentFg }
+                        Text { anchors.centerIn: parent; text: profileHeader.currentUser.charAt(0).toUpperCase(); font.family: Theme.fontSans; font.pixelSize: 15; font.weight: Font.Bold; color: Theme.accentFg }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Text { Layout.fillWidth: true; text: "Paithon"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                        Text { Layout.fillWidth: true; text: "paithon@hyprland"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; text: profileHeader.displayUser; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; text: profileHeader.currentUser + "@" + TelemetryService.hostname; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
                     }
                 }
 
