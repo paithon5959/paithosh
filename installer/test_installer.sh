@@ -35,7 +35,7 @@ trap cleanup EXIT
 run_self_checks() {
     TMP_HOME="$(mktemp -d /tmp/paithosh-installer-check.XXXXXX)"
 
-    echo "[1/5] Checking shell & Python script syntax..."
+    echo "[1/6] Checking shell & Python script syntax..."
     local sh_files=(
         "$REPO_ROOT/install.sh"
         "$REPO_ROOT/installer/install_cli.sh"
@@ -51,7 +51,7 @@ run_self_checks() {
     python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py"
     echo "  PASS: syntax checks clean"
 
-    echo "[2/5] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
+    echo "[2/6] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
     for os in arch fedora debian ubuntu; do
         local json_out
         json_out="$(HOME="$TMP_HOME" PAITHOSH_MOCK_OS="$os" bash "$REPO_ROOT/installer/lib/audit.sh" --json)"
@@ -85,7 +85,7 @@ PY
     done
     echo "  PASS: 4-distro audit mappings verified"
 
-    echo "[3/5] Checking install_cli.sh --dry-run piped flow..."
+    echo "[3/6] Checking install_cli.sh --dry-run piped flow..."
     local cli_home="$TMP_HOME/cli"
     mkdir -p "$cli_home/.config/hypr/config"
     touch "$cli_home/.config/hypr/hyprland.lua" "$cli_home/.config/hypr/config/autostart.lua"
@@ -102,7 +102,7 @@ PY
     grep -q "Registering XDG Desktop Portals" <<<"$cli_out"
     echo "  PASS: CLI dry-run piped execution verified"
 
-    echo "[4/5] Checking apply.sh Lua & .conf idempotency + XDG portals..."
+    echo "[4/6] Checking apply.sh Lua & .conf idempotency + XDG portals..."
     local lua_home="$TMP_HOME/lua"
     mkdir -p "$lua_home/.config/hypr/config"
     cat > "$lua_home/.config/hypr/hyprland.lua" <<'EOF'
@@ -148,7 +148,7 @@ PY
     [[ "$(grep -c "exec-once = qs -p " "$conf_home/.config/hypr/hyprland.conf")" -eq 1 ]]
     echo "  PASS: Lua & classic .conf apply idempotency + XDG portals verified"
 
-    echo "[5/5] Checking symlink resolution for xdph-share-picker.sh..."
+    echo "[5/6] Checking symlink resolution for xdph-share-picker.sh..."
     local resolved_qml
     resolved_qml="$(bash -c '
         SCRIPT_REAL="$(readlink -f "$1")"
@@ -157,6 +157,55 @@ PY
     [[ "$resolved_qml" == "$REPO_ROOT/shell/shell.qml" ]]
     grep -Fq 'readlink -f' "$REPO_ROOT/shell/scripts/xdph-share-picker.sh"
     echo "  PASS: symlink resolution verified"
+
+    echo "[6/6] Checking curl-pipe bootstrap & self-clone flow..."
+    local help_out
+    help_out="$(cat "$REPO_ROOT/install.sh" | bash -s -- --help)"
+    grep -Fq -- "--dir" <<<"$help_out"
+    grep -Fq "curl -fsSL" <<<"$help_out"
+
+    local current_branch
+    current_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD)"
+
+    local boot_home="$TMP_HOME/boot-home"
+    mkdir -p "$boot_home"
+    local boot_dir="$TMP_HOME/boot-repo"
+    local boot_out1
+    boot_out1="$(env \
+        HOME="$boot_home" \
+        WAYLAND_DISPLAY="" \
+        PAITHOSH_NO_TTY_REATTACH=1 \
+        PAITHOSH_REPO_URL="file://$REPO_ROOT" \
+        PAITHOSH_BRANCH="$current_branch" \
+        bash -s -- --dir "$boot_dir" --dry-run < "$REPO_ROOT/install.sh")"
+    grep -Fq "Cloning Paithosh into $boot_dir" <<<"$boot_out1"
+    grep -Fq "Installation complete!" <<<"$boot_out1"
+    [[ -d "$boot_dir/.git" ]]
+
+    local boot_out2
+    boot_out2="$(env \
+        HOME="$boot_home" \
+        WAYLAND_DISPLAY="" \
+        PAITHOSH_NO_TTY_REATTACH=1 \
+        PAITHOSH_REPO_URL="file://$REPO_ROOT" \
+        PAITHOSH_BRANCH="$current_branch" \
+        bash -s -- --dir "$boot_dir" --dry-run < "$REPO_ROOT/install.sh")"
+    grep -Fq "Updating Paithosh in $boot_dir" <<<"$boot_out2"
+    grep -Fq "Installation complete!" <<<"$boot_out2"
+
+    local dryrun_home="$TMP_HOME/boot-dryrun-home"
+    mkdir -p "$dryrun_home"
+    local dryrun_out
+    dryrun_out="$(env \
+        HOME="$dryrun_home" \
+        WAYLAND_DISPLAY="" \
+        PAITHOSH_NO_TTY_REATTACH=1 \
+        PAITHOSH_REPO_URL="file://$REPO_ROOT" \
+        PAITHOSH_BRANCH="$current_branch" \
+        bash -s -- --dry-run < "$REPO_ROOT/install.sh")"
+    grep -Fq "Installation complete!" <<<"$dryrun_out"
+    [[ ! -e "$dryrun_home/.local/share/paithosh" ]]
+    echo "  PASS: curl-pipe bootstrap & self-clone verified"
 
     echo "ALL INSTALLER CHECKS PASSED"
 }

@@ -69,6 +69,18 @@ PanelWindow {
     readonly property string repoRoot: Quickshell.shellDir.replace(/\/shell\/?$/, "")
     readonly property bool isDryRun: Quickshell.env("PAITHOSH_INSTALLER_DRY_RUN") === "1"
 
+    // Release metadata (synced from GitHub latest release, with local fallback)
+    property bool loadingRelease: true
+    property string releaseVersion: "v1.0.0"
+    property string releaseDate: ""
+    property bool releaseFromGithub: false
+    property var releaseChangelogs: [
+        "• Dynamic Island shell for Hyprland with Mission Control, Media, Power, Weather, and Task Manager",
+        "• Redesigned File Manager, File View, and File Picker with dual layout and Wayland drag-and-drop",
+        "• Built-in Settings UI, Workspace Overview, Clipboard History, Screen Recorder, and VPN/Proxy controls",
+        "• One-line curl installer with auto-clone, anti-bloat distro audit, GUI overlay, and TTY CLI mode"
+    ]
+
     // Welcome splash -> dialog expand state
     property real scrimAlpha: 0.0
     property real splashOpacity: 0.0
@@ -77,6 +89,7 @@ PanelWindow {
 
     Component.onCompleted: {
         auditProc.running = true;
+        releaseProc.running = true;
         welcomeSeq.start();
     }
 
@@ -229,6 +242,49 @@ PanelWindow {
                 root.loadingAudit = false;
                 root.auditError = auditProc.errBuf || ("Audit script failed (exit " + code + ").");
             }
+        }
+    }
+
+    Process {
+        id: releaseProc
+        command: [
+            "python3", "-c",
+            "import json, re, urllib.request\n" +
+            "url = 'https://api.github.com/repos/paithon5959/paithosh/releases/latest'\n" +
+            "req = urllib.request.Request(url, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'paithosh-installer'})\n" +
+            "with urllib.request.urlopen(req, timeout=5) as resp:\n" +
+            "    d = json.loads(resp.read().decode('utf-8'))\n" +
+            "lines = []\n" +
+            "for raw in (d.get('body') or '').splitlines():\n" +
+            "    s = raw.strip()\n" +
+            "    if not s or s.startswith('#'):\n" +
+            "        continue\n" +
+            "    s = re.sub(r'^[-*•]\\s+', '', s)\n" +
+            "    s = re.sub(r'`([^`]+)`', r'\\1', s)\n" +
+            "    s = re.sub(r'\\*\\*([^*]+)\\*\\*', r'\\1', s)\n" +
+            "    if s:\n" +
+            "        lines.append('• ' + s)\n" +
+            "print(json.dumps({'version': d.get('tag_name') or '', 'date': (d.get('published_at') or '')[:10], 'changelogs': lines}))\n"
+        ]
+        running: false
+        stdout: StdioCollector {
+            onStreamFinished: {
+                root.loadingRelease = false;
+                const raw = text.trim();
+                if (!raw) return;
+                try {
+                    const data = JSON.parse(raw);
+                    if (data.version) root.releaseVersion = data.version;
+                    if (data.date) root.releaseDate = data.date;
+                    if (Array.isArray(data.changelogs) && data.changelogs.length > 0) {
+                        root.releaseChangelogs = data.changelogs;
+                    }
+                    root.releaseFromGithub = true;
+                } catch (e) {}
+            }
+        }
+        onExited: (code) => {
+            if (code !== 0) root.loadingRelease = false;
         }
     }
 
@@ -627,7 +683,7 @@ PanelWindow {
                                             Rectangle {
                                                 radius: 6; implicitWidth: verTxt.implicitWidth + 14; implicitHeight: 22
                                                 color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
-                                                Text { id: verTxt; anchors.centerIn: parent; text: "v2.0"; color: Theme.accent; font.family: Theme.fontMono; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                                Text { id: verTxt; anchors.centerIn: parent; text: root.releaseVersion; color: Theme.accent; font.family: Theme.fontMono; font.pixelSize: 11; font.weight: Font.DemiBold }
                                             }
                                         }
                                         Text {
@@ -648,24 +704,43 @@ PanelWindow {
                                 border.width: 1; border.color: Theme.borderSubtle
                                 ColumnLayout {
                                     anchors.fill: parent; anchors.margins: 16; spacing: 10
-                                    Text { text: "Changelogs"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                    Repeater {
-                                        model: [
-                                            "• Redesigned File Manager, File View & File Picker with smooth list/grid transitions",
-                                            "• Added drag-selection marquee & external Wayland drag-and-drop with file icons",
-                                            "• Pre-configured theme presets (OLED Pure, Nord Frost, Mica Dark, Adaptive)",
-                                            "• Distro-aware anti-bloat installer with GUI overlay & TTY CLI fallback"
-                                        ]
-                                        delegate: Text {
-                                            required property string modelData
-                                            Layout.fillWidth: true
-                                            text: modelData
-                                            color: Theme.textSub
-                                            font.family: Theme.fontSans; font.pixelSize: 12
-                                            wrapMode: Text.WordWrap
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Text { text: "Changelogs"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                        Item { Layout.fillWidth: true }
+                                        Text {
+                                            text: root.loadingRelease
+                                                ? "Syncing GitHub release..."
+                                                : (root.releaseFromGithub
+                                                    ? ("GitHub Release" + (root.releaseDate ? " · " + root.releaseDate : ""))
+                                                    : "Local release notes")
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontMono; font.pixelSize: 10
                                         }
                                     }
-                                    Item { Layout.fillHeight: true }
+                                    Flickable {
+                                        Layout.fillWidth: true; Layout.fillHeight: true
+                                        clip: true
+                                        contentWidth: width
+                                        contentHeight: changelogCol.implicitHeight
+                                        boundsBehavior: Flickable.StopAtBounds
+                                        ColumnLayout {
+                                            id: changelogCol
+                                            width: parent.width
+                                            spacing: 8
+                                            Repeater {
+                                                model: root.releaseChangelogs
+                                                delegate: Text {
+                                                    required property string modelData
+                                                    Layout.fillWidth: true
+                                                    text: modelData
+                                                    color: Theme.textSub
+                                                    font.family: Theme.fontSans; font.pixelSize: 12
+                                                    wrapMode: Text.WordWrap
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 
