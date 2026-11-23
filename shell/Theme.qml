@@ -58,7 +58,7 @@ Singleton {
     property int shadowRange: 24
     property bool customAccentActive: false
 
-    readonly property var presetNames: ["OLED Pure", "Mica Dark", "Adaptive", "Nord Frost", "Mica Monochrome"]
+    readonly property var presetNames: ["OLED Pure", "Mica Dark", "Adaptive", "Nord Frost", "Mica Monochrome", "Catppuccin Mocha"]
     readonly property var surfaceThemeNames: ["OLED Pure", "Mica Dark", "Adaptive"]
     readonly property var transitionModes: ["crossfade-scale", "crossfade", "instant"]
 
@@ -116,6 +116,24 @@ Singleton {
             cardAlpha: 0.09,
             hoverAlpha: 0.15,
             borderAlpha: 0.16
+        },
+        {
+            name: "Catppuccin Mocha",
+            subtitle: "Warm mauve • 16px • Blur 10px",
+            shortDesc: "Soothing Pastel • Mauve",
+            surfaceTheme: "Adaptive",
+            compositorKey: "ocean",
+            previewBg: "#1e1e2e",
+            previewAccent: "#cba6f7",
+            pillBg: "#1e1e2e",
+            surfaceBg: "#181825",
+            surfaceRaised: "#313244",
+            text: "#cdd6f4",
+            accent: "#cba6f7",
+            accentFg: "#11111b",
+            cardAlpha: 0.09,
+            hoverAlpha: 0.15,
+            borderAlpha: 0.18
         },
         {
             name: "Mica Dark",
