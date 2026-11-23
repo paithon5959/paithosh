@@ -1,14 +1,25 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 
 Singleton {
     id: root
 
     property bool enabled: true
+    property bool duckingEnabled: true
+    property real duckLevel: 0.30
+    property int duckDownMs: 180
+    property int duckHoldMs: 220
+    property int duckUpMs: 420
     property real volume: 0.72
     property double _lastKeyMs: 0
     property int _keyIdx: 0
+
+    property real _duckGain: 1.0
+    property int _activeSfx: 0
+    property var _savedStreams: ({})
+    property var _pendingSfx: []
 
     readonly property var _keyFiles: [
         "key-creamy-1.wav",
@@ -16,15 +27,135 @@ Singleton {
         "key-creamy-3.wav"
     ]
 
+    on_DuckGainChanged: {
+        for (const id in _savedStreams) {
+            const entry = _savedStreams[id];
+            if (entry && entry.node && entry.node.audio) {
+                entry.node.audio.volume = entry.orig * _duckGain;
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: duckAnim
+        target: root
+        property: "_duckGain"
+        onStopped: {
+            if (root._activeSfx === 0 && root._duckGain >= 0.999) {
+                root._savedStreams = ({});
+            }
+        }
+    }
+
+    Timer {
+        id: sfxDelayTimer
+        interval: root.duckDownMs
+        repeat: false
+        onTriggered: root._flushPending()
+    }
+
+    Timer {
+        id: restoreHoldTimer
+        interval: root.duckHoldMs
+        repeat: false
+        onTriggered: {
+            if (root._activeSfx === 0) {
+                root._animateDuck(1.0, root.duckUpMs, Easing.InOutSine);
+            }
+        }
+    }
+
+    Component {
+        id: sfxProcComponent
+        Process {
+            running: true
+            onExited: {
+                root._onSfxDone();
+                destroy();
+            }
+        }
+    }
+
     function _soundPath(file) {
         return Qt.resolvedUrl("../assets/sounds/" + file).toString().replace(/^file:\/\//, "");
     }
 
-    function play(file, volScale) {
+    function _snapshotStreams() {
+        const streams = AudioService.playbackStreams;
+        let count = 0;
+        for (const k in _savedStreams) {
+            if (_savedStreams[k]) count++;
+        }
+        for (let i = 0; i < streams.length; i++) {
+            const n = streams[i];
+            if (!n || !n.audio) continue;
+            const appName = n.properties ? n.properties["application.name"] : "";
+            if (n.name === "pw-play" || appName === "pw-play") continue;
+            const key = String(n.id);
+            if (_savedStreams[key] !== undefined) continue;
+            const v = n.audio.volume;
+            if (isNaN(v) || n.audio.muted || v <= 0.001) continue;
+            _savedStreams[key] = { node: n, orig: v };
+            count++;
+        }
+        return count;
+    }
+
+    function _animateDuck(toGain, durationMs, easingType) {
+        duckAnim.stop();
+        duckAnim.from = _duckGain;
+        duckAnim.to = toGain;
+        duckAnim.duration = durationMs;
+        duckAnim.easing.type = easingType;
+        duckAnim.start();
+    }
+
+    function _spawnSfx(path, vol) {
+        sfxProcComponent.createObject(root, {
+            command: ["pw-play", "--volume=" + vol.toFixed(2), path]
+        });
+    }
+
+    function _flushPending() {
+        const queue = _pendingSfx;
+        _pendingSfx = [];
+        for (let i = 0; i < queue.length; i++) {
+            _spawnSfx(queue[i].path, queue[i].vol);
+        }
+    }
+
+    function _onSfxDone() {
+        _activeSfx = Math.max(0, _activeSfx - 1);
+        if (_activeSfx === 0) {
+            restoreHoldTimer.restart();
+        }
+    }
+
+    function play(file, volScale, duck) {
         if (!enabled) return;
         const v = Math.max(0.0, Math.min(1.0, volume * (volScale !== undefined ? volScale : 1.0)));
         if (v <= 0.001) return;
-        Quickshell.execDetached(["pw-play", "--volume=" + v.toFixed(2), _soundPath(file)]);
+        const path = _soundPath(file);
+
+        if (!duckingEnabled || duck === false) {
+            Quickshell.execDetached(["pw-play", "--volume=" + v.toFixed(2), path]);
+            return;
+        }
+
+        if (_snapshotStreams() === 0 && _activeSfx === 0) {
+            Quickshell.execDetached(["pw-play", "--volume=" + v.toFixed(2), path]);
+            return;
+        }
+
+        restoreHoldTimer.stop();
+        _activeSfx += 1;
+        if (_duckGain <= duckLevel + 0.02) {
+            _spawnSfx(path, v);
+        } else {
+            _animateDuck(duckLevel, duckDownMs, Easing.InOutSine);
+            _pendingSfx.push({ path: path, vol: v });
+            if (!sfxDelayTimer.running) sfxDelayTimer.start();
+        }
     }
 
     function playShutter() { play("shutter-soft.wav", 1.0); }
@@ -41,6 +172,6 @@ Singleton {
         if (now - _lastKeyMs < 24) return;
         _lastKeyMs = now;
         _keyIdx = (_keyIdx + 1) % _keyFiles.length;
-        play(_keyFiles[_keyIdx], 0.42);
+        play(_keyFiles[_keyIdx], 0.42, false);
     }
 }

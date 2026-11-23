@@ -60,6 +60,17 @@ Singleton {
         return list;
     }
 
+    readonly property var playbackStreams: {
+        const list = [];
+        for (let i = 0; i < allNodes.length; i++) {
+            const n = allNodes[i];
+            if (n && n.audio && n.isStream && n.isSink) {
+                list.push(n);
+            }
+        }
+        return list;
+    }
+
     signal osdTriggered(string kind, int value)
 
     PwObjectTracker {
@@ -72,6 +83,9 @@ Singleton {
             }
             for (let i = 0; i < root.inputDevices.length; i++) {
                 objs.push(root.inputDevices[i]);
+            }
+            for (let i = 0; i < root.playbackStreams.length; i++) {
+                objs.push(root.playbackStreams[i]);
             }
             return objs;
         }
