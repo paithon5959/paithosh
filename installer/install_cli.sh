@@ -55,6 +55,9 @@ print(f"UNSUPPORTED_NOTE={shlex.quote(dist.get('unsupportedNote', ''))}")
 print(f"HYPR_EXISTS={'true' if cfg['hyprExists'] else 'false'}")
 print(f"HYPR_FILES={int(cfg['hyprFiles'])}")
 print(f"HYPR_KIND={shlex.quote(cfg.get('hyprConfigKind', 'none'))}")
+print(f"HYPR_MANAGED={'true' if cfg.get('hyprManagedByPaithosh') else 'false'}")
+lua_sup = cfg.get('hyprLuaSupported')
+print(f"HYPR_LUA_SUPPORTED={'true' if lua_sup is True else ('false' if lua_sup is False else 'unknown')}")
 
 def split_unique(groups):
     seen = []
@@ -77,15 +80,29 @@ echo -e "Distro: ${BOLD}$DISTRO_PRETTY${RESET} (${DIM}$PKG_MGR${RESET})"
 [[ -n "$UNSUPPORTED_NOTE" ]] && echo -e "${YELLOW}[!] $UNSUPPORTED_NOTE${RESET}"
 echo ""
 
-# 1. Hyprland config check & backup warning
+# 1. Hyprland config check, backup & default Lua config sync
 BACKUP_HYPR="false"
+SYNC_HYPR="true"
 if [[ "$HYPR_EXISTS" == "true" ]]; then
-    echo -e "${YELLOW}${BOLD}[!] Existing ~/.config/hypr detected ($HYPR_FILES files, format: $HYPR_KIND).${RESET}"
-    echo -e "${DIM}    We recommend backing it up before Paithosh updates your Hyprland autostart.${RESET}"
-    prompt_read b_ans "Backup ~/.config/hypr before installing? [Y/n]: "
+    echo -e "${YELLOW}${BOLD}[!] Existing ~/.config/hypr detected ($HYPR_FILES files, format: $HYPR_KIND${HYPR_MANAGED:+, managed: $HYPR_MANAGED}).${RESET}"
+    echo -e "${DIM}    Paithosh can back up your existing ~/.config/hypr and replace it with Paithosh's modular Lua config.${RESET}"
+    prompt_read s_ans "Replace ~/.config/hypr with Paithosh default Hyprland Lua config? [Y/n]: "
+    [[ "${s_ans,,}" == "n" ]] && SYNC_HYPR="false"
+    if [[ "$SYNC_HYPR" == "true" ]]; then
+        prompt_read b_ans "Backup ~/.config/hypr before replacing? [Y/n]: "
+    else
+        prompt_read b_ans "Backup ~/.config/hypr before updating autostart? [Y/n]: "
+    fi
     [[ "${b_ans,,}" != "n" ]] && BACKUP_HYPR="true"
-    echo ""
+else
+    prompt_read s_ans "Install Paithosh default Hyprland Lua config to ~/.config/hypr? [Y/n]: "
+    [[ "${s_ans,,}" == "n" ]] && SYNC_HYPR="false"
 fi
+
+if [[ "$SYNC_HYPR" == "true" && "$HYPR_LUA_SUPPORTED" == "false" ]]; then
+    echo -e "${YELLOW}[!] Installed Hyprland binary does not appear to link liblua — Hyprland 0.57+ is required for Lua config.${RESET}"
+fi
+echo ""
 
 # 2. Distro-filtered package audit
 echo -e "${BOLD}System Package Audit:${RESET}"
@@ -122,12 +139,14 @@ echo "  [2] Nord Frost"
 echo "  [3] Mica Dark"
 echo "  [4] Adaptive"
 echo "  [5] Mica Monochrome"
-prompt_read t_ans "Choice [1-5, default 1]: "
+echo "  [6] Catppuccin Mocha"
+prompt_read t_ans "Choice [1-6, default 1]: "
 case "${t_ans:-1}" in
     2) THEME_PRESET="Nord Frost" ;;
     3) THEME_PRESET="Mica Dark" ;;
     4) THEME_PRESET="Adaptive" ;;
     5) THEME_PRESET="Mica Monochrome" ;;
+    6) THEME_PRESET="Catppuccin Mocha" ;;
     *) THEME_PRESET="OLED Pure" ;;
 esac
 
@@ -135,7 +154,7 @@ prompt_read b_pos "Bar position [top/bottom, default top]: "
 BAR_POSITION="${b_pos,,}"
 [[ "$BAR_POSITION" != "bottom" ]] && BAR_POSITION="top"
 
-if [[ "$HYPR_KIND" == "lua" ]]; then
+if [[ "$SYNC_HYPR" == "true" || "$HYPR_KIND" == "lua" ]]; then
     prompt_read a_ans "Add Paithosh autostart to Hyprland Lua config? [Y/n]: "
 else
     prompt_read a_ans "Add Paithosh autostart (exec-once) to ~/.config/hypr/hyprland.conf? [Y/n]: "
@@ -150,6 +169,7 @@ SETUP_PORTALS="true"
 echo ""
 echo -e "${BOLD}Summary:${RESET}"
 echo "  Backup ~/.config/hypr : $BACKUP_HYPR (format: $HYPR_KIND)"
+echo "  Hyprland default sync : $SYNC_HYPR"
 echo "  Packages to install   : ${SELECTED_PKGS:-none}"
 echo "  Theme / Bar           : $THEME_PRESET / $BAR_POSITION"
 echo "  Hyprland autostart    : $AUTOSTART"
@@ -164,6 +184,7 @@ fi
 
 APPLY_ARGS=(
     --backup-hypr "$BACKUP_HYPR"
+    --sync-hypr "$SYNC_HYPR"
     --packages "$SELECTED_PKGS"
     --theme "$THEME_PRESET"
     --bar-position "$BAR_POSITION"

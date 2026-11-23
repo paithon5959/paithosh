@@ -329,6 +329,18 @@ EOF
 
     if [[ -z "$SCRIPT_DIR" || ! -f "$SCRIPT_DIR/installer/lib/audit.sh" || ! -f "$SCRIPT_DIR/installer/install_cli.sh" ]]; then
         bootstrap_and_reexec
+    elif [[ -n "$CUSTOM_INSTALL_DIR" && "${PAITHOSH_BOOTSTRAPPED:-0}" != "1" ]]; then
+        local resolved_custom=""
+        if command -v realpath >/dev/null 2>&1; then
+            resolved_custom="$(realpath -m "$CUSTOM_INSTALL_DIR")"
+        elif [[ -d "$CUSTOM_INSTALL_DIR" ]]; then
+            resolved_custom="$(cd "$CUSTOM_INSTALL_DIR" && pwd)"
+        else
+            resolved_custom="${CUSTOM_INSTALL_DIR%/}"
+        fi
+        if [[ "$resolved_custom" != "$SCRIPT_DIR" ]]; then
+            bootstrap_and_reexec
+        fi
     fi
 
     # shellcheck source=installer/lib/audit.sh

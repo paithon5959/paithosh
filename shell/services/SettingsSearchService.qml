@@ -152,6 +152,15 @@ QtObject {
             icon: "⚡"
         },
         {
+            id: "updates-hypr-sync",
+            page: "updates",
+            pageLabel: "Updates",
+            title: "Hyprland Default Config",
+            subtitle: "Sync defaults/hypr Lua config & automatic backup",
+            keywords: "hyprland config lua defaults sync backup",
+            icon: "⚡"
+        },
+        {
             id: "updates-packages",
             page: "updates",
             pageLabel: "Updates",

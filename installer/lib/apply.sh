@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$SCRIPT_DIR/audit.sh"
 
 BACKUP_HYPR="false"
+SYNC_HYPR="false"
 INSTALL_PKGS=""
 THEME_PRESET="OLED Pure"
 BAR_POSITION="top"
@@ -25,6 +26,7 @@ require_arg() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --backup-hypr) require_arg $# "$1"; BACKUP_HYPR="$2"; shift 2 ;;
+        --sync-hypr) require_arg $# "$1"; SYNC_HYPR="$2"; shift 2 ;;
         --packages) require_arg $# "$1"; INSTALL_PKGS="$2"; shift 2 ;;
         --theme) require_arg $# "$1"; THEME_PRESET="$2"; shift 2 ;;
         --bar-position) require_arg $# "$1"; BAR_POSITION="$2"; shift 2 ;;
@@ -138,18 +140,37 @@ if [[ "$SUDO_STDIN" == "true" ]]; then
     fi
 fi
 
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
 # 1. Backup existing ~/.config/hypr if requested
-emit_step "1/5" "Checking Hyprland configuration backup..."
-HYPR_DIR="${HOME}/.config/hypr"
-if [[ "$BACKUP_HYPR" == "true" && -d "$HYPR_DIR" ]]; then
+emit_step "1/6" "Checking Hyprland configuration backup..."
+HYPR_DIR="${CONFIG_HOME}/hypr"
+DID_BACKUP="false"
+HYPR_HAS_CONTENT="false"
+if [[ -L "$HYPR_DIR" ]]; then
+    HYPR_HAS_CONTENT="true"
+elif [[ -d "$HYPR_DIR" ]] && [[ -n "$(find -L "$HYPR_DIR" -maxdepth 3 -type f -print -quit 2>/dev/null)" ]]; then
+    HYPR_HAS_CONTENT="true"
+elif [[ -e "$HYPR_DIR" && ! -d "$HYPR_DIR" ]]; then
+    HYPR_HAS_CONTENT="true"
+fi
+
+if [[ "$BACKUP_HYPR" == "true" && "$HYPR_HAS_CONTENT" == "true" ]]; then
     TS="$(date +%Y%m%d_%H%M%S)"
-    BACKUP_PATH="${HOME}/.config/hypr.bak.${TS}"
+    BACKUP_BASE="${CONFIG_HOME}/hypr.bak.${TS}"
+    BACKUP_PATH="$BACKUP_BASE"
+    BKP_IDX=1
+    while [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; do
+        BACKUP_PATH="${BACKUP_BASE}.${BKP_IDX}"
+        BKP_IDX=$((BKP_IDX + 1))
+    done
     echo "[paithosh] Backing up $HYPR_DIR -> $BACKUP_PATH"
     run_cmd cp -a "$HYPR_DIR" "$BACKUP_PATH"
+    DID_BACKUP="true"
 fi
 
 # 2. Install selected missing packages using distro-appropriate package manager
-emit_step "2/5" "Installing selected system packages..."
+emit_step "2/6" "Installing selected system packages..."
 if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
     echo "[paithosh] Installing packages (${#PKG_LIST[@]}): ${PKG_LIST[*]}"
     if [[ "$FAMILY" == "fedora" ]]; then
@@ -167,7 +188,13 @@ if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
     fi
 
     case "$PKG_MGR" in
-        pacman) run_privileged pacman -S --needed --noconfirm "${PKG_LIST[@]}" ;;
+        pacman)
+            if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
+                run_privileged pacman -Sy --needed --noconfirm "${PKG_LIST[@]}"
+            else
+                run_privileged pacman -S --needed --noconfirm "${PKG_LIST[@]}"
+            fi
+            ;;
         paru)
             if [[ ! -t 0 ]]; then
                 run_aur_helper paru -S --needed --noconfirm --skipreview "${PKG_LIST[@]}"
@@ -197,8 +224,8 @@ else
 fi
 
 # 3. Create Paithosh directories & initial settings
-emit_step "3/5" "Writing Paithosh settings & directories..."
-PAITHOSH_DIR="${HOME}/.config/paithosh"
+emit_step "3/6" "Writing Paithosh settings & directories..."
+PAITHOSH_DIR="${CONFIG_HOME}/paithosh"
 SHOTS_DIR="${HOME}/Pictures/Screenshots"
 run_cmd mkdir -p "$PAITHOSH_DIR" "$SHOTS_DIR"
 
@@ -215,6 +242,7 @@ surface_map = {
     "Mica Monochrome": "Mica Dark",
     "Mica Dark": "Mica Dark",
     "Adaptive": "Adaptive",
+    "Catppuccin Mocha": "Adaptive",
 }
 data = {}
 if os.path.exists(path):
@@ -236,17 +264,50 @@ print(f"[paithosh] Saved {path}")
 PY
 fi
 
-# 4. Hyprland autostart integration (supports both Hyprland Lua & classic .conf)
-emit_step "4/5" "Configuring Hyprland autostart..."
-if [[ "$AUTOSTART" == "true" ]]; then
-    SHELL_CMD="qs -p ${REPO_ROOT}/shell"
-    LAUNCH_RE='qs[[:space:]]+-p[[:space:]]+.*(paithosh/shell|shell/shell\.qml)'
-    AUTOSTART_LUA="${HYPR_DIR}/config/autostart.lua"
-    HYPR_LUA="${HYPR_DIR}/hyprland.lua"
-    HYPR_CONF="${HYPR_DIR}/hyprland.conf"
+# 4. Sync default Hyprland Lua configuration if requested
+emit_step "4/6" "Syncing default Hyprland configuration..."
+if [[ "$SYNC_HYPR" == "true" ]]; then
+    SYNC_ARGS=(--repo-root "$REPO_ROOT" --mode replace --no-reload)
+    [[ "$DRY_RUN" == "true" ]] && SYNC_ARGS+=(--dry-run)
+    if [[ "$DID_BACKUP" == "true" || "$BACKUP_HYPR" != "true" ]]; then
+        SYNC_ARGS+=(--no-backup)
+    fi
+    bash "$SCRIPT_DIR/sync-hypr.sh" "${SYNC_ARGS[@]}"
+else
+    echo "[paithosh] Skipping default Hyprland config sync (keeping existing config)."
+fi
 
-    if [[ -f "$AUTOSTART_LUA" ]]; then
-        if grep -Eq "$LAUNCH_RE" "$AUTOSTART_LUA"; then
+# 5. Hyprland autostart integration (supports both Hyprland Lua & classic .conf)
+emit_step "5/6" "Configuring Hyprland autostart..."
+AUTOSTART_LUA="${HYPR_DIR}/config/autostart.lua"
+HYPR_LUA="${HYPR_DIR}/hyprland.lua"
+HYPR_CONF="${HYPR_DIR}/hyprland.conf"
+
+has_paithosh_launch() {
+    local f="$1"
+    [[ -f "$f" ]] || return 1
+    if grep -Eq 'qs[[:space:]]+-p[[:space:]]+.*(paithosh/shell|shell/shell\.qml|paithosh\.root)' "$f"; then
+        return 0
+    fi
+    if grep -Eq 'qs[[:space:]]+-p' "$f" && grep -Fq "${REPO_ROOT}/shell" "$f"; then
+        return 0
+    fi
+    return 1
+}
+
+if [[ "$AUTOSTART" == "true" ]]; then
+    _sq="'"
+    if [[ "$REPO_ROOT" == *[[:space:]"$_sq"\"\\]* ]]; then
+        escaped_shell_arg="${_sq}${REPO_ROOT//"$_sq"/"$_sq\\$_sq$_sq"}/shell${_sq}"
+        SHELL_CMD="qs -p ${escaped_shell_arg}"
+    else
+        SHELL_CMD="qs -p ${REPO_ROOT}/shell"
+    fi
+
+    if [[ "$DRY_RUN" == "true" && "$SYNC_HYPR" == "true" ]]; then
+        echo "[dry-run] Hyprland Lua autostart already provided by synced config/autostart.lua"
+    elif [[ -f "$AUTOSTART_LUA" ]]; then
+        if has_paithosh_launch "$AUTOSTART_LUA"; then
             echo "[paithosh] Autostart already present in $AUTOSTART_LUA"
         elif [[ "$DRY_RUN" == "true" ]]; then
             echo "[dry-run] Ensure hl.exec_cmd(\"$SHELL_CMD\") in $AUTOSTART_LUA"
@@ -255,7 +316,8 @@ if [[ "$AUTOSTART" == "true" ]]; then
 import re, sys
 path, cmd = sys.argv[1:3]
 txt = open(path, "r", encoding="utf-8").read()
-line = f'    hl.exec_cmd("{cmd}")'
+lua_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
+line = f'    hl.exec_cmd("{lua_cmd}")'
 hm = re.search(r'hl\.on\(\s*["\']hyprland\.start["\']', txt)
 m = re.search(r'(?m)^([ \t]*)end\)', txt[hm.end():]) if hm else None
 if hm and m:
@@ -270,12 +332,20 @@ PY
             echo "[paithosh] Added autostart to $AUTOSTART_LUA"
         fi
     elif [[ -f "$HYPR_LUA" ]]; then
-        if grep -Eq "$LAUNCH_RE" "$HYPR_LUA"; then
+        if has_paithosh_launch "$HYPR_LUA"; then
             echo "[paithosh] Autostart already present in $HYPR_LUA"
         elif [[ "$DRY_RUN" == "true" ]]; then
             echo "[dry-run] Ensure hl.exec_cmd(\"$SHELL_CMD\") in $HYPR_LUA"
         else
-            printf '\n-- Paithosh Shell\nhl.on("hyprland.start", function()\n    hl.exec_cmd("%s")\nend)\n' "$SHELL_CMD" >> "$HYPR_LUA"
+            python3 - "$HYPR_LUA" "$SHELL_CMD" <<'PY'
+import sys
+path, cmd = sys.argv[1:3]
+txt = open(path, "r", encoding="utf-8").read()
+lua_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
+sep = "" if (not txt or txt.endswith("\n")) else "\n"
+with open(path, "w", encoding="utf-8") as f:
+    f.write(txt + f'{sep}\n-- Paithosh Shell\nhl.on("hyprland.start", function()\n    hl.exec_cmd("{lua_cmd}")\nend)\n')
+PY
             echo "[paithosh] Added autostart to $HYPR_LUA"
         fi
     else
@@ -285,7 +355,7 @@ PY
         else
             mkdir -p "$HYPR_DIR"
             touch "$HYPR_CONF"
-            if ! grep -Eq "$LAUNCH_RE" "$HYPR_CONF"; then
+            if ! has_paithosh_launch "$HYPR_CONF"; then
                 printf '\n# Paithosh Shell\n%s\n' "$EXEC_LINE" >> "$HYPR_CONF"
                 echo "[paithosh] Added autostart to $HYPR_CONF"
             else
@@ -293,15 +363,38 @@ PY
             fi
         fi
     fi
+elif [[ "$SYNC_HYPR" == "true" ]]; then
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "[dry-run] Would disable qs -p autostart in $AUTOSTART_LUA"
+    elif [[ -f "$AUTOSTART_LUA" ]]; then
+        python3 - "$AUTOSTART_LUA" <<'PY'
+import re, sys
+path = sys.argv[1]
+txt = open(path, "r", encoding="utf-8").read()
+out_lines = []
+changed = False
+for line in txt.splitlines(keepends=True):
+    if not line.lstrip().startswith("--") and re.search(r'hl\.exec_cmd\(.*qs\s+-p', line):
+        indent = line[:len(line) - len(line.lstrip())]
+        out_lines.append(indent + "-- " + line.lstrip())
+        changed = True
+    else:
+        out_lines.append(line)
+if changed:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("".join(out_lines))
+PY
+        echo "[paithosh] Disabled autostart in $AUTOSTART_LUA as requested."
+    fi
 fi
 
-# 5. XDG Desktop Portals (Screen Share picker + FileChooser D-Bus service)
-emit_step "5/5" "Registering XDG Desktop Portals..."
+# 6. XDG Desktop Portals (Screen Share picker + FileChooser D-Bus service)
+emit_step "6/6" "Registering XDG Desktop Portals..."
 if [[ "$SETUP_PORTALS" == "true" ]]; then
     LOCAL_BIN="${HOME}/.local/bin"
     DBUS_DIR="${HOME}/.local/share/dbus-1/services"
     PORTALS_DIR="${HOME}/.local/share/xdg-desktop-portal/portals"
-    XDP_CFG_DIR="${HOME}/.config/xdg-desktop-portal"
+    XDP_CFG_DIR="${CONFIG_HOME}/xdg-desktop-portal"
     PORTALS_CONF="${XDP_CFG_DIR}/hyprland-portals.conf"
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -326,18 +419,55 @@ Interfaces=org.freedesktop.impl.portal.FileChooser;
 UseIn=Hyprland;hyprland
 EOF
 
-        if [[ ! -f "$PORTALS_CONF" ]]; then
-            cat > "$PORTALS_CONF" <<'EOF'
-[preferred]
-default=hyprland;gtk
-org.freedesktop.impl.portal.FileChooser=paithosh
-EOF
-        elif ! grep -Eq '^[[:space:]]*org\.freedesktop\.impl\.portal\.FileChooser=' "$PORTALS_CONF"; then
-            if ! grep -Eq '^[[:space:]]*\[preferred\]' "$PORTALS_CONF"; then
-                printf '\n[preferred]\ndefault=hyprland;gtk\n' >> "$PORTALS_CONF"
-            fi
-            printf 'org.freedesktop.impl.portal.FileChooser=paithosh\n' >> "$PORTALS_CONF"
-        fi
+        python3 - "$PORTALS_CONF" <<'PY'
+import os, re, sys
+
+conf_path = sys.argv[1]
+target_line = "org.freedesktop.impl.portal.FileChooser=paithosh\n"
+
+if not os.path.exists(conf_path):
+    with open(conf_path, "w", encoding="utf-8") as f:
+        f.write("[preferred]\ndefault=hyprland;gtk\n" + target_line)
+    sys.exit(0)
+
+with open(conf_path, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+pref_start = None
+pref_end = len(lines)
+for idx, ln in enumerate(lines):
+    s = ln.strip()
+    if pref_start is None:
+        if re.match(r'^\[preferred\]\s*(#.*)?$', s, re.IGNORECASE):
+            pref_start = idx
+    elif s.startswith("[") and "]" in s:
+        pref_end = idx
+        break
+
+if pref_start is None:
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    if lines and lines[-1].strip() != "":
+        lines.append("\n")
+    lines.extend(["[preferred]\n", "default=hyprland;gtk\n", target_line])
+else:
+    replaced = False
+    for idx in range(pref_start + 1, pref_end):
+        if re.match(r'^\s*org\.freedesktop\.impl\.portal\.FileChooser\s*=', lines[idx]):
+            lines[idx] = target_line
+            replaced = True
+            break
+    if not replaced:
+        insert_at = pref_end
+        while insert_at > pref_start + 1 and lines[insert_at - 1].strip() == "":
+            insert_at -= 1
+        if insert_at > 0 and not lines[insert_at - 1].endswith("\n"):
+            lines[insert_at - 1] += "\n"
+        lines.insert(insert_at, target_line)
+
+with open(conf_path, "w", encoding="utf-8") as f:
+    f.writelines(lines)
+PY
         echo "[paithosh] XDG Desktop Portals configured."
     fi
 fi

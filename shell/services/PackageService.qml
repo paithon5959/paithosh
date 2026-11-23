@@ -40,6 +40,14 @@ Singleton {
     property var shellCommits: []
     property string shellUpdateError: ""
 
+    // Default Hyprland Lua config sync state
+    property string hyprSyncState: "" // "synced" | "outdated" | "unmanaged" | "missing" | ""
+    property string hyprSyncMessage: ""
+    property string hyprSyncError: ""
+    property bool hyprSyncing: false
+    property int hyprModifiedCount: 0
+    property int hyprPendingCount: 0
+
     // Concise status bar event state (never uses notification popup)
     property bool statusEventOpen: false
     property string statusEventText: ""
@@ -48,6 +56,8 @@ Singleton {
         if (backingUpBeforeUpdate) return "Pre-update snapshot...";
         if (updating) return "Updating " + selectedCount + (selectedCount === 1 ? " pkg..." : " pkgs...");
         if (cleaningCache) return "Cleaning cache... " + cleanCacheProgress + "%";
+        if (shellUpdating) return "Updating shell...";
+        if (hyprSyncing) return "Syncing Hyprland...";
         return "";
     }
 
@@ -450,6 +460,7 @@ Singleton {
         onTriggered: {
             root.checkUpdates(false);
             root.checkShellUpdate();
+            root.checkHyprSyncStatus();
         }
     }
 
@@ -710,24 +721,79 @@ Singleton {
         }
     }
 
+    function extractShellError(raw) {
+        const lines = (raw || "").split("\n").map(s => s.trim()).filter(s => s.length > 0);
+        if (lines.length === 0) return "";
+        const filtered = lines.filter(ln => !/^From\s+/i.test(ln) && !/^hint:/i.test(ln) && !/^[0-9a-f]+\.\.[0-9a-f]+\s+/i.test(ln));
+        const pool = filtered.length > 0 ? filtered : lines;
+        for (let i = 0; i < pool.length; ++i) {
+            if (/^(fatal:|error:|\[paithosh\])/i.test(pool[i])) {
+                return pool[i];
+            }
+        }
+        return pool[pool.length - 1];
+    }
+
     function checkShellUpdate() {
         if (shellChecking || shellUpdating) return;
         shellChecking = true;
         shellCheckedOnce = true;
         shellUpdateError = "";
         shellCheckProc.outBuf = "";
+        shellCheckProc.errBuf = "";
+        shellCheckProc._stdoutDone = false;
+        shellCheckProc._stderrDone = false;
+        shellCheckProc._exited = false;
+        shellCheckProc._exitCode = -1;
         shellCheckProc.running = false;
         shellCheckProc.running = true;
     }
 
     function updateShell() {
-        if (shellChecking || shellUpdating) return;
+        if (shellChecking || shellUpdating || hyprSyncing) return;
         shellUpdating = true;
         shellUpdateError = "";
+        shellUpdateProc.outBuf = "";
         shellUpdateProc.errBuf = "";
+        shellUpdateProc._stdoutDone = false;
+        shellUpdateProc._stderrDone = false;
+        shellUpdateProc._exited = false;
+        shellUpdateProc._exitCode = -1;
         triggerStatusEvent("Updating Paithosh Shell...", "info", false);
         shellUpdateProc.running = false;
         shellUpdateProc.running = true;
+    }
+
+    function checkHyprSyncStatus() {
+        if (hyprSyncStatusProc.running || hyprSyncing) return;
+        hyprSyncStatusProc.outBuf = "";
+        hyprSyncStatusProc.errBuf = "";
+        hyprSyncStatusProc._stdoutDone = false;
+        hyprSyncStatusProc._stderrDone = false;
+        hyprSyncStatusProc._exited = false;
+        hyprSyncStatusProc._exitCode = -1;
+        hyprSyncStatusProc.running = true;
+    }
+
+    function syncHyprConfig(mode) {
+        if (hyprSyncing || shellUpdating) return;
+        const syncMode = (mode === "update") ? "update" : "replace";
+        hyprSyncing = true;
+        hyprSyncError = "";
+        hyprSyncProc.outBuf = "";
+        hyprSyncProc.errBuf = "";
+        hyprSyncProc._stdoutDone = false;
+        hyprSyncProc._stderrDone = false;
+        hyprSyncProc._exited = false;
+        hyprSyncProc._exitCode = -1;
+        hyprSyncProc.command = [
+            "bash", root.shellProjectRoot + "/installer/lib/sync-hypr.sh",
+            "--repo-root", root.shellProjectRoot,
+            "--mode", syncMode
+        ];
+        triggerStatusEvent(syncMode === "update" ? "Updating Hyprland config..." : "Syncing Hyprland defaults...", "info", false);
+        hyprSyncProc.running = false;
+        hyprSyncProc.running = true;
     }
 
     Timer {
@@ -742,29 +808,18 @@ Singleton {
     Process {
         id: shellCheckProc
         property string outBuf: ""
-        command: [
-            "sh", "-c",
-            "dir=\"$1\"; " +
-            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'ERR=Not a git repository'; exit 1; }; " +
-            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || echo HEAD); " +
-            "local_hash=$(git -C \"$dir\" rev-parse --short HEAD 2>/dev/null || echo ''); " +
-            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo \"origin/$branch\"); " +
-            "remote=\"${upstream%%/*}\"; " +
-            "git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
-            "git -C \"$dir\" rev-parse --verify \"$upstream\" >/dev/null 2>&1 || { echo \"ERR=Remote branch $upstream not found\"; exit 1; }; " +
-            "behind=$(git -C \"$dir\" rev-list --count \"HEAD..$upstream\" 2>/dev/null || echo 0); " +
-            "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$upstream\" 2>/dev/null || echo ''); " +
-            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"; " +
-            "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..$upstream\" 2>/dev/null || true",
-            "sh", root.shellProjectRoot
-        ]
-        stdout: StdioCollector {
-            onStreamFinished: shellCheckProc.outBuf = text || ""
-        }
-        onExited: function(exitCode) {
+        property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
             root.shellChecking = false;
             const prevBehind = root.shellUpdateBehind;
-            const lines = (shellCheckProc.outBuf || "").trim().split("\n");
+            const lines = (outBuf || "").trim().split("\n");
             let err = "";
             const commits = [];
             for (let i = 0; i < lines.length; ++i) {
@@ -783,9 +838,10 @@ Singleton {
                     else commits.push({ hash: v, subject: "" });
                 }
             }
-            root.shellCommits = (exitCode === 0 && root.shellUpdateBehind > 0) ? commits : [];
-            if (exitCode !== 0) {
-                root.shellUpdateError = err !== "" ? err : "Failed to check shell updates";
+            root.shellCommits = (_exitCode === 0 && root.shellUpdateBehind > 0) ? commits : [];
+            if (_exitCode !== 0) {
+                const fallbackErr = root.extractShellError(errBuf);
+                root.shellUpdateError = err !== "" ? err : (fallbackErr !== "" ? fallbackErr : "Failed to check shell updates");
             } else {
                 root.shellUpdateError = "";
                 if (root.shellUpdateBehind > 0 && root.shellUpdateBehind > prevBehind) {
@@ -793,42 +849,221 @@ Singleton {
                 }
             }
         }
+
+        command: [
+            "sh", "-c",
+            "dir=\"$1\"; " +
+            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'ERR=Not a git repository'; exit 1; }; " +
+            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || echo HEAD); " +
+            "local_hash=$(git -C \"$dir\" rev-parse --short HEAD 2>/dev/null || echo ''); " +
+            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo ''); " +
+            "if [ -z \"$upstream\" ]; then cfg_remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); upstream=\"${cfg_remote}/${branch}\"; fi; " +
+            "remote=\"${upstream%%/*}\"; " +
+            "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
+            "git -C \"$dir\" rev-parse --verify \"$upstream\" >/dev/null 2>&1 || { echo \"ERR=Remote branch $upstream not found\"; exit 1; }; " +
+            "behind=$(git -C \"$dir\" rev-list --count \"HEAD..$upstream\" 2>/dev/null || echo 0); " +
+            "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$upstream\" 2>/dev/null || echo ''); " +
+            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"; " +
+            "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..$upstream\" 2>/dev/null || true",
+            "sh", root.shellProjectRoot
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                shellCheckProc.outBuf = text || "";
+                shellCheckProc._stdoutDone = true;
+                shellCheckProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                shellCheckProc.errBuf = text || "";
+                shellCheckProc._stderrDone = true;
+                shellCheckProc.tryFinish();
+            }
+        }
+        onExited: function(exitCode) {
+            shellCheckProc._exitCode = exitCode;
+            shellCheckProc._exited = true;
+            shellCheckProc.tryFinish();
+        }
     }
 
     Process {
         id: shellUpdateProc
+        property string outBuf: ""
         property string errBuf: ""
-        command: [
-            "sh", "-c",
-            "dir=\"$1\"; " +
-            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repository' >&2; exit 1; }; " +
-            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
-            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true); " +
-            "if [ -n \"$upstream\" ]; then git -C \"$dir\" pull --ff-only; " +
-            "elif [ -n \"$branch\" ]; then git -C \"$dir\" pull --ff-only origin \"$branch\"; " +
-            "else echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; fi; " +
-            "if [ -x \"$dir/installer/lib/sync-hypr.sh\" ] || [ -f \"$dir/installer/lib/sync-hypr.sh\" ]; then " +
-            "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --if-needed; fi",
-            "sh", root.shellProjectRoot
-        ]
-        stderr: SplitParser {
-            onRead: data => {
-                shellUpdateProc.errBuf += (shellUpdateProc.errBuf !== "" ? "\n" : "") + data;
-            }
-        }
-        onExited: function(exitCode) {
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
             root.shellUpdating = false;
-            if (exitCode === 0) {
+            if (_exitCode === 0) {
                 root.shellUpdateBehind = 0;
                 root.shellLatestSummary = "";
+                root.shellCommits = [];
                 root.shellUpdateError = "";
+                root.checkHyprSyncStatus();
                 root.triggerStatusEvent("Paithosh Shell updated — reloading...", "ok", true);
                 shellReloadTimer.restart();
             } else {
-                const firstErr = (shellUpdateProc.errBuf || "").trim().split("\n")[0] || "";
-                root.shellUpdateError = firstErr !== "" ? firstErr : "Fast-forward pull failed";
+                const parsedErr = root.extractShellError(errBuf);
+                root.shellUpdateError = parsedErr !== "" ? parsedErr : "Fast-forward pull failed";
                 root.triggerStatusEvent("Shell update failed", "danger", true);
             }
+        }
+
+        command: [
+            "sh", "-c",
+            "set -eu; dir=\"$1\"; " +
+            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repository' >&2; exit 1; }; " +
+            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
+            "[ -n \"$branch\" ] || { echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; }; " +
+            "if ! git -C \"$dir\" diff --quiet || ! git -C \"$dir\" diff --cached --quiet; then " +
+            "echo 'error: Local modifications in repository block fast-forward update' >&2; exit 1; fi; " +
+            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true); " +
+            "if [ -n \"$upstream\" ]; then GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" pull --ff-only --quiet; " +
+            "else remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); " +
+            "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" pull --ff-only --quiet \"$remote\" \"$branch\"; fi; " +
+            "if [ -f \"$dir/installer/lib/sync-hypr.sh\" ]; then " +
+            "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --mode update; fi",
+            "sh", root.shellProjectRoot
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                shellUpdateProc.outBuf = text || "";
+                shellUpdateProc._stdoutDone = true;
+                shellUpdateProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                shellUpdateProc.errBuf = text || "";
+                shellUpdateProc._stderrDone = true;
+                shellUpdateProc.tryFinish();
+            }
+        }
+        onExited: function(exitCode) {
+            shellUpdateProc._exitCode = exitCode;
+            shellUpdateProc._exited = true;
+            shellUpdateProc.tryFinish();
+        }
+    }
+
+    Process {
+        id: hyprSyncStatusProc
+        property string outBuf: ""
+        property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
+            if (_exitCode !== 0) {
+                const parsedErr = root.extractShellError(errBuf);
+                if (parsedErr !== "") root.hyprSyncError = parsedErr;
+                return;
+            }
+            try {
+                const data = JSON.parse((outBuf || "").trim());
+                const st = data.state || "";
+                const modCount = Array.isArray(data.modifiedFiles) ? data.modifiedFiles.length : 0;
+                const pendCount = (Array.isArray(data.pendingFiles) ? data.pendingFiles.length : 0) + (data.rootMismatch ? 1 : 0);
+                root.hyprSyncState = st;
+                root.hyprModifiedCount = modCount;
+                root.hyprPendingCount = pendCount;
+                root.hyprSyncError = "";
+                if (st === "synced") {
+                    root.hyprSyncMessage = modCount > 0
+                        ? ("Synced with defaults • " + modCount + " custom file(s) preserved")
+                        : "Synced with defaults/hypr";
+                } else if (st === "outdated") {
+                    root.hyprSyncMessage = pendCount + (pendCount === 1 ? " default update available" : " default updates available")
+                        + (modCount > 0 ? (" • " + modCount + " custom preserved") : "");
+                } else if (st === "unmanaged") {
+                    root.hyprSyncMessage = "Custom ~/.config/hypr detected (auto-sync skipped; click Sync Defaults to back up & apply)";
+                } else if (st === "missing") {
+                    root.hyprSyncMessage = "~/.config/hypr not configured yet";
+                } else {
+                    root.hyprSyncMessage = "";
+                }
+            } catch (e) {}
+        }
+
+        command: [
+            "bash", root.shellProjectRoot + "/installer/lib/sync-hypr.sh",
+            "--repo-root", root.shellProjectRoot,
+            "--status"
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                hyprSyncStatusProc.outBuf = text || "";
+                hyprSyncStatusProc._stdoutDone = true;
+                hyprSyncStatusProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                hyprSyncStatusProc.errBuf = text || "";
+                hyprSyncStatusProc._stderrDone = true;
+                hyprSyncStatusProc.tryFinish();
+            }
+        }
+        onExited: function(exitCode) {
+            hyprSyncStatusProc._exitCode = exitCode;
+            hyprSyncStatusProc._exited = true;
+            hyprSyncStatusProc.tryFinish();
+        }
+    }
+
+    Process {
+        id: hyprSyncProc
+        property string outBuf: ""
+        property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
+            root.hyprSyncing = false;
+            root.checkHyprSyncStatus();
+            if (_exitCode === 0) {
+                root.hyprSyncError = "";
+                root.triggerStatusEvent("Hyprland config synced", "ok", true);
+            } else {
+                const parsedErr = root.extractShellError(errBuf);
+                root.hyprSyncError = parsedErr !== "" ? parsedErr : "Failed to sync Hyprland config";
+                root.triggerStatusEvent("Hyprland sync failed", "danger", true);
+            }
+        }
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                hyprSyncProc.outBuf = text || "";
+                hyprSyncProc._stdoutDone = true;
+                hyprSyncProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                hyprSyncProc.errBuf = text || "";
+                hyprSyncProc._stderrDone = true;
+                hyprSyncProc.tryFinish();
+            }
+        }
+        onExited: function(exitCode) {
+            hyprSyncProc._exitCode = exitCode;
+            hyprSyncProc._exited = true;
+            hyprSyncProc.tryFinish();
         }
     }
 }

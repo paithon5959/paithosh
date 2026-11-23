@@ -35,12 +35,13 @@ trap cleanup EXIT
 run_self_checks() {
     TMP_HOME="$(mktemp -d /tmp/paithosh-installer-check.XXXXXX)"
 
-    echo "[1/6] Checking shell & Python script syntax..."
+    echo "[1/7] Checking shell & Python script syntax..."
     local sh_files=(
         "$REPO_ROOT/install.sh"
         "$REPO_ROOT/installer/install_cli.sh"
         "$REPO_ROOT/installer/lib/audit.sh"
         "$REPO_ROOT/installer/lib/apply.sh"
+        "$REPO_ROOT/installer/lib/sync-hypr.sh"
         "$REPO_ROOT/installer/test_installer.sh"
         "$REPO_ROOT/shell/scripts/xdph-share-picker.sh"
         "$REPO_ROOT/shell/scripts/screen-record.sh"
@@ -51,7 +52,7 @@ run_self_checks() {
     python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py"
     echo "  PASS: syntax checks clean"
 
-    echo "[2/6] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
+    echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
     for os in arch fedora debian ubuntu; do
         local json_out
         json_out="$(HOME="$TMP_HOME" PAITHOSH_MOCK_OS="$os" bash "$REPO_ROOT/installer/lib/audit.sh" --json)"
@@ -85,24 +86,25 @@ PY
     done
     echo "  PASS: 4-distro audit mappings verified"
 
-    echo "[3/6] Checking install_cli.sh --dry-run piped flow..."
+    echo "[3/7] Checking install_cli.sh --dry-run piped flow..."
     local cli_home="$TMP_HOME/cli"
     mkdir -p "$cli_home/.config/hypr/config"
     touch "$cli_home/.config/hypr/hyprland.lua" "$cli_home/.config/hypr/config/autostart.lua"
     local has_missing cli_in cli_out
     has_missing="$(HOME="$cli_home" bash "$REPO_ROOT/installer/lib/audit.sh" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print("1" if any(not p["installed"] for p in d["packages"]) else "0")')"
     if [[ "$has_missing" == "1" ]]; then
-        cli_in=$'\n4\n2\nBOTTOM\ny\ny\ny\n'
+        cli_in=$'\n\n4\n6\nBOTTOM\ny\ny\ny\n'
     else
-        cli_in=$'\n2\nBOTTOM\ny\ny\ny\n'
+        cli_in=$'\n\n6\nBOTTOM\ny\ny\ny\n'
     fi
     cli_out="$(printf '%s' "$cli_in" | HOME="$cli_home" PAITHOSH_INSTALLER_DRY_RUN=1 bash "$REPO_ROOT/installer/install_cli.sh")"
-    grep -q "Nord Frost" <<<"$cli_out"
+    grep -q "Hyprland default sync : true" <<<"$cli_out"
+    grep -q "Catppuccin Mocha" <<<"$cli_out"
     grep -q "barPosition=bottom" <<<"$cli_out"
     grep -q "Registering XDG Desktop Portals" <<<"$cli_out"
     echo "  PASS: CLI dry-run piped execution verified"
 
-    echo "[4/6] Checking apply.sh Lua & .conf idempotency + XDG portals..."
+    echo "[4/7] Checking apply.sh Lua & .conf idempotency + XDG portals..."
     local lua_home="$TMP_HOME/lua"
     mkdir -p "$lua_home/.config/hypr/config"
     cat > "$lua_home/.config/hypr/hyprland.lua" <<'EOF'
@@ -148,7 +150,7 @@ PY
     [[ "$(grep -c "exec-once = qs -p " "$conf_home/.config/hypr/hyprland.conf")" -eq 1 ]]
     echo "  PASS: Lua & classic .conf apply idempotency + XDG portals verified"
 
-    echo "[5/6] Checking symlink resolution for xdph-share-picker.sh..."
+    echo "[5/7] Checking symlink resolution for xdph-share-picker.sh..."
     local resolved_qml
     resolved_qml="$(bash -c '
         SCRIPT_REAL="$(readlink -f "$1")"
@@ -158,7 +160,7 @@ PY
     grep -Fq 'readlink -f' "$REPO_ROOT/shell/scripts/xdph-share-picker.sh"
     echo "  PASS: symlink resolution verified"
 
-    echo "[6/6] Checking curl-pipe bootstrap & self-clone flow..."
+    echo "[6/7] Checking curl-pipe bootstrap & self-clone flow..."
     local help_out
     help_out="$(cat "$REPO_ROOT/install.sh" | bash -s -- --help)"
     grep -Fq -- "--dir" <<<"$help_out"
@@ -206,6 +208,197 @@ PY
     grep -Fq "Installation complete!" <<<"$dryrun_out"
     [[ ! -e "$dryrun_home/.local/share/paithosh" ]]
     echo "  PASS: curl-pipe bootstrap & self-clone verified"
+
+    echo "[7/7] Checking sync-hypr.sh, --sync-hypr apply, Hyprland Lua config, KeybindService & shell updater..."
+    local sync_home="$TMP_HOME/sync-home"
+    mkdir -p "$sync_home"
+
+    # 7a. Missing --repo-root value must exit 2 cleanly (not unbound variable)
+    local rc=0
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root >/dev/null 2>&1 || rc=$?
+    [[ "$rc" -eq 2 ]]
+
+    # 7b. Status on missing config
+    local st_missing
+    st_missing="$(HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$REPO_ROOT" --status)"
+    python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["state"]=="missing" and not d["managed"], d' "$st_missing"
+
+    # 7c. Dry-run replace leaves filesystem clean
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$REPO_ROOT" --mode replace --dry-run --no-reload >/dev/null
+    [[ ! -e "$sync_home/.config/hypr" ]]
+
+    # 7d. Replace on fresh home + backup collision safety (2 calls in same second)
+    local space_repo="$TMP_HOME/my repo"
+    mkdir -p "$space_repo/defaults"
+    cp -a "$REPO_ROOT/defaults/hypr" "$space_repo/defaults/hypr"
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode replace --no-reload >/dev/null
+    [[ -f "$sync_home/.config/hypr/hyprland.lua" ]]
+    [[ -f "$sync_home/.config/hypr/.paithosh-manifest" ]]
+    grep -Fq 'root = "'"$space_repo"'"' "$sync_home/.config/hypr/config/paithosh.lua"
+
+    # Replace twice rapidly -> collision-safe distinct backups
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode replace --no-reload >/dev/null
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode replace --no-reload >/dev/null
+    local bkp_count
+    bkp_count="$(find "$sync_home/.config" -maxdepth 1 -name 'hypr.bak.*' | wc -l | tr -d ' ')"
+    [[ "$bkp_count" -ge 2 ]]
+
+    # 7e. Staging validation failure preserves existing ~/.config/hypr untouched
+    printf 'invalid lua syntax (\n' > "$space_repo/defaults/hypr/config/broken.lua"
+    printf '%s\n' '-- sentinel' >> "$sync_home/.config/hypr/config/monitors.lua"
+    rc=0
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode replace --no-reload >/dev/null 2>&1 || rc=$?
+    [[ "$rc" -ne 0 ]]
+    [[ ! -e "$sync_home/.config/hypr/config/broken.lua" ]]
+    grep -Fq -- '-- sentinel' "$sync_home/.config/hypr/config/monitors.lua"
+    rm -f "$space_repo/defaults/hypr/config/broken.lua"
+
+    # 7f. 3-way manifest update: unmanaged skipped, managed preserves user edits + updates unmodified + adds new
+    local unm_home="$TMP_HOME/unmanaged-home"
+    mkdir -p "$unm_home/.config/hypr"
+    printf '# my custom config\n' > "$unm_home/.config/hypr/hyprland.conf"
+    HOME="$unm_home" XDG_CONFIG_HOME="$unm_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode update --no-reload >/dev/null
+    [[ ! -e "$unm_home/.config/hypr/.paithosh-manifest" ]]
+    grep -Fq '# my custom config' "$unm_home/.config/hypr/hyprland.conf"
+
+    # Reset sync_home cleanly for managed update test
+    rm -rf "$sync_home/.config/hypr" "$sync_home/.config/hypr.bak."*
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode replace --no-reload >/dev/null
+    # Simulate user modifying monitors.lua, while upstream updates rules.lua and adds extra.lua
+    printf '\n%s\n' '-- user custom monitor' >> "$sync_home/.config/hypr/config/monitors.lua"
+    printf '\n%s\n' '-- upstream rule update' >> "$space_repo/defaults/hypr/config/rules.lua"
+    printf '%s\n' '-- upstream new file' > "$space_repo/defaults/hypr/config/extra.lua"
+    local st_outdated
+    st_outdated="$(HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --status)"
+    python3 - "$st_outdated" <<'PY'
+import json, sys
+d = json.loads(sys.argv[1])
+assert d["state"] == "outdated", d
+assert "config/rules.lua" in d["updatedFiles"], d
+assert "config/extra.lua" in d["addedFiles"], d
+assert "config/monitors.lua" in d["modifiedFiles"], d
+PY
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode update --no-reload >/dev/null
+    grep -Fq -- '-- user custom monitor' "$sync_home/.config/hypr/config/monitors.lua"
+    grep -Fq -- '-- upstream rule update' "$sync_home/.config/hypr/config/rules.lua"
+    [[ -f "$sync_home/.config/hypr/config/extra.lua" ]]
+
+    # Second update should be a no-op (no extra backup)
+    local bkp_before bkp_after
+    bkp_before="$(find "$sync_home/.config" -maxdepth 1 -name 'hypr.bak.*' | wc -l | tr -d ' ')"
+    HOME="$sync_home" XDG_CONFIG_HOME="$sync_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$space_repo" --mode update --no-reload >/dev/null
+    bkp_after="$(find "$sync_home/.config" -maxdepth 1 -name 'hypr.bak.*' | wc -l | tr -d ' ')"
+    [[ "$bkp_before" -eq "$bkp_after" ]]
+
+    # 7g. apply.sh --sync-hypr true + --backup-hypr true + --autostart true + custom XDG_CONFIG_HOME + INI [preferred]
+    local apply_home="$TMP_HOME/apply-sync-home"
+    local apply_xdg="$TMP_HOME/apply-xdg-cfg"
+    mkdir -p "$apply_xdg/hypr" "$apply_xdg/xdg-desktop-portal"
+    printf '# old conf\n' > "$apply_xdg/hypr/hyprland.conf"
+    cat > "$apply_xdg/xdg-desktop-portal/hyprland-portals.conf" <<'EOF'
+[preferred]
+default=hyprland;gtk
+
+[other]
+foo=bar
+EOF
+    HOME="$apply_home" XDG_CONFIG_HOME="$apply_xdg" bash "$REPO_ROOT/installer/lib/apply.sh" \
+        --backup-hypr true --sync-hypr true --packages "" --theme "Catppuccin Mocha" \
+        --bar-position top --autostart true --setup-portals true >/dev/null
+    local apply_bkp_count
+    apply_bkp_count="$(find "$apply_xdg" -maxdepth 1 -name 'hypr.bak.*' | wc -l | tr -d ' ')"
+    [[ "$apply_bkp_count" -eq 1 ]]
+    [[ ! -e "$apply_xdg/hypr/hyprland.conf" ]]
+    [[ -f "$apply_xdg/hypr/config/paithosh.lua" ]]
+    [[ -f "$apply_xdg/hypr/.paithosh-manifest" ]]
+    [[ "$(grep -c 'qs -p ' "$apply_xdg/hypr/config/autostart.lua")" -eq 1 ]]
+    python3 - "$apply_xdg/paithosh/settings.json" "$apply_xdg/xdg-desktop-portal/hyprland-portals.conf" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+assert s["themePreset"] == "Catppuccin Mocha", s
+assert s["globalSurfaceTheme"] == "Adaptive", s
+portal_txt = open(sys.argv[2]).read()
+pref, other = portal_txt.split("[other]", 1)
+assert "org.freedesktop.impl.portal.FileChooser=paithosh" in pref, portal_txt
+assert "org.freedesktop.impl.portal.FileChooser=paithosh" not in other, portal_txt
+PY
+
+    # 7h. apply.sh --sync-hypr true --autostart false disables qs -p in autostart.lua
+    HOME="$apply_home" XDG_CONFIG_HOME="$apply_xdg" bash "$REPO_ROOT/installer/lib/apply.sh" \
+        --backup-hypr false --sync-hypr true --packages "" --theme "OLED Pure" \
+        --bar-position top --autostart false --setup-portals false >/dev/null
+    grep -Eq '^[[:space:]]*--[[:space:]]*hl\.exec_cmd\(.*qs[[:space:]]+-p' "$apply_xdg/hypr/config/autostart.lua"
+
+    # 7i. Hyprland --verify-config (if Hyprland with liblua is installed)
+    if command -v Hyprland >/dev/null 2>&1 && ldd "$(command -v Hyprland)" 2>/dev/null | grep -qi 'liblua'; then
+        local v_home="$TMP_HOME/verify-hypr"
+        mkdir -p "$v_home/rt"
+        chmod 700 "$v_home/rt"
+        HOME="$v_home" XDG_CONFIG_HOME="$v_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$REPO_ROOT" --mode replace --no-reload >/dev/null
+        local v_out
+        v_out="$(XDG_RUNTIME_DIR="$v_home/rt" HOME="$v_home" XDG_CONFIG_HOME="$v_home/.config" Hyprland --verify-config -c "$v_home/.config/hypr/hyprland.lua" 2>&1 || true)"
+        grep -Fq "config ok" <<<"$v_out"
+    fi
+
+    # 7j. PackageService.qml shellUpdateProc must NOT swallow git pull failures on dirty repo
+    local git_test="$TMP_HOME/git-upd"
+    mkdir -p "$git_test"
+    git init -q --bare "$git_test/origin.git"
+    git init -q "$git_test/work"
+    git -C "$git_test/work" config user.email test@test
+    git -C "$git_test/work" config user.name test
+    mkdir -p "$git_test/work/installer/lib" "$git_test/work/defaults/hypr"
+    cp -a "$REPO_ROOT/installer/lib/sync-hypr.sh" "$git_test/work/installer/lib/"
+    cp -a "$REPO_ROOT/defaults/hypr/." "$git_test/work/defaults/hypr/"
+    echo "v1" > "$git_test/work/README.md"
+    git -C "$git_test/work" add . && git -C "$git_test/work" commit -q -m "init"
+    git -C "$git_test/work" branch -M master
+    git -C "$git_test/work" remote add origin "$git_test/origin.git"
+    git -C "$git_test/work" push -q -u origin master
+    git clone -q --no-local --depth 1 --branch master "file://$git_test/origin.git" "$git_test/local"
+    echo "v2" > "$git_test/work/README.md"
+    git -C "$git_test/work" commit -q -am "v2"
+    git -C "$git_test/work" push -q origin master
+    echo "dirty" > "$git_test/local/README.md"
+
+    python3 - "$REPO_ROOT/shell/services/PackageService.qml" "$git_test/local" "$git_test/home" <<'PY'
+import re, subprocess, sys
+qml = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'id:\s*shellUpdateProc[\s\S]*?command:\s*\[\s*"sh",\s*"-c",\s*((?:"(?:[^"\\]|\\.)*"\s*\+\s*)*"(?:[^"\\]|\\.)*")', qml)
+assert m, "Could not locate shellUpdateProc command in PackageService.qml"
+parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+script = bytes("".join(parts), "utf-8").decode("unicode_escape")
+res = subprocess.run(
+    ["sh", "-c", script, "sh", sys.argv[2]],
+    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": sys.argv[3]},
+    capture_output=True, text=True
+)
+assert res.returncode != 0, f"Expected non-zero rc on dirty pull, got {res.returncode}, out={res.stdout}"
+assert "error:" in res.stderr or "fatal:" in res.stderr or "Local modifications" in res.stderr, res.stderr
+PY
+
+    # 7k. KeybindService.qml parser classifies qsIpc binds from defaults/hypr/config/binds.lua
+    local kb_home="$TMP_HOME/kb-home"
+    HOME="$kb_home" XDG_CONFIG_HOME="$kb_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$REPO_ROOT" --mode replace --no-reload >/dev/null
+    python3 - "$REPO_ROOT/shell/services/KeybindService.qml" "$kb_home" "$REPO_ROOT/shell" <<'PY'
+import json, re, subprocess, sys
+qml = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'id:\s*readProc\s*\n\s*command:\s*\["python3",\s*"-c",\s*`([\s\S]*?)`', qml)
+assert m, "Could not locate readProc script in KeybindService.qml"
+py_src = m.group(1).replace("\\\\", "\\")
+res = subprocess.run(
+    ["python3", "-c", py_src, sys.argv[3]],
+    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": sys.argv[2]},
+    capture_output=True, text=True, check=True
+)
+binds = json.loads(res.stdout)
+cats = {}
+for b in binds:
+    cats[b["category"]] = cats.get(b["category"], 0) + 1
+assert cats.get("island", 0) >= 8, cats
+assert cats.get("screenshot", 0) >= 2, cats
+PY
+    echo "  PASS: sync-hypr.sh, Hyprland Lua verify, KeybindService & shell updater verified"
 
     echo "ALL INSTALLER CHECKS PASSED"
 }

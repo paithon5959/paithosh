@@ -2356,7 +2356,12 @@ Item {
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 10
                             visible: root.currentPage === "updates"
-                            onVisibleChanged: if (visible && !PackageService.shellCheckedOnce) PackageService.checkShellUpdate()
+                            onVisibleChanged: {
+                                if (visible) {
+                                    if (!PackageService.shellCheckedOnce) PackageService.checkShellUpdate();
+                                    PackageService.checkHyprSyncStatus();
+                                }
+                            }
                             SettingGroup {
                                 SettingRow {
                                     showDivider: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
@@ -2429,6 +2434,41 @@ Item {
                                         color: Theme.textMuted
                                         font.family: Theme.fontMono
                                         font.pixelSize: 11
+                                    }
+                                }
+                                SettingRow {
+                                    showDivider: true
+                                    iconName: "code"
+                                    title: "Hyprland Default Config"
+                                    subtitle: {
+                                        if (PackageService.hyprSyncing) return "Syncing defaults/hypr to ~/.config/hypr...";
+                                        if (PackageService.hyprSyncError !== "") return PackageService.hyprSyncError;
+                                        if (PackageService.hyprSyncMessage !== "") return PackageService.hyprSyncMessage;
+                                        return "Back up ~/.config/hypr and sync Paithosh's modular Lua configuration";
+                                    }
+                                    searchKeywords: "hyprland config lua defaults sync backup"
+                                    RowLayout {
+                                        spacing: 8
+                                        CtrlBtn {
+                                            visible: PackageService.hyprSyncState === "outdated"
+                                            text: PackageService.hyprSyncing ? "Updating..." : "Update"
+                                            enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
+                                            onClicked: PackageService.syncHyprConfig("update")
+                                        }
+                                        CtrlBtn {
+                                            visible: PackageService.hyprSyncState === "outdated"
+                                            text: "Reset All"
+                                            ghost: true
+                                            enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
+                                            onClicked: PackageService.syncHyprConfig("replace")
+                                        }
+                                        CtrlBtn {
+                                            visible: PackageService.hyprSyncState !== "outdated"
+                                            text: PackageService.hyprSyncing ? "Syncing..." : "Sync Defaults"
+                                            ghost: PackageService.hyprSyncState === "synced"
+                                            enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
+                                            onClicked: PackageService.syncHyprConfig("replace")
+                                        }
                                     }
                                 }
                             }

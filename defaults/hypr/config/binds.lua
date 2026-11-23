@@ -1,9 +1,13 @@
 -- Keybindings
 
+local function shellQuote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
 local programs = require("config.programs")
 local paithosh = require("config.paithosh")
 local shellDir = paithosh.root .. "/shell"
-local qsIpc    = "qs -p " .. shellDir .. " ipc call paithosh "
+local qsIpc    = "qs -p " .. shellQuote(shellDir) .. " ipc call paithosh "
 local mainMod  = "SUPER"
 
 -- Core applications & window management
@@ -55,7 +59,7 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 -- Media & brightness
 hl.bind("XF86AudioRaiseVolume",  hl.dsp.exec_cmd(qsIpc .. "adjustVolume 5"), { locked = true, repeating = true })
 hl.bind("XF86AudioLowerVolume",  hl.dsp.exec_cmd(qsIpc .. "adjustVolume -5"), { locked = true, repeating = true })
-hl.bind("XF86AudioMute",         hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true, repeating = true })
+hl.bind("XF86AudioMute",         hl.dsp.exec_cmd(qsIpc .. "toggleMute"), { locked = true })
 hl.bind("XF86AudioMicMute",      hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true, repeating = true })
 hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd(qsIpc .. "adjustBrightness 5"), { locked = true, repeating = true })
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(qsIpc .. "adjustBrightness -5"), { locked = true, repeating = true })

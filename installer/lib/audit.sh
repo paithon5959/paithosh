@@ -55,21 +55,43 @@ detect_distro() {
 audit_json() {
     IFS='|' read -r distro_id family pkg_mgr pretty_name <<<"$(detect_distro)"
 
-    local hypr_dir="${HOME}/.config/hypr"
+    local config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+    local hypr_dir="${config_home}/hypr"
     local hypr_exists=false
     local hypr_files=0
     local hypr_kind="none"
+    local hypr_managed=false
     if [[ -d "$hypr_dir" ]]; then
-        hypr_exists=true
-        hypr_files=$(find "$hypr_dir" -maxdepth 3 -type f 2>/dev/null | wc -l | tr -d ' ')
+        hypr_files=$(find -L "$hypr_dir" -maxdepth 3 -type f 2>/dev/null | wc -l | tr -d ' ')
+        if [[ "$hypr_files" -gt 0 || -L "$hypr_dir" ]]; then
+            hypr_exists=true
+        fi
         if [[ -f "$hypr_dir/hyprland.lua" || -f "$hypr_dir/config/autostart.lua" ]]; then
             hypr_kind="lua"
         elif [[ -f "$hypr_dir/hyprland.conf" ]]; then
             hypr_kind="conf"
         fi
+        if [[ -f "$hypr_dir/.paithosh-manifest" || -f "$hypr_dir/.paithosh-sync-version" ]]; then
+            hypr_managed=true
+        fi
+    elif [[ -L "$hypr_dir" ]]; then
+        hypr_exists=true
     fi
 
-    local paithosh_dir="${HOME}/.config/paithosh"
+    local hypr_lua_supported="unknown"
+    if command -v Hyprland >/dev/null 2>&1; then
+        local hypr_bin ldd_out
+        hypr_bin="$(command -v Hyprland)"
+        if ldd_out="$(ldd "$hypr_bin" 2>/dev/null)"; then
+            if grep -qi 'liblua' <<<"$ldd_out"; then
+                hypr_lua_supported="true"
+            else
+                hypr_lua_supported="false"
+            fi
+        fi
+    fi
+
+    local paithosh_dir="${config_home}/paithosh"
     local paithosh_exists=false
     [[ -d "$paithosh_dir" ]] && paithosh_exists=true
 
@@ -119,11 +141,11 @@ audit_json() {
         "optional|notify-send|bin:notify-send|Libnotify"
     )
 
-    python3 - "$distro_id" "$family" "$pkg_mgr" "$pretty_name" "$hypr_exists" "$hypr_files" "$hypr_kind" "$paithosh_exists" "$polkit_active" "${specs[@]}" <<'PY'
+    python3 - "$distro_id" "$family" "$pkg_mgr" "$pretty_name" "$hypr_exists" "$hypr_files" "$hypr_kind" "$hypr_managed" "$hypr_lua_supported" "$paithosh_exists" "$polkit_active" "${specs[@]}" <<'PY'
 import glob, json, shutil, subprocess, sys
 
-distro_id, family, pkg_mgr, pretty, hypr_exists, hypr_files, hypr_kind, paithosh_exists, polkit_active = sys.argv[1:10]
-specs = sys.argv[10:]
+distro_id, family, pkg_mgr, pretty, hypr_exists, hypr_files, hypr_kind, hypr_managed, hypr_lua_supported, paithosh_exists, polkit_active = sys.argv[1:12]
+specs = sys.argv[12:]
 
 def pkg_name(fam, mgr, item_id):
     if item_id == "qs":
@@ -282,6 +304,8 @@ print(json.dumps({
         "hyprExists": hypr_exists == "true",
         "hyprFiles": int(hypr_files),
         "hyprConfigKind": hypr_kind,
+        "hyprManagedByPaithosh": hypr_managed == "true",
+        "hyprLuaSupported": (True if hypr_lua_supported == "true" else (False if hypr_lua_supported == "false" else None)),
         "paithoshExists": paithosh_exists == "true",
         "polkitAgentActive": polkit_active == "true",
     },

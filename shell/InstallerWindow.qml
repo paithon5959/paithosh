@@ -37,6 +37,8 @@ PanelWindow {
     property bool hyprExists: false
     property int hyprFiles: 0
     property string hyprConfigKind: "none"
+    property bool hyprManagedByPaithosh: false
+    property var hyprLuaSupported: null
     property bool paithoshExists: false
     property bool polkitAgentActive: false
     property bool coprNeeded: false
@@ -47,6 +49,7 @@ PanelWindow {
 
     // User preferences (pre-configured Theme presets from Theme.qml)
     property bool optBackupHypr: true
+    property bool optSyncHypr: true
     property string optTheme: Theme.activePreset || "OLED Pure"
     property string optBarPos: "top"
     property bool optAutostart: true
@@ -180,6 +183,7 @@ PanelWindow {
         const cmd = [
             "bash", repoRoot + "/installer/lib/apply.sh",
             "--backup-hypr", (hyprExists && optBackupHypr) ? "true" : "false",
+            "--sync-hypr", optSyncHypr ? "true" : "false",
             "--packages", pkgs,
             "--theme", optTheme,
             "--bar-position", optBarPos,
@@ -219,6 +223,8 @@ PanelWindow {
                     root.hyprExists = Boolean(data.configs && data.configs.hyprExists);
                     root.hyprFiles = (data.configs && data.configs.hyprFiles) ? data.configs.hyprFiles : 0;
                     root.hyprConfigKind = (data.configs && data.configs.hyprConfigKind) ? data.configs.hyprConfigKind : "none";
+                    root.hyprManagedByPaithosh = Boolean(data.configs && data.configs.hyprManagedByPaithosh);
+                    root.hyprLuaSupported = (data.configs && data.configs.hyprLuaSupported !== undefined) ? data.configs.hyprLuaSupported : null;
                     root.paithoshExists = Boolean(data.configs && data.configs.paithoshExists);
                     root.polkitAgentActive = Boolean(data.configs && data.configs.polkitAgentActive);
                     root.coprNeeded = Boolean(data.distro && data.distro.coprNeeded);
@@ -771,14 +777,23 @@ PanelWindow {
                         }
 
                         // STEP 1: System & Config (Balanced, minimal, fills space)
-                        ColumnLayout {
+                        Flickable {
+                            id: step1Flick
                             anchors.fill: parent
-                            spacing: 14
+                            contentWidth: width
+                            contentHeight: s1Col.implicitHeight + 8
+                            boundsBehavior: Flickable.StopAtBounds
+                            clip: true
                             visible: opacity > 0.01
                             opacity: root.step === 1 ? 1.0 : 0.0
                             x: root.step === 1 ? 0 : (root.step > 1 ? -24 : 24)
                             Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+                            ColumnLayout {
+                                id: s1Col
+                                width: parent.width
+                                spacing: 12
 
                             // Audit Error Card (with Retry)
                             Rectangle {
@@ -802,7 +817,7 @@ PanelWindow {
                                 }
                             }
 
-                            // Hyprland Config Warning & Backup Card
+                            // Hyprland Config Warning, Replacement & Backup Card
                             Rectangle {
                                 Layout.fillWidth: true
                                 visible: root.hyprExists
@@ -814,7 +829,7 @@ PanelWindow {
 
                                 ColumnLayout {
                                     id: hyprCol
-                                    anchors.fill: parent; anchors.margins: 16; spacing: 12
+                                    anchors.fill: parent; anchors.margins: 16; spacing: 10
 
                                     RowLayout {
                                         Layout.fillWidth: true; spacing: 12
@@ -824,16 +839,18 @@ PanelWindow {
                                             SvgIcon { anchors.centerIn: parent; sourceName: "info"; iconSize: 18; color: Theme.warn }
                                         }
                                         ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 2
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
                                             Text {
-                                                text: "Existing ~/.config/hypr (" + root.hyprFiles + " files • " + (root.hyprConfigKind === "lua" ? "Lua" : "conf") + ")"
+                                                text: "Existing ~/.config/hypr (" + root.hyprFiles + " files • " + (root.hyprConfigKind === "lua" ? "Lua" : (root.hyprConfigKind === "conf" ? "conf" : "custom")) + ")"
                                                 color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.DemiBold
                                                 elide: Text.ElideRight; Layout.fillWidth: true
                                             }
                                             Text {
-                                                text: root.hyprConfigKind === "lua"
-                                                    ? "Create a timestamped backup before Paithosh updates Lua autostart."
-                                                    : "Create a timestamped backup before Paithosh updates hyprland.conf."
+                                                text: root.optSyncHypr
+                                                    ? "Back up old config, clean ~/.config/hypr, and install Paithosh Lua defaults."
+                                                    : (root.hyprConfigKind === "lua"
+                                                        ? "Keep existing config and only add Paithosh autostart."
+                                                        : "Keep existing config and add exec-once to hyprland.conf.")
                                                 color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 12
                                                 elide: Text.ElideRight; Layout.fillWidth: true
                                             }
@@ -845,60 +862,161 @@ PanelWindow {
                                         columns: 2; columnSpacing: 10; rowSpacing: 10
 
                                         Rectangle {
-                                            Layout.fillWidth: true; height: 64; radius: 10; clip: true
-                                            color: root.optBackupHypr ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14) : Theme.cardBg
+                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
+                                            color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (syncRepMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                            border.width: 1; border.color: root.optSyncHypr ? Theme.accent : Theme.borderSubtle
+                                            scale: syncRepMouse.pressed ? 0.97 : 1.0
+                                            Behavior on color { ColorAnimation { duration: 140 } }
+                                            Behavior on border.color { ColorAnimation { duration: 140 } }
+                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
+                                                SvgIcon { sourceName: "code"; iconSize: 16; color: root.optSyncHypr ? Theme.accent : Theme.textMuted }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                                    Text { text: "Replace with Paithosh Defaults"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                    Text { text: "Clean install of modular Lua config"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                }
+                                            }
+                                            MouseArea {
+                                                id: syncRepMouse
+                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    root.optSyncHypr = true;
+                                                    root.optBackupHypr = true;
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
+                                            color: !root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (keepCfgMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                            border.width: 1; border.color: !root.optSyncHypr ? Theme.accent : Theme.borderSubtle
+                                            scale: keepCfgMouse.pressed ? 0.97 : 1.0
+                                            Behavior on color { ColorAnimation { duration: 140 } }
+                                            Behavior on border.color { ColorAnimation { duration: 140 } }
+                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
+                                                SvgIcon { sourceName: "folder"; iconSize: 16; color: !root.optSyncHypr ? Theme.accent : Theme.textMuted }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                                    Text { text: "Keep Existing Config"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                    Text { text: "Only inject Paithosh autostart"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                }
+                                            }
+                                            MouseArea {
+                                                id: keepCfgMouse
+                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.optSyncHypr = false
+                                            }
+                                        }
+                                    }
+
+                                    GridLayout {
+                                        Layout.fillWidth: true
+                                        columns: 2; columnSpacing: 10; rowSpacing: 10
+
+                                        Rectangle {
+                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
+                                            color: root.optBackupHypr ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14) : (bkpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
                                             border.width: 1; border.color: root.optBackupHypr ? Theme.ok : Theme.borderSubtle
                                             scale: bkpMouse.pressed ? 0.97 : 1.0
                                             Behavior on color { ColorAnimation { duration: 140 } }
+                                            Behavior on border.color { ColorAnimation { duration: 140 } }
                                             Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
                                             RowLayout {
                                                 anchors.fill: parent; anchors.margins: 12; spacing: 10
                                                 SvgIcon { sourceName: "check"; iconSize: 16; color: root.optBackupHypr ? Theme.ok : Theme.textMuted }
                                                 ColumnLayout {
-                                                    Layout.fillWidth: true; spacing: 2
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
                                                     Text { text: "Timestamped Backup (Recommended)"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                                                     Text { text: "~/.config/hypr.bak.<time>"; color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 }
                                             }
-                                            MouseArea { id: bkpMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = true }
+                                            MouseArea { id: bkpMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = true }
                                         }
 
                                         Rectangle {
-                                            Layout.fillWidth: true; height: 64; radius: 10; clip: true
-                                            color: !root.optBackupHypr ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14) : Theme.cardBg
+                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
+                                            color: !root.optBackupHypr ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14) : (skipBkpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
                                             border.width: 1; border.color: !root.optBackupHypr ? Theme.warn : Theme.borderSubtle
                                             scale: skipBkpMouse.pressed ? 0.97 : 1.0
                                             Behavior on color { ColorAnimation { duration: 140 } }
+                                            Behavior on border.color { ColorAnimation { duration: 140 } }
                                             Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
                                             RowLayout {
                                                 anchors.fill: parent; anchors.margins: 12; spacing: 10
                                                 SvgIcon { sourceName: "close"; iconSize: 16; color: !root.optBackupHypr ? Theme.warn : Theme.textMuted }
                                                 ColumnLayout {
-                                                    Layout.fillWidth: true; spacing: 2
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
                                                     Text { text: "Skip Backup"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                    Text { text: root.hyprConfigKind === "lua" ? "Update Lua config in-place" : "Update hyprland.conf in-place"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                    Text { text: root.optSyncHypr ? "Overwrite ~/.config/hypr directly" : (root.hyprConfigKind === "lua" ? "Update Lua config in-place" : "Update hyprland.conf in-place"); color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 }
                                             }
-                                            MouseArea { id: skipBkpMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = false }
+                                            MouseArea { id: skipBkpMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = false }
                                         }
                                     }
                                 }
                             }
 
-                            // Clean Hyprland card
+                            // Clean Hyprland card + Default Lua Config Toggle
                             Rectangle {
                                 Layout.fillWidth: true
                                 visible: !root.loadingAudit && !root.hyprExists && root.auditError === ""
-                                height: 76; radius: 14; clip: true
-                                color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle
+                                height: 74; radius: 14; clip: true
+                                color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : (cleanSyncMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                border.width: 1
+                                border.color: root.optSyncHypr ? Theme.accent : Theme.borderSubtle
+                                scale: cleanSyncMouse.pressed ? 0.98 : 1.0
+                                Behavior on color { ColorAnimation { duration: 140 } }
+                                Behavior on border.color { ColorAnimation { duration: 140 } }
+                                Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
                                 RowLayout {
                                     anchors.fill: parent; anchors.margins: 16; spacing: 12
-                                    SvgIcon { sourceName: "check"; iconSize: 18; color: Theme.ok }
+                                    SvgIcon { sourceName: root.optSyncHypr ? "check" : "close"; iconSize: 18; color: root.optSyncHypr ? Theme.ok : Theme.textMuted }
+                                    ColumnLayout {
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Clean ~/.config/hypr — install Paithosh default Hyprland Lua config"
+                                            color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: root.optSyncHypr
+                                                ? "Copies defaults/hypr (binds, monitors, animations, appearance, theme) to ~/.config/hypr"
+                                                : "Skipped — only a minimal hyprland.conf autostart file will be created"
+                                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+                                MouseArea {
+                                    id: cleanSyncMouse
+                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.optSyncHypr = !root.optSyncHypr
+                                }
+                            }
+
+                            // Hyprland Lua Compatibility Warning
+                            Rectangle {
+                                Layout.fillWidth: true
+                                visible: root.hyprLuaSupported === false && root.optSyncHypr
+                                implicitHeight: luaWarnRow.implicitHeight + 22
+                                radius: 12; clip: true
+                                color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.10)
+                                border.width: 1; border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
+                                RowLayout {
+                                    id: luaWarnRow
+                                    anchors.fill: parent; anchors.margins: 11; spacing: 10
+                                    SvgIcon { sourceName: "info"; iconSize: 15; color: Theme.warn }
                                     Text {
-                                        Layout.fillWidth: true; Layout.minimumWidth: 0
-                                        text: "Clean ~/.config/hypr — ready for fresh setup."
-                                        color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
-                                        elide: Text.ElideRight
+                                        Layout.fillWidth: true
+                                        text: "Installed Hyprland binary does not appear to link liblua. Hyprland 0.57+ with Lua support is required for Paithosh's modular Lua configuration."
+                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                        wrapMode: Text.WordWrap
                                     }
                                 }
                             }
@@ -967,8 +1085,7 @@ PanelWindow {
                                     }
                                 }
                             }
-
-                            Item { Layout.fillHeight: true }
+                            }
                         }
 
                         // STEP 2: Packages
@@ -1210,7 +1327,7 @@ PanelWindow {
                                             Layout.fillWidth: true; spacing: 2
                                             Text { text: "Hyprland Autostart"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                                             Text {
-                                                text: root.hyprConfigKind === "lua"
+                                                text: (root.optSyncHypr || root.hyprConfigKind === "lua")
                                                     ? "Launch Paithosh automatically in Hyprland Lua config"
                                                     : "Launch Paithosh automatically in ~/.config/hypr/hyprland.conf"
                                                 color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true

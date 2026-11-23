@@ -270,8 +270,10 @@ Singleton {
     Process {
         id: readProc
         command: ["python3", "-c", `
-import os, re, json
+import os, re, json, shlex, sys
 
+shell_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else os.path.expanduser("~/.config/paithosh/shell")
+qs_ipc = f"qs -p {shlex.quote(shell_dir)} ipc call paithosh "
 binds_path = os.path.expanduser("~/.config/hypr/config/binds.lua")
 progs_path = os.path.expanduser("~/.config/hypr/config/programs.lua")
 
@@ -346,15 +348,81 @@ def resolve_key(expr):
         return main_mod + m.group(1)
     return unquote(expr)
 
+def split_lua_concat(s):
+    parts = []
+    cur = []
+    depth = 0
+    in_q = None
+    esc = False
+    i = 0
+    n = len(s)
+    while i < n:
+        ch = s[i]
+        if esc:
+            cur.append(ch)
+            esc = False
+            i += 1
+            continue
+        if ch == "\\\\" and in_q:
+            cur.append(ch)
+            esc = True
+            i += 1
+            continue
+        if in_q:
+            cur.append(ch)
+            if ch == in_q:
+                in_q = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            in_q = ch
+            cur.append(ch)
+            i += 1
+            continue
+        if ch in "({[":
+            depth += 1
+            cur.append(ch)
+            i += 1
+            continue
+        if ch in ")}]":
+            depth -= 1
+            cur.append(ch)
+            i += 1
+            continue
+        if depth == 0 and s[i:i+2] == "..":
+            tok = "".join(cur).strip()
+            if tok:
+                parts.append(tok)
+            cur = []
+            i += 2
+            continue
+        cur.append(ch)
+        i += 1
+    tail = "".join(cur).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+def eval_lua_str_expr(expr):
+    out = []
+    for tok in split_lua_concat(expr):
+        if tok == "qsIpc":
+            out.append(qs_ipc)
+        elif tok == "shellDir":
+            out.append(shell_dir)
+        elif tok.startswith("programs."):
+            k = tok.split(".", 1)[1].strip()
+            out.append(programs.get(k, k))
+        else:
+            out.append(unquote(tok))
+    return "".join(out)
+
 def extract_exec_cmd(action_lua):
     s = action_lua.strip()
     if not s.startswith("hl.dsp.exec_cmd(") or not s.endswith(")"):
         return None
     inner = s[len("hl.dsp.exec_cmd("):-1].strip()
-    if inner.startswith("programs."):
-        k = inner.split(".", 1)[1].strip()
-        return programs.get(k, k)
-    return unquote(inner)
+    return eval_lua_str_expr(inner)
 
 def classify(action_lua, cmd):
     al = action_lua.strip()
@@ -521,7 +589,7 @@ res.append({
     "readOnly": True
 })
 print(json.dumps(res))
-`]
+`, root.shellDir]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.busy = false;
@@ -562,13 +630,19 @@ cat_titles = [
     ("command", "Custom Commands & Media")
 ]
 
+fallback_shell = (sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else os.path.expanduser("~/.config/paithosh/shell")).replace("\\\\", "\\\\\\\\").replace('"', '\\\\"')
+
 lines = [
     "-- Keybindings (managed by Paithosh Settings)",
     "",
+    "local function shellQuote(s)",
+    r'''    return "'" .. tostring(s):gsub("'", "'\\\\''") .. "'"''',
+    "end",
+    "",
     'local programs = require("config.programs")',
-    'local paithosh = require("config.paithosh")',
-    'local shellDir = paithosh.root .. "/shell"',
-    'local qsIpc    = "qs -p " .. shellDir .. " ipc call paithosh "',
+    'local ok_p, paithosh = pcall(require, "config.paithosh")',
+    f'local shellDir = (ok_p and type(paithosh) == "table" and paithosh.root) and (paithosh.root .. "/shell") or "{fallback_shell}"',
+    'local qsIpc    = "qs -p " .. shellQuote(shellDir) .. " ipc call paithosh "',
     'local mainMod  = "SUPER"',
     ""
 ]
@@ -609,7 +683,7 @@ os.makedirs(os.path.dirname(binds_path), exist_ok=True)
 with open(binds_path, "w", encoding="utf-8") as f:
     f.write("\\n".join(lines))
 print("ok")
-`, writeProc.payloadJson]
+`, writeProc.payloadJson, root.shellDir]
         stdout: StdioCollector {
             onStreamFinished: {
                 root.reloadHyprland();
