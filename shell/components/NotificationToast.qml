@@ -16,6 +16,12 @@ Item {
 
     onToastChanged: copied = false
 
+    MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        onClicked: NotificationService.activateToast()
+    }
+
     ColumnLayout {
         id: toastCol
         width: parent.width

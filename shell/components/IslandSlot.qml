@@ -11,6 +11,8 @@ Item {
 
     clip: true
     implicitHeight: Theme.islandHeight
+    // Final width once animation settles (lets the parent frame animate straight to it)
+    readonly property real targetWidth: open ? Math.min(maxSlotWidth, Math.ceil(inner.implicitWidth)) : 0
     implicitWidth: open ? Math.min(maxSlotWidth, Math.ceil(inner.implicitWidth)) : 0
     opacity: open ? 1.0 : 0.0
     scale: open ? 1.0 : 0.90

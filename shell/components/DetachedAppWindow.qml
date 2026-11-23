@@ -16,7 +16,10 @@ FloatingWindow {
     title: {
         if (appKind === "settings") return "Settings (Detached)";
         if (appKind === "files") return "Files (Detached)";
-        if (appKind === "picker") return shellState.pickerMode === "download" ? "Save Location (Detached)" : "Upload Location (Detached)";
+        if (appKind === "picker") {
+            if (shellState.pickerDirectory) return "Select Folder (Detached)";
+            return shellState.pickerMode === "download" ? "Save Location (Detached)" : "Upload Location (Detached)";
+        }
         return "Paithosh";
     }
 
@@ -28,8 +31,16 @@ FloatingWindow {
 
     onVisibleChanged: {
         if (visible) {
-            if (appKind === "settings") settingsView.openPage(shellState.settingsPage || "home");
-            else if (appKind === "picker") pickerView.setMode(shellState.pickerMode || "upload");
+            if (appKind === "settings" && settingsLoader.item) {
+                settingsLoader.item.openPage(shellState.settingsPage || "home");
+            } else if (appKind === "picker" && pickerLoader.item) {
+                pickerLoader.item.initFromState();
+                pickerLoader.item.forceActiveFocus();
+            } else if (appKind === "files" && filesLoader.item) {
+                filesLoader.item.forceActiveFocus();
+            }
+        } else if (isOpen) {
+            shellState.closeDetachedApp();
         }
     }
 
@@ -90,7 +101,7 @@ FloatingWindow {
                     Item { Layout.fillWidth: true }
 
                     PillButton {
-                        text: "Attach ↑"
+                        text: root.shellState.barPosition === "bottom" ? "Attach ↓" : "Attach ↑"
                         fontSize: 11
                         horizontalPadding: 10
                         verticalPadding: 4
@@ -109,31 +120,44 @@ FloatingWindow {
                 }
             }
 
-            // Detached App Content
+            // Detached App Content (Lazy-loaded to avoid idle RAM & background scans)
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
 
-                SettingsView {
-                    id: settingsView
+                Loader {
+                    id: settingsLoader
                     anchors.fill: parent
-                    shellState: root.shellState
-                    visible: root.appKind === "settings"
+                    active: root.visible && root.appKind === "settings"
+                    onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
+                    sourceComponent: SettingsView {
+                        shellState: root.shellState
+                    }
                 }
 
-                FilesView {
-                    id: filesView
+                Loader {
+                    id: filesLoader
                     anchors.fill: parent
-                    shellState: root.shellState
-                    visible: root.appKind === "files"
+                    active: root.visible && root.appKind === "files"
+                    onLoaded: if (item) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
+                    sourceComponent: FilesView {
+                        shellState: root.shellState
+                    }
                 }
 
-                PickerView {
-                    id: pickerView
+                Loader {
+                    id: pickerLoader
                     anchors.fill: parent
-                    shellState: root.shellState
-                    visible: root.appKind === "picker"
+                    active: root.visible && root.appKind === "picker"
+                    onLoaded: if (item) {
+                        item.initFromState();
+                        Qt.callLater(() => { if (item) item.forceActiveFocus(); });
+                    }
+                    sourceComponent: PickerView {
+                        shellState: root.shellState
+                        isDetached: true
+                    }
                 }
             }
         }

@@ -90,7 +90,7 @@ Item {
             Repeater {
                 model: [
                     { label: "Lock", flash: "Locked", danger: false },
-                    { label: "Suspend", flash: "Suspending", danger: false },
+                    { label: "Logout", flash: "Logging out", danger: false },
                     { label: "Reboot", flash: "Rebooting", danger: false },
                     { label: "Shutdown", flash: "Shutting down", danger: true }
                 ]

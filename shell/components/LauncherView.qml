@@ -14,9 +14,19 @@ Item {
     property string selectedCategory: "All"
     property string query: ""
     property var filteredApps: []
+    property int sel: 0
+    function moveSel(d) {
+        const n = filteredApps.length;
+        if (n === 0) return;
+        sel = Math.max(0, Math.min(n - 1, sel + d));
+        grid.positionViewAtIndex(sel, GridView.Contain);
+    }
 
-    implicitWidth: 500
-    implicitHeight: mainCol.implicitHeight
+    implicitWidth: 580
+    implicitHeight: {
+        const gridH = filteredApps.length === 0 ? 84 : Math.min(3, Math.max(1, Math.ceil(filteredApps.length / 4))) * 88;
+        return 42 + 12 + 28 + 12 + gridH;
+    }
 
     function refreshApps() {
         const pinned = [];
@@ -36,6 +46,7 @@ Item {
                 iconName: "",
                 fallbackSvg: "settings",
                 action: function() {
+                    root.shellState.settingsSpotlight = "";
                     root.shellState.settingsPage = "home";
                     root.shellState.openIslandApp("settings", null);
                 }
@@ -74,6 +85,27 @@ Item {
         for (let j = 0; j < systemApps.length; ++j) {
             combined.push(systemApps[j]);
         }
+        if (q !== "" && (selectedCategory === "All" || selectedCategory === "System")) {
+            const settingHits = SettingsSearchService.search(query).slice(0, 4);
+            const rawQuery = query.trim();
+            for (let k = 0; k < settingHits.length; ++k) {
+                const hit = settingHits[k];
+                combined.push({
+                    id: "paithosh-setting-" + hit.id,
+                    name: hit.title,
+                    category: "Settings • " + hit.pageLabel,
+                    iconName: "",
+                    fallbackSvg: "settings",
+                    action: (function(targetHit, targetQuery) {
+                        return function() {
+                            root.shellState.settingsSpotlight = targetQuery;
+                            root.shellState.settingsPage = targetHit.page;
+                            root.shellState.openIslandApp("settings", null);
+                        };
+                    })(hit, rawQuery)
+                });
+            }
+        }
         filteredApps = combined;
     }
 
@@ -92,19 +124,33 @@ Item {
         onTriggered: searchBox.forceActiveFocus()
     }
 
-    onSelectedCategoryChanged: refreshApps()
-    onQueryChanged: refreshApps()
+    onSelectedCategoryChanged: { sel = 0; refreshApps(); }
+    onQueryChanged: { sel = 0; refreshApps(); }
     Component.onCompleted: refreshApps()
+
+    Timer {
+        id: appsChangedTimer
+        interval: 50
+        repeat: false
+        onTriggered: root.refreshApps()
+    }
+
+    Connections {
+        target: DesktopEntries.applications
+        function onValuesChanged() {
+            appsChangedTimer.restart();
+        }
+    }
 
     ColumnLayout {
         id: mainCol
         width: parent.width
-        spacing: 10
+        spacing: 12
 
         Rectangle {
             Layout.fillWidth: true
-            height: 36
-            radius: 10
+            height: 42
+            radius: 12
             color: Qt.rgba(1, 1, 1, searchBox.activeFocus ? 0.11 : 0.07)
             border.width: 1
             border.color: Qt.rgba(1, 1, 1, searchBox.activeFocus ? 0.40 : 0.12)
@@ -113,22 +159,26 @@ Item {
             Behavior on color { ColorAnimation { duration: 180 } }
             Behavior on border.color { ColorAnimation { duration: 180 } }
 
-            TextInput {
+            AnimatedTextInput {
                 id: searchBox
                 anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
                 verticalAlignment: TextInput.AlignVCenter
-                color: Theme.text
+                textColor: Theme.text
                 font.family: Theme.fontSans
-                font.pixelSize: 13
+                font.pixelSize: 14
                 clip: true
                 selectByMouse: true
                 onTextChanged: root.query = text
                 Keys.onEscapePressed: root.shellState.closePopovers()
+                Keys.onLeftPressed: (e) => { if (cursorPosition === 0 || root.sel > 0) root.moveSel(-1); else e.accepted = false; }
+                Keys.onRightPressed: (e) => { if (cursorPosition === text.length || root.sel > 0) root.moveSel(1); else e.accepted = false; }
+                Keys.onUpPressed: root.moveSel(-4)
+                Keys.onDownPressed: root.moveSel(4)
                 Keys.onReturnPressed: {
                     if (root.filteredApps.length > 0) {
-                        const first = root.filteredApps[0];
+                        const first = root.filteredApps[Math.min(root.sel, root.filteredApps.length - 1)];
                         root.shellState.closePopovers();
                         if (first.action) first.action();
                         else AppService.launchApp(first);
@@ -141,7 +191,7 @@ Item {
                     text: "Search apps, games (osu!, Minecraft, VS Code...)"
                     color: Theme.textMuted
                     font.family: Theme.fontSans
-                    font.pixelSize: 13
+                    font.pixelSize: 14
                     visible: searchBox.text === ""
                     elide: Text.ElideRight
                 }
@@ -150,7 +200,7 @@ Item {
 
         Row {
             Layout.fillWidth: true
-            spacing: 6
+            spacing: 8
 
             Repeater {
                 model: ["All", "System", "Games", "Dev", "Media"]
@@ -158,10 +208,10 @@ Item {
                     required property string modelData
                     text: modelData
                     active: root.selectedCategory === modelData
-                    horizontalPadding: 11
-                    verticalPadding: 4
+                    horizontalPadding: 13
+                    verticalPadding: 5
                     radius: 999
-                    fontSize: 11
+                    fontSize: 12
                     onClicked: root.selectedCategory = modelData
                 }
             }
@@ -169,10 +219,11 @@ Item {
 
         Item {
             Layout.fillWidth: true
-            height: root.filteredApps.length === 0 ? 72 : Math.min(268, Math.max(88, Math.ceil(root.filteredApps.length / 4) * 88))
+            implicitHeight: root.filteredApps.length === 0 ? 84 : Math.min(3, Math.max(1, Math.ceil(root.filteredApps.length / 4))) * 88
+            height: implicitHeight
             clip: true
 
-            Behavior on height {
+            Behavior on implicitHeight {
                 NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
             }
 
@@ -182,7 +233,7 @@ Item {
                 text: "No matching applications"
                 color: Theme.textMuted
                 font.family: Theme.fontSans
-                font.pixelSize: 13
+                font.pixelSize: 14
             }
 
             GridView {
@@ -191,12 +242,13 @@ Item {
                 visible: root.filteredApps.length > 0
                 clip: true
                 cellWidth: Math.floor(width / 4)
-                cellHeight: 76
+                cellHeight: 88
                 model: root.filteredApps
                 boundsBehavior: Flickable.StopAtBounds
 
                 delegate: Item {
                     id: tileWrap
+                    required property int index
                     required property var modelData
                     width: grid.cellWidth
                     height: grid.cellHeight
@@ -212,12 +264,12 @@ Item {
                     Rectangle {
                         id: tile
                         anchors.fill: parent
-                        anchors.margins: 4
-                        radius: 14
+                        anchors.margins: 5
+                        radius: 16
                         clip: true
-                        color: tileMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.07)
+                        color: (tileMouse.containsMouse || tileWrap.index === root.sel) ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.07)
                         border.width: 1
-                        border.color: Qt.rgba(1, 1, 1, tileMouse.containsMouse ? 0.16 : 0.08)
+                        border.color: Qt.rgba(1, 1, 1, tileWrap.index === root.sel ? 0.40 : (tileMouse.containsMouse ? 0.16 : 0.08))
                         y: tileMouse.containsMouse && !tileMouse.pressed ? -2 : 0
                         scale: tileMouse.pressed ? 0.94 : 1.0
 
@@ -227,22 +279,22 @@ Item {
 
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.topMargin: 10
-                            anchors.bottomMargin: 8
+                            anchors.topMargin: 12
+                            anchors.bottomMargin: 10
                             anchors.leftMargin: 8
                             anchors.rightMargin: 8
-                            spacing: 7
+                            spacing: 8
 
                             Item {
                                 Layout.alignment: Qt.AlignHCenter
-                                width: 20
-                                height: 20
+                                width: 26
+                                height: 26
 
                                 readonly property string resolvedIcon: modelData.iconName ? Quickshell.iconPath(modelData.iconName, true) : ""
 
                                 IconImage {
                                     anchors.fill: parent
-                                    implicitSize: 20
+                                    implicitSize: 26
                                     mipmap: true
                                     source: parent.resolvedIcon
                                     visible: parent.resolvedIcon !== ""
@@ -251,7 +303,7 @@ Item {
                                 SvgIcon {
                                     anchors.centerIn: parent
                                     sourceName: modelData.fallbackSvg || "settings"
-                                    iconSize: 20
+                                    iconSize: 26
                                     color: Theme.text
                                     visible: parent.resolvedIcon === ""
                                 }
@@ -264,7 +316,7 @@ Item {
                                 text: modelData.name || ""
                                 color: Theme.text
                                 font.family: Theme.fontSans
-                                font.pixelSize: 11
+                                font.pixelSize: 12
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight
                             }
@@ -276,9 +328,14 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
-                                root.shellState.closePopovers();
-                                if (modelData.action) modelData.action();
-                                else AppService.launchApp(modelData);
+                                const act = modelData.action;
+                                const appData = modelData;
+                                if (act) {
+                                    act();
+                                } else {
+                                    root.shellState.closePopovers();
+                                    AppService.launchApp(appData);
+                                }
                             }
                         }
                     }

@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Wayland
 import ".."
 import "../services"
@@ -19,6 +21,8 @@ PanelWindow {
     property int selectedPortalIdx: 0
     property bool shareAudio: true
     property int progressVal: 0
+    property var portalSources: []
+    property bool portalSubmitted: false
 
     screen: shellState.activeScreen || (Quickshell.screens.length > 0 ? Quickshell.screens[0] : null)
     anchors {
@@ -58,11 +62,206 @@ PanelWindow {
             progTimer.stop();
         }
         if (kind === "monitor") {
-            portalTab = "display";
+            portalTab = root.shellState.portalInitialTab || "display";
             monitorMode = CompositorService.previewMonitorMode;
+            selectedPortalIdx = 0;
+            portalSubmitted = false;
+            refreshPortalSources();
+        }
+        if (kind === "" && root.shellState.portalResultPath !== "" && !portalSubmitted) {
+            writePortalResult("CANCEL");
         }
         if (kind !== "") {
             modalFocus.forceActiveFocus();
+        }
+    }
+
+    function buildMonitorSources() {
+        const list = [];
+        const mons = CompositorService.monitorsList() || [];
+        for (let i = 0; i < mons.length; i++) {
+            const m = mons[i];
+            list.push({
+                kind: "screen",
+                id: m.name,
+                name: "Screen: " + m.name,
+                sub: (m.primary ? "Primary • " : "") + (m.refreshRate || 60) + "Hz",
+                thumb: (m.width || 1920) + " × " + (m.height || 1080)
+            });
+        }
+        return list;
+    }
+
+    function parseXdphWindows(raw) {
+        const wins = [];
+        if (!raw || !raw.trim()) return wins;
+        const entries = raw.split("[HE>]");
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i].trim();
+            if (!entry) continue;
+            const hcIdx = entry.indexOf("[HC>]");
+            const htIdx = entry.indexOf("[HT>]");
+            if (hcIdx === -1 || htIdx === -1) continue;
+            let id = entry.slice(0, hcIdx);
+            const haIdx = id.lastIndexOf("[HA>]");
+            if (haIdx !== -1) {
+                id = id.slice(haIdx + 5);
+            }
+            const cls = entry.slice(hcIdx + 5, htIdx);
+            const title = entry.slice(htIdx + 5);
+            wins.push({
+                kind: "window",
+                id: id,
+                cls: cls,
+                title: title,
+                name: title || cls || "Window",
+                sub: (cls || "Wayland") + " • Window",
+                thumb: "Window"
+            });
+        }
+        return wins;
+    }
+
+    function resolveCaptureSource(src) {
+        if (!src) return null;
+        if (src.kind === "screen") {
+            for (let i = 0; i < Quickshell.screens.length; i++) {
+                if (Quickshell.screens[i].name === src.id) return Quickshell.screens[i];
+            }
+            return null;
+        }
+        if (src.kind === "window") {
+            if (Hyprland.toplevels && Hyprland.toplevels.values) {
+                const vals = Hyprland.toplevels.values;
+                for (let i = 0; i < vals.length; i++) {
+                    const tl = vals[i];
+                    if (!tl || !tl.wayland) continue;
+                    const ipc = tl.lastIpcObject;
+                    if (src.title && tl.title === src.title && (!src.cls || (ipc && ipc.class === src.cls))) {
+                        return tl.wayland;
+                    }
+                }
+                for (let i = 0; i < vals.length; i++) {
+                    const tl = vals[i];
+                    if (tl && tl.wayland && src.title && tl.title === src.title) {
+                        return tl.wayland;
+                    }
+                }
+            }
+            if (ToplevelManager.toplevels && ToplevelManager.toplevels.values) {
+                const tvals = ToplevelManager.toplevels.values;
+                for (let i = 0; i < tvals.length; i++) {
+                    const tl = tvals[i];
+                    if (tl && src.title && tl.title === src.title) return tl;
+                }
+            }
+        }
+        return null;
+    }
+
+    function refreshPortalSources() {
+        portalSources = buildMonitorSources().concat([
+            { kind: "region", id: "region", name: "Select Region", sub: "Drag area with slurp", thumb: "Region" }
+        ]);
+        if (root.shellState.portalWindowsPath !== "") {
+            xdphWinProc.command = ["cat", root.shellState.portalWindowsPath];
+            xdphWinProc.running = true;
+        } else if (CompositorService.isHyprland) {
+            hyprWinProc.running = true;
+        }
+    }
+
+    function writePortalResult(value) {
+        const path = root.shellState.portalResultPath;
+        if (!path) return;
+        portalSubmitted = true;
+        root.shellState.portalResultPath = "";
+        root.shellState.portalWindowsPath = "";
+        portalWriteProc.command = ["sh", "-c", "printf '%s\\n' \"$1\" > \"$2\"", "_", value, path];
+        portalWriteProc.running = true;
+    }
+
+    function submitPortalSelection() {
+        if (selectedPortalIdx < 0 || selectedPortalIdx >= portalSources.length) {
+            writePortalResult("CANCEL");
+            root.shellState.closeModal();
+            return;
+        }
+        const src = portalSources[selectedPortalIdx];
+        if (src.kind === "region") {
+            slurpProc.running = true;
+            return;
+        }
+        const prefix = src.kind === "window" ? "/window:" : "/screen:";
+        writePortalResult("[SELECTION]" + prefix + src.id);
+        root.shellState.closeModal();
+    }
+
+    Process {
+        id: xdphWinProc
+        stdout: SplitParser {
+            splitMarker: ""
+            onRead: data => {
+                const mons = root.buildMonitorSources();
+                const wins = root.parseXdphWindows(data);
+                root.portalSources = mons.concat(wins).concat([
+                    { kind: "region", id: "region", name: "Select Region", sub: "Drag area with slurp", thumb: "Region" }
+                ]);
+            }
+        }
+    }
+
+    Process {
+        id: hyprWinProc
+        command: ["hyprctl", "clients", "-j"]
+        stdout: SplitParser {
+            splitMarker: ""
+            onRead: data => {
+                try {
+                    const clients = JSON.parse(data);
+                    const wins = [];
+                    for (let i = 0; i < Math.min(clients.length, 8); i++) {
+                        const c = clients[i];
+                        if (!c.mapped) continue;
+                        wins.push({
+                            kind: "window",
+                            id: c.address || String(i),
+                            cls: c.class || "",
+                            title: c.title || "",
+                            name: c.title || c.class || "Window",
+                            sub: (c.class || "Wayland") + " • Window",
+                            thumb: "Window"
+                        });
+                    }
+                    root.portalSources = root.buildMonitorSources().concat(wins).concat([
+                        { kind: "region", id: "region", name: "Select Region", sub: "Drag area with slurp", thumb: "Region" }
+                    ]);
+                } catch (e) {}
+            }
+        }
+    }
+
+    Process {
+        id: portalWriteProc
+    }
+
+    Process {
+        id: slurpProc
+        command: ["slurp", "-f", "%o@%x,%y,%w,%h"]
+        property string capturedRegion: ""
+        stdout: SplitParser {
+            onRead: data => {
+                if (data.trim()) slurpProc.capturedRegion = data.trim();
+            }
+        }
+        onExited: (code, status) => {
+            if (code === 0 && slurpProc.capturedRegion !== "") {
+                root.writePortalResult("[SELECTION]/region:" + slurpProc.capturedRegion);
+            } else {
+                root.writePortalResult("CANCEL");
+            }
+            slurpProc.capturedRegion = "";
+            root.shellState.closeModal();
         }
     }
 
@@ -85,8 +284,11 @@ PanelWindow {
 
     Rectangle {
         id: backdrop
+        readonly property bool isBottom: root.shellState.barPosition === "bottom"
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.52)
+        anchors.topMargin: (root.kind === "monitor" && !isBottom) ? (Theme.topOffsetHover + Theme.islandHeight) : 0
+        anchors.bottomMargin: (root.kind === "monitor" && isBottom) ? (Theme.topOffsetHover + Theme.islandHeight) : 0
+        color: (root.kind === "monitor" && root.portalTab === "portal") ? Qt.rgba(0, 0, 0, 0.72) : Qt.rgba(0, 0, 0, 0.52)
         opacity: root.isOpen ? 1.0 : 0.0
 
         Behavior on opacity {
@@ -101,8 +303,14 @@ PanelWindow {
 
         Rectangle {
             id: card
-            anchors.centerIn: parent
-            width: Math.min(parent.width - 32, root.kind === "monitor" ? 520 : 380)
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: root.kind === "monitor"
+                ? (backdrop.isBottom
+                    ? (parent.height - height + (root.isOpen ? 0 : 12))
+                    : (root.isOpen ? 0 : -12))
+                : (parent.height - height) / 2
+            transformOrigin: root.kind === "monitor" ? (backdrop.isBottom ? Item.Bottom : Item.Top) : Item.Center
+            width: Math.min(parent.width - 32, root.kind === "monitor" ? 640 : 380)
             height: cardCol.implicitHeight + 40
             radius: 20
             color: Theme.surfaceBg
@@ -375,18 +583,13 @@ PanelWindow {
                             rowSpacing: 8
 
                             Repeater {
-                                model: [
-                                    { name: "Screen: eDP-1", sub: "Primary • 165Hz", thumb: "2560 × 1600" },
-                                    { name: "Screen: HDMI-A-1", sub: "External • 144Hz", thumb: "1920 × 1080" },
-                                    { name: "Window: kitty", sub: "Wayland Capture", thumb: "Window" },
-                                    { name: "Game: osu!lazer", sub: "PipeWire Stream", thumb: "Game" }
-                                ]
+                                model: root.portalSources
                                 delegate: Rectangle {
                                     required property int index
                                     required property var modelData
                                     readonly property bool sel: root.selectedPortalIdx === index
                                     Layout.fillWidth: true
-                                    height: 118
+                                    height: 140
                                     radius: 12
                                     color: sel ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06)
                                     border.width: 1.5
@@ -400,13 +603,24 @@ PanelWindow {
 
                                         Rectangle {
                                             Layout.fillWidth: true
-                                            height: 58
+                                            height: 76
                                             radius: 8
                                             color: "#060607"
                                             border.width: 1
                                             border.color: Qt.rgba(1, 1, 1, 0.12)
+                                            clip: true
+
+                                            ScreencopyView {
+                                                id: previewView
+                                                anchors.fill: parent
+                                                anchors.margins: 1
+                                                captureSource: root.isOpen && root.portalTab === "portal" ? root.resolveCaptureSource(modelData) : null
+                                                live: true
+                                                visible: captureSource !== null && hasContent
+                                            }
 
                                             Rectangle {
+                                                visible: !previewView.visible
                                                 width: 30
                                                 height: 5
                                                 radius: 2.5
@@ -416,6 +630,7 @@ PanelWindow {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                             }
                                             Text {
+                                                visible: !previewView.visible
                                                 anchors.centerIn: parent
                                                 text: modelData.thumb
                                                 color: Theme.textSub
@@ -572,6 +787,9 @@ PanelWindow {
                                 Quickshell.execDetached(["hyprctl", "reload"]);
                             } else if (root.kind === "monitor" && root.portalTab === "display") {
                                 CompositorService.applyMonitorLayout(root.monitorMode);
+                            } else if (root.kind === "monitor" && root.portalTab === "portal") {
+                                root.submitPortalSelection();
+                                return;
                             }
                             root.shellState.closeModal();
                         }

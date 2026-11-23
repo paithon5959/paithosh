@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import "../.."
+import ".."
 import "../../services"
 import "../common"
 
@@ -8,6 +9,20 @@ Item {
     id: root
 
     property string procFilter: ""
+    property string activeSection: "apps" // "apps" | "procs"
+
+    readonly property var filteredApps: {
+        const q = procFilter.trim().toLowerCase();
+        const src = TelemetryService.appList || [];
+        if (q === "") return src;
+        const out = [];
+        for (let i = 0; i < src.length; ++i) {
+            const nameMatch = (src[i].name || "").toLowerCase().indexOf(q) !== -1;
+            const titleMatch = (src[i].title || "").toLowerCase().indexOf(q) !== -1;
+            if (nameMatch || titleMatch) out.push(src[i]);
+        }
+        return out;
+    }
 
     readonly property var filteredProcs: {
         const q = procFilter.trim().toLowerCase();
@@ -73,7 +88,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         points: TelemetryService.cpuHistory
-                        lineColor: Theme.ok
+                        lineColor: Theme.accent
                     }
                 }
             }
@@ -114,7 +129,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         points: TelemetryService.ramHistory
-                        lineColor: Theme.info
+                        lineColor: Theme.accent
                     }
                 }
             }
@@ -163,7 +178,69 @@ Item {
             }
         }
 
-        // Process Search Input
+        // Section Switcher: Applications | Processes
+        Rectangle {
+            Layout.fillWidth: true
+            height: 32
+            radius: 10
+            color: Qt.rgba(1, 1, 1, 0.05)
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 4
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 8
+                    color: root.activeSection === "apps" ? Theme.cardHover : "transparent"
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Applications (" + (TelemetryService.appList ? TelemetryService.appList.length : 0) + ")"
+                        color: root.activeSection === "apps" ? Theme.text : Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 12
+                        font.weight: root.activeSection === "apps" ? Font.DemiBold : Font.Normal
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.activeSection = "apps"
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    radius: 8
+                    color: root.activeSection === "procs" ? Theme.cardHover : "transparent"
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Processes (" + (TelemetryService.processList ? TelemetryService.processList.length : 0) + ")"
+                        color: root.activeSection === "procs" ? Theme.text : Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 12
+                        font.weight: root.activeSection === "procs" ? Font.DemiBold : Font.Normal
+                        elide: Text.ElideRight
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.activeSection = "procs"
+                    }
+                }
+            }
+        }
+
+        // Process / Application Search Input
         Rectangle {
             Layout.fillWidth: true
             height: 34
@@ -176,13 +253,13 @@ Item {
             Behavior on color { ColorAnimation { duration: 160 } }
             Behavior on border.color { ColorAnimation { duration: 160 } }
 
-            TextInput {
+            AnimatedTextInput {
                 id: procInput
                 anchors.fill: parent
                 anchors.leftMargin: 12
                 anchors.rightMargin: 12
                 verticalAlignment: TextInput.AlignVCenter
-                color: Theme.text
+                textColor: Theme.text
                 font.family: Theme.fontSans
                 font.pixelSize: 12
                 clip: true
@@ -192,7 +269,9 @@ Item {
                 Text {
                     anchors.fill: parent
                     verticalAlignment: Text.AlignVCenter
-                    text: "Filter processes (kitty, firefox, code, pipewire...)"
+                    text: root.activeSection === "apps"
+                        ? "Filter applications (firefox, kitty, code...)"
+                        : "Filter processes (kitty, firefox, code, pipewire...)"
                     color: Theme.textMuted
                     font.family: Theme.fontSans
                     font.pixelSize: 12
@@ -202,16 +281,18 @@ Item {
             }
         }
 
-        // Scrollable Process List
+        // Scrollable Applications / Processes List
         Item {
             Layout.fillWidth: true
             height: 186
             clip: true
 
+            readonly property var activeModel: root.activeSection === "apps" ? root.filteredApps : root.filteredProcs
+
             Text {
                 anchors.centerIn: parent
-                visible: root.filteredProcs.length === 0
-                text: "No matching processes"
+                visible: parent.activeModel.length === 0
+                text: root.activeSection === "apps" ? "No matching applications" : "No matching processes"
                 color: Theme.textMuted
                 font.family: Theme.fontSans
                 font.pixelSize: 12
@@ -220,11 +301,11 @@ Item {
             ListView {
                 id: procListView
                 anchors.fill: parent
-                visible: root.filteredProcs.length > 0
+                visible: parent.activeModel.length > 0
                 clip: true
                 spacing: 6
                 boundsBehavior: Flickable.StopAtBounds
-                model: root.filteredProcs
+                model: parent.activeModel
 
                 delegate: Item {
                     id: procWrap
@@ -243,7 +324,13 @@ Item {
                         id: killDelay
                         interval: 220
                         repeat: false
-                        onTriggered: TelemetryService.killProcess(procWrap.modelData.pid)
+                        onTriggered: {
+                            if (root.activeSection === "apps") {
+                                TelemetryService.closeApp(procWrap.modelData.address, procWrap.modelData.pid);
+                            } else {
+                                TelemetryService.killProcess(procWrap.modelData.pid);
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -261,6 +348,12 @@ Item {
                             id: pMouse
                             anchors.fill: parent
                             hoverEnabled: true
+                            cursorShape: root.activeSection === "apps" ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            onClicked: {
+                                if (root.activeSection === "apps" && procWrap.modelData.address) {
+                                    TelemetryService.focusApp(procWrap.modelData.address);
+                                }
+                            }
                         }
 
                         RowLayout {
@@ -269,14 +362,29 @@ Item {
                             anchors.rightMargin: 10
                             spacing: 8
 
-                            Text {
+                            ColumnLayout {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                text: procWrap.modelData.name
-                                color: Theme.text
-                                font.family: Theme.fontSans
-                                font.pixelSize: 13
-                                elide: Text.ElideRight
+                                spacing: 1
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: procWrap.modelData.name
+                                    color: Theme.text
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: 13
+                                    elide: Text.ElideRight
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: root.activeSection === "apps" && (procWrap.modelData.title || "") !== ""
+                                    text: procWrap.modelData.title || ""
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: 10
+                                    elide: Text.ElideRight
+                                }
                             }
 
                             Text {
@@ -287,7 +395,7 @@ Item {
                             }
 
                             PillButton {
-                                text: "Kill"
+                                text: root.activeSection === "apps" ? "Close" : "Kill"
                                 fontSize: 11
                                 horizontalPadding: 10
                                 verticalPadding: 4

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import Quickshell
 import "../.."
 import "../../services"
 import "../common"
@@ -83,7 +84,14 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: NetworkService.toggleWifi()
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.RightButton) {
+                            Quickshell.execDetached(["qs", "-p", Quickshell.shellDir, "ipc", "call", "paithosh", "openSettings", "wifi"]);
+                        } else {
+                            NetworkService.toggleWifi();
+                        }
+                    }
                 }
             }
 
@@ -162,6 +170,7 @@ Item {
             radius: 18
             color: Theme.cardBg
             clip: true
+            visible: MediaService.active
 
             ColumnLayout {
                 anchors.fill: parent
