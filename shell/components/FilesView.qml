@@ -25,6 +25,29 @@ FocusScope {
     property string filterType: "all" // "all" | "image" | "document" | "code" | "archive" | "media" | "portal"
     property int activePortalFilterIdx: -1
     property var selectedPaths: []
+    property bool previewDismissed: false
+    property string previewText: ""
+    property string previewThumbUrl: ""
+    readonly property var previewItem: selectedPaths.length === 1 ? getPrimarySelectedItem() : null
+    readonly property bool showPreviewPanel: previewItem !== null && previewItem.type !== "folder" && !previewDismissed
+
+    onSelectedPathsChanged: {
+        previewDismissed = false;
+        previewText = "";
+        previewThumbUrl = "";
+        const item = previewItem;
+        if (!item || item.type === "folder") return;
+        const p = item.path;
+        if (item.type === "video") {
+            FileService.requestVideoThumb(p, (url) => {
+                if (root.previewItem && root.previewItem.path === p) root.previewThumbUrl = url;
+            });
+        } else if (item.type !== "image" && item.type !== "archive" && item.type !== "music") {
+            FileService.readTextPreview(p, (txt) => {
+                if (root.previewItem && root.previewItem.path === p) root.previewText = txt;
+            });
+        }
+    }
 
     signal pickerSubmitted(var paths)
     signal pickerCancelled()
@@ -2480,13 +2503,31 @@ FocusScope {
 
                                     Rectangle {
                                         Layout.alignment: Qt.AlignHCenter
-                                        width: 42; height: 42; radius: 11
+                                        width: 42; height: 42; radius: 11; clip: true
                                         color: Qt.rgba(itemColor.r, itemColor.g, itemColor.b, 0.13)
+                                        property string thumbUrl: gridDelegate.type === "image" ? ("file://" + gridDelegate.path) : ""
+                                        Component.onCompleted: {
+                                            if (gridDelegate.type === "video") {
+                                                FileService.requestVideoThumb(gridDelegate.path, (url) => { thumbUrl = url; });
+                                            }
+                                        }
+                                        Image {
+                                            id: gridPreviewImg
+                                            anchors.fill: parent
+                                            source: parent.thumbUrl
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            sourceSize: Qt.size(84, 84)
+                                            opacity: status === Image.Ready ? 1 : 0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        }
                                         SvgIcon {
                                             anchors.centerIn: parent
                                             sourceName: root.iconFor(gridDelegate.type)
                                             iconSize: 22
                                             color: itemColor
+                                            visible: !gridPreviewImg.visible
                                         }
                                     }
 
@@ -2711,10 +2752,32 @@ FocusScope {
                                 RowLayout {
                                     anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
 
-                                    SvgIcon {
-                                        sourceName: root.iconFor(listDelegate.type)
-                                        iconSize: 16
-                                        color: itemColor
+                                    Item {
+                                        width: 20; height: 20
+                                        property string thumbUrl: listDelegate.type === "image" ? ("file://" + listDelegate.path) : ""
+                                        Component.onCompleted: {
+                                            if (listDelegate.type === "video") {
+                                                FileService.requestVideoThumb(listDelegate.path, (url) => { thumbUrl = url; });
+                                            }
+                                        }
+                                        Image {
+                                            id: listPreviewImg
+                                            anchors.fill: parent
+                                            source: parent.thumbUrl
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            sourceSize: Qt.size(40, 40)
+                                            opacity: status === Image.Ready ? 1 : 0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        }
+                                        SvgIcon {
+                                            anchors.centerIn: parent
+                                            sourceName: root.iconFor(listDelegate.type)
+                                            iconSize: 16
+                                            color: itemColor
+                                            visible: !listPreviewImg.visible
+                                        }
                                     }
 
                                     Text {
@@ -2958,6 +3021,170 @@ FocusScope {
                         }
                     }
                 }
+            }
+        }
+
+        // Right Preview Panel (shown when a single non-folder file is selected)
+        Rectangle {
+            id: previewPanel
+            Layout.preferredWidth: root.showPreviewPanel ? 256 : 0
+            Layout.fillHeight: true
+            opacity: root.showPreviewPanel ? 1 : 0
+            visible: Layout.preferredWidth > 1 || root.showPreviewPanel
+            color: Theme.pillBg
+            clip: true
+
+            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.borderSubtle
+            }
+
+            ColumnLayout {
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                anchors.margins: 12
+                width: 232
+                spacing: 10
+
+                // Header
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: "Preview"
+                        color: Theme.textSub
+                        font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+                    Rectangle {
+                        width: 24; height: 24; radius: 7
+                        color: closePreviewMouse.containsMouse ? Theme.hoverBg : "transparent"
+                        scale: closePreviewMouse.pressed ? 0.92 : 1.0
+                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                        SvgIcon { anchors.centerIn: parent; sourceName: "close"; iconSize: 13; color: Theme.textSub }
+                        MouseArea {
+                            id: closePreviewMouse
+                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                            onClicked: root.previewDismissed = true
+                        }
+                    }
+                }
+
+                // Preview Canvas
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: root.previewText !== ""
+                    Layout.preferredHeight: root.previewText !== "" ? 200 : 180
+                    radius: 12
+                    color: Theme.surfaceRaised
+                    border.width: 1; border.color: Theme.borderSubtle
+                    clip: true
+
+                    readonly property string imgSource: {
+                        if (!root.previewItem) return "";
+                        if (root.previewItem.type === "image") return "file://" + root.previewItem.path;
+                        if (root.previewItem.type === "video") return root.previewThumbUrl;
+                        return "";
+                    }
+
+                    Image {
+                        id: panelPreviewImg
+                        anchors.fill: parent
+                        anchors.margins: 6
+                        source: parent.imgSource
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        sourceSize: Qt.size(512, 512)
+                        opacity: status === Image.Ready ? 1 : 0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    }
+
+                    Flickable {
+                        id: panelTextFlick
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        visible: !panelPreviewImg.visible && root.previewText !== ""
+                        contentWidth: width
+                        contentHeight: panelPreviewText.implicitHeight
+                        boundsBehavior: Flickable.StopAtBounds
+                        clip: true
+
+                        Text {
+                            id: panelPreviewText
+                            width: panelTextFlick.width
+                            text: root.previewText
+                            color: Theme.text
+                            font.family: Theme.fontMono; font.pixelSize: 11
+                            wrapMode: Text.WrapAnywhere
+                        }
+                    }
+
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        visible: !panelPreviewImg.visible && root.previewText === ""
+                        sourceName: root.previewItem ? root.iconFor(root.previewItem.type) : "file"
+                        iconSize: 44
+                        color: root.previewItem ? root.iconColorFor(root.previewItem.type) : Theme.textSub
+                    }
+                }
+
+                // File Name & Meta
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: root.previewItem ? root.previewItem.name : ""
+                    color: Theme.text
+                    font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
+                    wrapMode: Text.WrapAnywhere
+                    maximumLineCount: 2
+                    elide: Text.ElideMiddle
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        Text { text: "Type"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                        Text {
+                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                            text: root.previewItem ? root.previewItem.type : ""
+                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        Text { text: "Size"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                        Text {
+                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                            text: root.previewItem ? FileService.formatSize(root.previewItem.size) : ""
+                            color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
+                        }
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true; spacing: 8
+                        Text { text: "Modified"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                        Text {
+                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                            text: root.previewItem ? FileService.formatDate(root.previewItem.mtime) : ""
+                            color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                Item { Layout.fillHeight: root.previewText === "" }
             }
         }
     }

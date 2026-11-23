@@ -72,6 +72,35 @@ Singleton {
         });
     }
 
+    property var videoThumbs: ({})
+
+    // ponytail: /tmp cache per session, no disk eviction
+    function requestVideoThumb(path, cb) {
+        if (!path) return;
+        const cached = videoThumbs[path];
+        if (cached !== undefined) {
+            if (cached !== "" && cb) cb(cached);
+            return;
+        }
+        videoThumbs[path] = "";
+        const thumb = "/tmp/paithosh-thumbs/" + Qt.md5(path) + ".jpg";
+        runCmd(["sh", "-c", "mkdir -p /tmp/paithosh-thumbs && [ -s \"$2\" ] || ffmpeg -y -loglevel error -i \"$1\" -frames:v 1 -vf \"scale=320:-1\" -q:v 5 \"$2\"", "sh", path, thumb], (ok) => {
+            if (ok) {
+                const url = "file://" + thumb;
+                videoThumbs[path] = url;
+                if (cb) cb(url);
+            }
+        });
+    }
+
+    // ponytail: 8KB head + file(1) mime check, no full-file viewer
+    function readTextPreview(path, cb) {
+        if (!path || !cb) return;
+        runCmd(["sh", "-c", "file -b --mime-encoding \"$1\" 2>/dev/null | grep -qv '^binary$' && head -c 8192 \"$1\" 2>/dev/null || true", "sh", path], (ok, out) => {
+            cb(ok ? (out || "") : "");
+        });
+    }
+
     function loadState() {
         runCmd(["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", statePath], (ok, out) => {
             try {
