@@ -580,6 +580,7 @@ Item {
     component SettingRow: Item {
         id: sRow
         property string iconChar: ""
+        property string iconName: ""
         property string title: ""
         property string subtitle: ""
         property string searchKeywords: ""
@@ -624,11 +625,19 @@ Item {
             spacing: 12
 
             Rectangle {
-                visible: sRow.iconChar !== ""
+                visible: sRow.iconName !== "" || sRow.iconChar !== ""
                 width: 30; height: 30; radius: 8
                 color: Theme.surfaceRaised
                 border.width: 1; border.color: Theme.borderSubtle
+                SvgIcon {
+                    visible: sRow.iconName !== ""
+                    anchors.centerIn: parent
+                    sourceName: sRow.iconName
+                    iconSize: 15
+                    color: Theme.textSub
+                }
                 Text {
+                    visible: sRow.iconName === "" && sRow.iconChar !== ""
                     anchors.centerIn: parent
                     text: sRow.iconChar
                     color: Theme.textSub
@@ -2202,6 +2211,55 @@ Item {
                                     iconChar: "—"
                                     title: "No output devices found"
                                     subtitle: "Connect speakers or headphones"
+                                }
+                            }
+
+                            // Applications (Per-App Playback Streams)
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconName: "volume"
+                                    title: "Applications"
+                                    subtitle: AudioService.appPlaybackStreams.length === 0
+                                        ? "No active audio streams"
+                                        : (AudioService.appPlaybackStreams.length + (AudioService.appPlaybackStreams.length === 1 ? " app playing" : " apps playing"))
+                                    searchKeywords: "application app volume mixer stream playback per-app"
+                                }
+                                Repeater {
+                                    model: AudioService.appPlaybackStreams
+                                    delegate: SettingRow {
+                                        required property var modelData
+                                        readonly property bool appMuted: AudioService.isDeviceMuted(modelData)
+                                        readonly property int appVol: AudioService.deviceVolumePct(modelData)
+                                        readonly property string appName: AudioService.streamAppName(modelData)
+                                        readonly property string mediaName: AudioService.streamMediaName(modelData)
+                                        iconName: "music"
+                                        title: appName
+                                        subtitle: (mediaName !== "" ? (mediaName + " • ") : "") + (appMuted ? "Muted" : (appVol + "%"))
+                                        searchKeywords: "application app volume mixer stream " + appName + " " + mediaName
+                                        RowLayout {
+                                            spacing: 8
+                                            CtrlBtn {
+                                                text: appMuted ? "Unmute" : "Mute"
+                                                ghost: !appMuted
+                                                onClicked: AudioService.toggleDeviceMute(modelData)
+                                            }
+                                            CtrlSlider {
+                                                Layout.preferredWidth: 150
+                                                from: 0; to: 100
+                                                value: appVol
+                                                unit: "%"
+                                                onMoved: (v) => AudioService.setDeviceVolume(modelData, v)
+                                            }
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    visible: AudioService.appPlaybackStreams.length === 0
+                                    iconName: "music"
+                                    title: "No active applications"
+                                    subtitle: "Apps playing audio will appear here"
+                                    searchKeywords: "application app volume mixer stream"
                                 }
                             }
 

@@ -120,6 +120,15 @@ QtObject {
             keywords: "mic microphone recording pipewire source",
             icon: "🎙"
         },
+        {
+            id: "sound-apps",
+            page: "sound",
+            pageLabel: "Sound & Audio",
+            title: "Application volume",
+            subtitle: "Per-application playback volume and mute",
+            keywords: "app application mixer stream volume mute pipewire",
+            icon: "♪"
+        },
 
         // Power & Battery
         {

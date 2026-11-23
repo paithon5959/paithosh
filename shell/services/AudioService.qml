@@ -71,6 +71,17 @@ Singleton {
         return list;
     }
 
+    readonly property var appPlaybackStreams: {
+        const list = [];
+        for (let i = 0; i < playbackStreams.length; i++) {
+            const n = playbackStreams[i];
+            const appName = n.properties ? (n.properties["application.name"] || "") : "";
+            if (n.name === "pw-play" || appName === "pw-play") continue;
+            list.push(n);
+        }
+        return list;
+    }
+
     signal osdTriggered(string kind, int value)
 
     PwObjectTracker {
@@ -99,6 +110,31 @@ Singleton {
         return "Device #" + node.id;
     }
 
+    function streamAppName(node) {
+        if (!node) return "Unknown App";
+        const props = node.properties;
+        if (props) {
+            if (props["application.name"] && props["application.name"].length > 0)
+                return props["application.name"];
+            if (props["node.name"] && props["node.name"].length > 0)
+                return props["node.name"];
+        }
+        return deviceDisplayName(node);
+    }
+
+    function streamMediaName(node) {
+        if (!node) return "";
+        const app = streamAppName(node);
+        const props = node.properties;
+        if (props && props["media.name"] && props["media.name"].length > 0 && props["media.name"] !== app) {
+            return props["media.name"];
+        }
+        if (node.description && node.description.length > 0 && node.description !== app) {
+            return node.description;
+        }
+        return "";
+    }
+
     function deviceVolumePct(node) {
         if (node && node.audio && !isNaN(node.audio.volume)) {
             return Math.max(0, Math.min(100, Math.round(node.audio.volume * 100)));
@@ -123,6 +159,8 @@ Singleton {
 
     function adjustVolume(delta) {
         setVolume(volumePct + delta, true);
+        if (delta > 0) SoundService.playVolumeUp();
+        else if (delta < 0) SoundService.playVolumeDown();
     }
 
     function toggleMute() {
