@@ -8,7 +8,7 @@ if [[ "${1:-}" == "--keep-alive" ]]; then
 fi
 
 STARTED_HERE=false
-if ! qs list 2>/dev/null | grep -q "$SHELL_DIR"; then
+if ! qs list --all 2>/dev/null | grep -q "$SHELL_DIR"; then
     echo "Starting Paithosh Quickshell daemon..."
     qs -p "$SHELL_DIR" -d
     STARTED_HERE=true
@@ -65,13 +65,16 @@ ipc cycleAlert
 sleep 0.25
 ipc cycleAlert
 
-echo "[6/8] Testing Search, Launcher, 4-Tab Dashboard & Notification Toast..."
+echo "[6/8] Testing Search, Launcher, Workspace Overview, 4-Tab Dashboard & Notification Toast..."
 ipc toggleSearch
 sleep 0.35
 ipc toggleSearch
 ipc toggleLauncher
 sleep 0.35
 ipc toggleLauncher
+ipc toggleOverview
+sleep 0.35
+ipc toggleOverview
 for tab in mission tasks kde power; do
     ipc toggleDashboard "$tab"
     sleep 0.28
@@ -94,7 +97,19 @@ ipc closeModal
 echo "[7b/8] Testing Attached Settings, Files & Upload/Download Picker..."
 ipc openSettings "system"
 sleep 0.35
-ipc openSettings "themes"
+ipc triggerPackageUpdate 4
+sleep 0.35
+ipc openSettings "updates"
+sleep 0.35
+ipc openSettings "backup"
+sleep 0.35
+ipc triggerPackageUpdate 0
+sleep 0.25
+ipc openSettings "appearance"
+sleep 0.35
+ipc openSettings "layout"
+sleep 0.35
+ipc openSettings "keybind"
 sleep 0.35
 ipc openFiles
 sleep 0.35
