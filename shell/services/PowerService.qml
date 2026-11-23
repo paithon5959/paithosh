@@ -15,6 +15,7 @@ Singleton {
 
     readonly property int batteryPct: hasBattery ? Math.round(bat.percentage * 100) : fallbackPct
     readonly property bool charging: hasBattery ? !UPower.onBattery : fallbackCharging
+    readonly property int chargeWatts: (hasBattery && typeof bat.energyRate === "number") ? Math.round(Math.abs(bat.energyRate)) : 0
     readonly property int healthPct: (hasBattery && bat.healthSupported) ? Math.round(bat.healthPercentage) : 96
     readonly property bool lowBatteryAlert: hasBattery && !charging && batteryPct <= 15
 
@@ -35,7 +36,7 @@ Singleton {
         return "Balanced";
     }
 
-    signal chargerChanged(bool charging, int pct)
+    signal chargerChanged(bool charging, int pct, int watts)
 
     onChargingChanged: {
         if (!initialized) {
@@ -45,7 +46,7 @@ Singleton {
         }
         if (charging !== lastCharging) {
             lastCharging = charging;
-            chargerChanged(charging, batteryPct);
+            chargerChanged(charging, batteryPct, chargeWatts);
         }
     }
 
@@ -61,7 +62,7 @@ Singleton {
 
     function triggerPreviewCharger() {
         fallbackCharging = !fallbackCharging;
-        chargerChanged(fallbackCharging, batteryPct);
+        chargerChanged(fallbackCharging, batteryPct, chargeWatts);
     }
 
     function setPowerProfile(name) {
@@ -74,8 +75,8 @@ Singleton {
     function executeAction(action) {
         if (action === "Lock") {
             Quickshell.execDetached(["sh", "-c", "command -v hyprlock >/dev/null && hyprlock || loginctl lock-session"]);
-        } else if (action === "Suspend") {
-            Quickshell.execDetached(["systemctl", "suspend"]);
+        } else if (action === "Logout") {
+            Quickshell.execDetached(["sh", "-c", "command -v hyprctl >/dev/null && hyprctl dispatch exit || loginctl terminate-user \"$USER\""]);
         } else if (action === "Reboot") {
             Quickshell.execDetached(["systemctl", "reboot"]);
         } else if (action === "Shutdown") {

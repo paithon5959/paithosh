@@ -20,9 +20,9 @@ Singleton {
 
     readonly property bool active: previewMediaActive || (player !== null && ((player.trackTitle || "") !== "" || player.isPlaying))
     readonly property bool isPlaying: player ? player.isPlaying : (previewMediaActive ? previewPlaying : false)
-    readonly property string trackTitle: (player && player.trackTitle) ? player.trackTitle : "Lofi Beats"
-    readonly property string trackArtist: (player && player.trackArtist) ? player.trackArtist : "Chillhop Music"
-    readonly property string trackAlbum: (player && player.trackAlbum) ? player.trackAlbum : "Cozy Vinyl"
+    readonly property string trackTitle: (player && player.trackTitle) ? player.trackTitle : (previewMediaActive ? "Lofi Beats" : "")
+    readonly property string trackArtist: (player && player.trackArtist) ? player.trackArtist : (previewMediaActive ? "Chillhop Music" : "")
+    readonly property string trackAlbum: (player && player.trackAlbum) ? player.trackAlbum : (previewMediaActive ? "Cozy Vinyl" : "")
     readonly property url trackArtUrl: (player && player.trackArtUrl) ? player.trackArtUrl : ""
 
     readonly property real progress: {

@@ -10,3 +10,11 @@ singleton TelemetryService 1.0 TelemetryService.qml
 singleton KdeConnectService 1.0 KdeConnectService.qml
 singleton AppService 1.0 AppService.qml
 singleton FileService 1.0 FileService.qml
+singleton BackupService 1.0 BackupService.qml
+singleton PackageService 1.0 PackageService.qml
+singleton KeybindService 1.0 KeybindService.qml
+singleton SettingsSearchService 1.0 SettingsSearchService.qml
+singleton ClipboardService 1.0 ClipboardService.qml
+singleton VpnProxyService 1.0 VpnProxyService.qml
+singleton ScreenRecordService 1.0 ScreenRecordService.qml
+singleton SoundService 1.0 SoundService.qml

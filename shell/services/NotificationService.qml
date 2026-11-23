@@ -25,15 +25,17 @@ Singleton {
             const entry = {
                 id: "n-" + notif.id + "-" + Date.now(),
                 appName: notif.appName || "System",
+                desktopEntry: notif.desktopEntry || "",
                 summary: notif.summary || "Notification",
                 body: notif.body || "",
                 timeText: "now",
                 notifObj: notif
             };
             root.historyList = [entry].concat(root.historyList).slice(0, 30);
-            if (!root.dnd) {
+            if (!root.dnd && !notif.lastGeneration) {
                 root.activeToast = entry;
                 toastExpireTimer.restart();
+                SoundService.playNotify();
             }
         }
     }
@@ -48,6 +50,27 @@ Singleton {
     function dismissToast() {
         toastExpireTimer.stop();
         activeToast = null;
+    }
+
+    function activateToast() {
+        if (activeToast) {
+            activateNotification(activeToast);
+        }
+    }
+
+    function activateNotification(entry) {
+        if (!entry) return;
+        if (entry.notifObj && entry.notifObj.actions) {
+            const actions = entry.notifObj.actions;
+            for (let i = 0; i < actions.length; ++i) {
+                if (actions[i] && actions[i].identifier === "default") {
+                    try { actions[i].invoke(); } catch (e) {}
+                    break;
+                }
+            }
+        }
+        CompositorService.focusWindowByApp(entry.appName, entry.desktopEntry, entry.summary);
+        dismissToast();
     }
 
     function dismissById(id) {
