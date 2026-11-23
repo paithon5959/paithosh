@@ -167,6 +167,7 @@ Singleton {
     function playInstallerStart() { play("installer-start.wav", 0.85); }
     function playInstallerDone() { play("installer-done.wav", 0.90); }
     function playIconPop() { play("icon-pop.wav", 0.45); }
+    function playAudioMuted() { play("audio-muted.wav", 0.85, true); }
 
     function playVolumeUp() {
         const now = Date.now();

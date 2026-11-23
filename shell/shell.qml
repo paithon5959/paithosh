@@ -1054,6 +1054,10 @@ ShellRoot {
             AudioService.adjustVolume(delta);
         }
 
+        function toggleMute(): void {
+            AudioService.toggleMute();
+        }
+
         function adjustBrightness(delta: int): void {
             BrightnessService.adjustBrightness(delta);
         }

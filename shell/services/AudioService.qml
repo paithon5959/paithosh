@@ -163,12 +163,33 @@ Singleton {
         else if (delta < 0) SoundService.playVolumeDown();
     }
 
+    Timer {
+        id: muteDelayTimer
+        interval: 420
+        repeat: false
+        onTriggered: {
+            if (root.hasLiveSink) {
+                root.sink.audio.muted = true;
+            } else {
+                Quickshell.execDetached(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1"]);
+            }
+        }
+    }
+
     function toggleMute() {
         if (hasLiveSink) {
-            sink.audio.muted = !sink.audio.muted;
+            if (!sink.audio.muted) {
+                osdTriggered("mute", 0);
+                SoundService.playAudioMuted();
+                muteDelayTimer.restart();
+            } else {
+                muteDelayTimer.stop();
+                sink.audio.muted = false;
+            }
         } else {
             Quickshell.execDetached(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]);
             osdTriggered("mute", 0);
+            SoundService.playAudioMuted();
         }
     }
 

@@ -38,6 +38,7 @@ Singleton {
         { id: "nextWallpaper",  label: "Next Wallpaper",            desc: "Cycle to the next desktop wallpaper",       cmd: "qs -p " + shellDir + " ipc call paithosh nextWallpaper", opts: "" },
         { id: "volUp",          label: "Volume Up (+5%)",           desc: "Increase volume with Dynamic Island OSD",   cmd: "qs -p " + shellDir + " ipc call paithosh adjustVolume 5", opts: "{ locked = true, repeating = true }" },
         { id: "volDown",        label: "Volume Down (-5%)",         desc: "Decrease volume with Dynamic Island OSD",   cmd: "qs -p " + shellDir + " ipc call paithosh adjustVolume -5", opts: "{ locked = true, repeating = true }" },
+        { id: "volMute",        label: "Toggle Mute",               desc: "Mute or unmute audio with Island OSD",      cmd: "qs -p " + shellDir + " ipc call paithosh toggleMute", opts: "{ locked = true }" },
         { id: "brightUp",       label: "Brightness Up (+5%)",       desc: "Increase screen brightness with OSD",       cmd: "qs -p " + shellDir + " ipc call paithosh adjustBrightness 5", opts: "{ locked = true, repeating = true }" },
         { id: "brightDown",     label: "Brightness Down (-5%)",     desc: "Decrease screen brightness with OSD",       cmd: "qs -p " + shellDir + " ipc call paithosh adjustBrightness -5", opts: "{ locked = true, repeating = true }" },
         { id: "cycleAlert",     label: "Cycle Island Alert",        desc: "Cycle active Dynamic Island alert pill",    cmd: "qs -p " + shellDir + " ipc call paithosh cycleAlert", opts: "" }
@@ -380,6 +381,7 @@ def classify(action_lua, cmd):
         if "nextWallpaper" in c: return ("island", "Next Wallpaper", "Cycle desktop wallpaper")
         if "adjustVolume 5" in c: return ("island", "Volume Up (+5%)", "Dynamic Island volume OSD")
         if "adjustVolume -5" in c: return ("island", "Volume Down (-5%)", "Dynamic Island volume OSD")
+        if "toggleMute" in c: return ("island", "Toggle Mute", "Mute or unmute audio")
         if "adjustBrightness 5" in c: return ("island", "Brightness Up (+5%)", "Dynamic Island brightness OSD")
         if "adjustBrightness -5" in c: return ("island", "Brightness Down (-5%)", "Dynamic Island brightness OSD")
         if "cycleAlert" in c: return ("island", "Cycle Island Alert", "Cycle active Island alert")
