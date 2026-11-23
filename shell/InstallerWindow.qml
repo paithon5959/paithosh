@@ -74,7 +74,7 @@ PanelWindow {
 
     // Release metadata (synced from GitHub latest release, with local fallback)
     property bool loadingRelease: true
-    property string releaseVersion: "v1.0.2"
+    property string releaseVersion: "v1.0.3"
     property string releaseDate: ""
     property bool releaseFromGithub: false
     property var releaseChangelogs: [

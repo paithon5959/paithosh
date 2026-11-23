@@ -14,7 +14,7 @@ ColumnLayout {
     property var shellState: null
 
     // Shell & Runtime metadata
-    property string shellVersion: "1.0.2"
+    property string shellVersion: "1.0.3"
     property string gitBranch: "master"
     property string gitCommit: "local"
     property string qsVersion: "Quickshell"
