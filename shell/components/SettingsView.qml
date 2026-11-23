@@ -3826,7 +3826,7 @@ Item {
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 8
                                             Rectangle {
-                                                Layout.fillWidth: true; height: 32; radius: 6
+                                                Layout.fillWidth: true; Layout.preferredWidth: 0; Layout.minimumWidth: 0; height: 32; radius: 6
                                                 color: Qt.rgba(1, 1, 1, 0.06); border.color: Qt.rgba(1, 1, 1, 0.14); border.width: 1
                                                 AnimatedTextInput {
                                                     anchors.fill: parent; anchors.margins: 8
@@ -3883,6 +3883,8 @@ Item {
                             }
                             Text {
                                 visible: root.themeExportStatus !== ""
+                                Layout.fillWidth: true; Layout.preferredWidth: 0
+                                wrapMode: Text.WrapAnywhere
                                 text: root.themeExportStatus
                                 color: root.themeExportOk ? Theme.ok : Theme.dangerText
                                 font.family: Theme.fontSans
