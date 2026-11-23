@@ -13,6 +13,7 @@ Item {
 
     property var shellState: null
     property string currentPage: "home"
+    property string pendingHyprMode: ""
     property string searchQuery: ""
     readonly property string activeSearchQuery: searchQuery.trim()
     property bool systemOpen: true
@@ -2453,21 +2454,21 @@ Item {
                                             visible: PackageService.hyprSyncState === "outdated"
                                             text: PackageService.hyprSyncing ? "Updating..." : "Update"
                                             enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
-                                            onClicked: PackageService.syncHyprConfig("update")
+                                            onClicked: root.pendingHyprMode = "update"
                                         }
                                         CtrlBtn {
                                             visible: PackageService.hyprSyncState === "outdated"
                                             text: "Reset All"
                                             ghost: true
                                             enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
-                                            onClicked: PackageService.syncHyprConfig("replace")
+                                            onClicked: root.pendingHyprMode = "replace"
                                         }
                                         CtrlBtn {
                                             visible: PackageService.hyprSyncState !== "outdated"
                                             text: PackageService.hyprSyncing ? "Syncing..." : "Sync Defaults"
                                             ghost: PackageService.hyprSyncState === "synced"
                                             enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
-                                            onClicked: PackageService.syncHyprConfig("replace")
+                                            onClicked: root.pendingHyprMode = "replace"
                                         }
                                     }
                                 }
@@ -4995,6 +4996,92 @@ Item {
                         danger: true
                         enabled: !BackupService.inspectBusy && !BackupService.busy
                         onClicked: BackupService.confirmRollbackSystemBackup(inspectOverlay.d.id)
+                    }
+                }
+            }
+        }
+    }
+
+    // Hyprland Default Config Sync Confirmation Dialog
+    Rectangle {
+        id: hyprConfirm
+        readonly property bool isUpdate: root.pendingHyprMode === "update"
+        property bool open: root.pendingHyprMode !== ""
+
+        anchors.fill: parent
+        z: 200
+        color: Qt.rgba(0, 0, 0, 0.56)
+        visible: open || opacity > 0.01
+        opacity: open ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+        focus: open
+        Keys.onEscapePressed: root.pendingHyprMode = ""
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: hyprConfirm.open
+            onClicked: root.pendingHyprMode = ""
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 44, 420)
+            implicitHeight: hyprConfirmCol.implicitHeight + 40
+            height: implicitHeight
+            radius: 14
+            clip: true
+            color: Theme.surfaceBg
+            border.width: 1
+            border.color: Theme.borderSubtle
+            scale: hyprConfirm.open ? 1.0 : 0.94
+            Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+            MouseArea { anchors.fill: parent }
+
+            ColumnLayout {
+                id: hyprConfirmCol
+                anchors.fill: parent
+                anchors.margins: 20
+                spacing: 10
+
+                Text {
+                    Layout.fillWidth: true
+                    text: hyprConfirm.isUpdate ? "Update Hyprland config?" : "Replace Hyprland config?"
+                    color: Theme.text
+                    font.family: Theme.fontSans
+                    font.pixelSize: 16
+                    font.weight: Font.Bold
+                    elide: Text.ElideRight
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: hyprConfirm.isUpdate
+                        ? "Apply new defaults to ~/.config/hypr. Files you customized are preserved. A backup is created first."
+                        : "This overwrites ~/.config/hypr with Paithosh defaults, including your custom changes. A backup is created first."
+                    color: Theme.textSub
+                    font.family: Theme.fontSans
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Layout.topMargin: 6
+                    spacing: 8
+                    Item { Layout.fillWidth: true }
+                    CtrlBtn {
+                        text: "Cancel"
+                        ghost: true
+                        onClicked: root.pendingHyprMode = ""
+                    }
+                    CtrlBtn {
+                        text: hyprConfirm.isUpdate ? "Update" : "Replace"
+                        danger: !hyprConfirm.isUpdate
+                        onClicked: {
+                            const m = root.pendingHyprMode;
+                            root.pendingHyprMode = "";
+                            PackageService.syncHyprConfig(m);
+                        }
                     }
                 }
             }
