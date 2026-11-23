@@ -14,6 +14,7 @@ Singleton {
     property int duckUpMs: 420
     property real volume: 0.72
     property double _lastKeyMs: 0
+    property double _lastVolSfxMs: 0
     property int _keyIdx: 0
 
     property real _duckGain: 1.0
@@ -166,6 +167,20 @@ Singleton {
     function playInstallerStart() { play("installer-start.wav", 0.85); }
     function playInstallerDone() { play("installer-done.wav", 0.90); }
     function playIconPop() { play("icon-pop.wav", 0.45); }
+
+    function playVolumeUp() {
+        const now = Date.now();
+        if (now - _lastVolSfxMs < 35) return;
+        _lastVolSfxMs = now;
+        play("volume-up.wav", 0.55, false);
+    }
+
+    function playVolumeDown() {
+        const now = Date.now();
+        if (now - _lastVolSfxMs < 35) return;
+        _lastVolSfxMs = now;
+        play("volume-down.wav", 0.55, false);
+    }
 
     function playKey() {
         const now = Date.now();
