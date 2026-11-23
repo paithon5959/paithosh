@@ -736,7 +736,8 @@ PanelWindow {
                     IslandSlot {
                         id: slotPkgUpdate
                         readonly property bool hasActiveOp: PackageService.activeOpText !== ""
-                        open: ((PackageService.statusEventOpen || hasActiveOp) && !root.isSearchOnThisScreen) || (PackageService.updateCount > 0 && !root.anyTransientSlot && !root.isAppExpandedOnScreen)
+                        readonly property int badgeCount: PackageService.updateCount + (PackageService.shellUpdateBehind > 0 ? 1 : 0)
+                        open: ((PackageService.statusEventOpen || hasActiveOp) && !root.isSearchOnThisScreen) || (badgeCount > 0 && !root.anyTransientSlot && !root.isAppExpandedOnScreen)
                         maxSlotWidth: (PackageService.statusEventOpen || hasActiveOp) ? 340 : 76
 
                         readonly property color pkgTint: {
@@ -760,7 +761,7 @@ PanelWindow {
 
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: PackageService.statusEventOpen ? PackageService.statusEventText : (slotPkgUpdate.hasActiveOp ? PackageService.activeOpText : String(PackageService.updateCount))
+                            text: PackageService.statusEventOpen ? PackageService.statusEventText : (slotPkgUpdate.hasActiveOp ? PackageService.activeOpText : String(slotPkgUpdate.badgeCount))
                             color: slotPkgUpdate.pkgTint
                             font.family: Theme.fontSans
                             font.pixelSize: (PackageService.statusEventOpen || slotPkgUpdate.hasActiveOp) ? 15 : 14

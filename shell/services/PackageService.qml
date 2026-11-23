@@ -447,7 +447,10 @@ Singleton {
         interval: 3500
         running: true
         repeat: false
-        onTriggered: root.checkUpdates(false)
+        onTriggered: {
+            root.checkUpdates(false);
+            root.checkShellUpdate();
+        }
     }
 
     Timer {
@@ -457,6 +460,7 @@ Singleton {
         repeat: true
         onTriggered: {
             root.checkUpdates(false);
+            root.checkShellUpdate();
             root.maybeRunScheduledUpdate();
         }
     }
@@ -759,6 +763,7 @@ Singleton {
         }
         onExited: function(exitCode) {
             root.shellChecking = false;
+            const prevBehind = root.shellUpdateBehind;
             const lines = (shellCheckProc.outBuf || "").trim().split("\n");
             let err = "";
             const commits = [];
@@ -783,6 +788,9 @@ Singleton {
                 root.shellUpdateError = err !== "" ? err : "Failed to check shell updates";
             } else {
                 root.shellUpdateError = "";
+                if (root.shellUpdateBehind > 0 && root.shellUpdateBehind > prevBehind) {
+                    root.triggerStatusEvent("Paithosh Shell update available (" + root.shellUpdateBehind + ")", "info", true);
+                }
             }
         }
     }
@@ -798,7 +806,9 @@ Singleton {
             "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true); " +
             "if [ -n \"$upstream\" ]; then git -C \"$dir\" pull --ff-only; " +
             "elif [ -n \"$branch\" ]; then git -C \"$dir\" pull --ff-only origin \"$branch\"; " +
-            "else echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; fi",
+            "else echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; fi; " +
+            "if [ -x \"$dir/installer/lib/sync-hypr.sh\" ] || [ -f \"$dir/installer/lib/sync-hypr.sh\" ]; then " +
+            "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --if-needed; fi",
             "sh", root.shellProjectRoot
         ]
         stderr: SplitParser {
