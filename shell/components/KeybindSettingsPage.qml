@@ -493,6 +493,23 @@ ColumnLayout {
                         font.pixelSize: 13
                         font.weight: Font.Medium
                     }
+                    Rectangle {
+                        height: 18
+                        implicitWidth: expLbl.implicitWidth + 12
+                        radius: 9
+                        color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.16)
+                        border.width: 1
+                        border.color: Theme.danger
+                        Text {
+                            id: expLbl
+                            anchors.centerIn: parent
+                            text: "Experimental"
+                            color: Theme.dangerText
+                            font.family: Theme.fontSans
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
+                        }
+                    }
                     Text {
                         text: KeybindService.totalComboCount + " shortcuts"
                         color: Theme.textMuted

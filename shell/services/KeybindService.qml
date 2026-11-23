@@ -566,6 +566,9 @@ lines = [
     "-- Keybindings (managed by Paithosh Settings)",
     "",
     'local programs = require("config.programs")',
+    'local paithosh = require("config.paithosh")',
+    'local shellDir = paithosh.root .. "/shell"',
+    'local qsIpc    = "qs -p " .. shellDir .. " ipc call paithosh "',
     'local mainMod  = "SUPER"',
     ""
 ]

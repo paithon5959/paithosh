@@ -3890,7 +3890,7 @@ Item {
                             // 4. Customize by Area
                             SectionLabel { text: "Customize by area" }
                             HubCard { iconChar: "◐"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
-                            HubCard { iconChar: "⌨"; title: "Binding"; subtitle: "Shortcuts, apps, screenshot & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
+                            HubCard { iconChar: "⌨"; title: "Binding (Experimental)"; subtitle: "Experimental — Shortcuts, apps, screenshot & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconChar: "◫"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                         }
 
