@@ -2,6 +2,8 @@
 
 Simply a shell I built to tinker with.
 
+![Paithosh screenshot](assets/screenshot.jpg)
+
 ## Installation
 
 Run the installer with a single command:
