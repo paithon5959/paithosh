@@ -1,0 +1,202 @@
+# Paithosh Shell — Danh sach Package theo tung Distro
+# Nguon tham chieu: installer/lib/audit.sh
+#
+# Luu y ve KDE Connect (bat buoc, chi su dung CLI `kdeconnect-cli`, khong can mo app GUI):
+#   - Paithosh chi goi `kdeconnect-cli` (qua KdeConnectService.qml).
+#   - Tren Fedora: goi `kdeconnectd` chi co daemon, KHONG co `kdeconnect-cli`.
+#     Goi nho nhat chua `kdeconnect-cli` la `kde-connect` (khong can cai them plasma/kde-desktop).
+#   - Tren Arch / Debian / Ubuntu: goi duy nhat la `kdeconnect` (da bao gom `kdeconnect-cli`).
+
+
+================================================================================
+1. ARCH LINUX (CachyOS / EndeavourOS / Manjaro)
+================================================================================
+
+# [core] Bat buoc de shell khoi dong va render icon/UI
+quickshell            # hoac `quickshell-git` (AUR qua paru/yay) neu repo extra chua co
+hyprland
+qt6-svg               # Bat buoc de Qt6 render cac icon .svg trong SvgIcon.qml
+hyprlock
+python
+git
+
+# [wayland] Screenshot, clipboard, quay man hinh, XDG Portal
+grim
+slurp
+wl-clipboard
+cliphist
+wf-recorder
+xdg-desktop-portal-hyprland
+python-dbus
+python-gobject
+
+# [system] Am thanh, den nen, mang, pin, quyen polkit, luu tru, VPN
+wireplumber
+pipewire              # Cung cap `pw-play` cho am thanh UI
+libpulse              # Cung cap `pactl` cho mix audio khi quay man hinh
+brightnessctl
+networkmanager
+upower
+power-profiles-daemon
+polkit
+hyprpolkitagent
+xdg-utils
+unzip
+pciutils
+gsettings-desktop-schemas
+gtk3
+wireguard-tools
+zenity
+kdeconnect            # Bat buoc (chi dung CLI `kdeconnect-cli`)
+
+# [optional] Tien ich mo rong, font UI, Btrfs snapshot
+ffmpeg
+7zip
+playerctl
+ttf-opensans
+ttf-jetbrains-mono
+btrfs-progs
+pacman-contrib        # Cung cap `checkupdates`
+libnotify
+
+# Lenh cai dat nhanh (Recommended = core + wayland + system):
+sudo pacman -S --needed --noconfirm \
+  quickshell hyprland qt6-svg hyprlock python git \
+  grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python-dbus python-gobject \
+  wireplumber pipewire libpulse brightnessctl networkmanager upower power-profiles-daemon \
+  polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kdeconnect
+
+# Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):
+sudo pacman -S --needed --noconfirm \
+  ffmpeg 7zip playerctl ttf-opensans ttf-jetbrains-mono btrfs-progs pacman-contrib libnotify
+
+
+================================================================================
+2. FEDORA LINUX (41 - 45+)
+================================================================================
+
+# Bat COPR bat buoc cho Quickshell, Hyprland, Hyprlock, Hyprpolkitagent, XDPH:
+sudo dnf5 copr enable -y lionheartp/Hyprland
+
+# [core]
+quickshell            # (COPR lionheartp/Hyprland)
+hyprland              # (COPR lionheartp/Hyprland)
+qt6-qtsvg             # Bat buoc de Qt6 render icon .svg
+hyprlock              # (COPR lionheartp/Hyprland)
+python3
+git
+
+# [wayland]
+grim
+slurp
+wl-clipboard
+cliphist
+wf-recorder
+xdg-desktop-portal-hyprland   # (COPR lionheartp/Hyprland)
+python3-dbus
+python3-gobject
+
+# [system]
+wireplumber
+pipewire-utils        # Cung cap `pw-play`
+pulseaudio-utils      # Cung cap `pactl`
+brightnessctl
+NetworkManager
+upower
+tuned-ppd             # Mac dinh Fedora 41+ (thay power-profiles-daemon)
+polkit
+hyprpolkitagent       # (COPR lionheartp/Hyprland)
+xdg-utils
+unzip
+pciutils
+gsettings-desktop-schemas
+gtk3
+wireguard-tools
+zenity
+kde-connect           # Bat buoc (goi nho nhat co `kdeconnect-cli`, khong can cai ca KDE Plasma)
+
+# [optional]
+ffmpeg-free           # Co san trong repo Fedora goc (khong can RPM Fusion)
+7zip
+playerctl
+open-sans-fonts
+jetbrains-mono-fonts-all
+btrfs-progs
+libnotify
+
+# Lenh cai dat nhanh (Recommended = core + wayland + system):
+sudo dnf5 install -y \
+  quickshell hyprland qt6-qtsvg hyprlock python3 git \
+  grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gobject \
+  wireplumber pipewire-utils pulseaudio-utils brightnessctl NetworkManager upower tuned-ppd \
+  polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kde-connect
+
+# Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):
+sudo dnf5 install -y \
+  ffmpeg-free 7zip playerctl open-sans-fonts jetbrains-mono-fonts-all btrfs-progs libnotify
+
+
+================================================================================
+3. DEBIAN (13+) / UBUNTU (24.04+)
+================================================================================
+
+# Luu y: `quickshell` CHUA co trong repo apt chinh thuc.
+# Can cai dat / build Quickshell thu cong tai: https://quickshell.org
+
+# [core]
+# quickshell          # (Build/cai thu cong tu https://quickshell.org)
+hyprland
+qt6-svg-plugins       # Bat buoc de Qt6 render icon .svg
+hyprlock
+python3
+git
+
+# [wayland]
+grim
+slurp
+wl-clipboard
+cliphist
+wf-recorder
+xdg-desktop-portal-hyprland
+python3-dbus
+python3-gi
+
+# [system]
+wireplumber
+pipewire-bin          # Cung cap `pw-play`
+pulseaudio-utils      # Cung cap `pactl`
+brightnessctl
+network-manager
+upower
+power-profiles-daemon
+pkexec
+polkit-kde-agent-1
+xdg-utils
+unzip
+pciutils
+libglib2.0-bin
+gsettings-desktop-schemas
+libgtk-3-bin
+wireguard-tools
+zenity
+kdeconnect            # Bat buoc (chi dung CLI `kdeconnect-cli`)
+
+# [optional]
+ffmpeg
+7zip
+playerctl
+fonts-jetbrains-mono
+btrfs-progs
+libnotify-bin
+
+# Lenh cai dat nhanh (Recommended = core + wayland + system):
+sudo apt-get update && sudo apt-get install -y \
+  hyprland qt6-svg-plugins hyprlock python3 git \
+  grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gi \
+  wireplumber pipewire-bin pulseaudio-utils brightnessctl network-manager upower power-profiles-daemon \
+  pkexec polkit-kde-agent-1 xdg-utils unzip pciutils libglib2.0-bin gsettings-desktop-schemas libgtk-3-bin \
+  wireguard-tools zenity kdeconnect
+
+# Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):
+sudo apt-get install -y \
+  ffmpeg 7zip playerctl fonts-jetbrains-mono btrfs-progs libnotify-bin
