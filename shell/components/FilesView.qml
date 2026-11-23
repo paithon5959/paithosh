@@ -2140,6 +2140,39 @@ FocusScope {
                     property bool _selMoved: false
                     property var _selBasePaths: []
 
+                    function beginMarquee(vx, vy, modifiers) {
+                        _selStartX = vx;
+                        _selStartY = vy;
+                        _selMoved = false;
+                        const additive = (modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) !== 0;
+                        _selBasePaths = additive ? root.selectedPaths.slice() : [];
+                        marqueeRect.x = vx;
+                        marqueeRect.y = vy;
+                        marqueeRect.width = 0;
+                        marqueeRect.height = 0;
+                    }
+
+                    function moveMarquee(vx, vy) {
+                        const dist = Math.hypot(vx - _selStartX, vy - _selStartY);
+                        if (dist > 6) {
+                            _selMoved = true;
+                            marqueeRect.visible = true;
+                            const rx = Math.min(_selStartX, vx);
+                            const ry = Math.min(_selStartY, vy);
+                            const rw = Math.abs(vx - _selStartX);
+                            const rh = Math.abs(vy - _selStartY);
+                            marqueeRect.x = rx;
+                            marqueeRect.y = ry;
+                            marqueeRect.width = rw;
+                            marqueeRect.height = rh;
+                            updateMarqueeSelection(rx, ry, rw, rh);
+                        }
+                    }
+
+                    function endMarquee() {
+                        marqueeRect.visible = false;
+                    }
+
                     function updateMarqueeSelection(rx, ry, rw, rh) {
                         const next = _selBasePaths.slice();
                         const count = viewModel.count;
@@ -2183,37 +2216,16 @@ FocusScope {
                         onPressed: (mouse) => {
                             root.forceActiveFocus();
                             if (mouse.button === Qt.LeftButton && (!root.isPicker || root.pickerMultiple)) {
-                                filesViewport._selStartX = mouse.x;
-                                filesViewport._selStartY = mouse.y;
-                                filesViewport._selMoved = false;
-                                const additive = (mouse.modifiers & (Qt.ControlModifier | Qt.ShiftModifier)) !== 0;
-                                filesViewport._selBasePaths = additive ? root.selectedPaths.slice() : [];
-                                marqueeRect.x = mouse.x;
-                                marqueeRect.y = mouse.y;
-                                marqueeRect.width = 0;
-                                marqueeRect.height = 0;
+                                filesViewport.beginMarquee(mouse.x, mouse.y, mouse.modifiers);
                             }
                         }
                         onPositionChanged: (mouse) => {
                             if (!pressed || (mouse.buttons & Qt.LeftButton) === 0) return;
                             if (root.isPicker && !root.pickerMultiple) return;
-                            const dist = Math.hypot(mouse.x - filesViewport._selStartX, mouse.y - filesViewport._selStartY);
-                            if (dist > 6) {
-                                filesViewport._selMoved = true;
-                                marqueeRect.visible = true;
-                                const rx = Math.min(filesViewport._selStartX, mouse.x);
-                                const ry = Math.min(filesViewport._selStartY, mouse.y);
-                                const rw = Math.abs(mouse.x - filesViewport._selStartX);
-                                const rh = Math.abs(mouse.y - filesViewport._selStartY);
-                                marqueeRect.x = rx;
-                                marqueeRect.y = ry;
-                                marqueeRect.width = rw;
-                                marqueeRect.height = rh;
-                                filesViewport.updateMarqueeSelection(rx, ry, rw, rh);
-                            }
+                            filesViewport.moveMarquee(mouse.x, mouse.y);
                         }
                         onReleased: (mouse) => {
-                            marqueeRect.visible = false;
+                            filesViewport.endMarquee();
                             if (mouse.button === Qt.LeftButton && !filesViewport._selMoved) {
                                 root.selectedPaths = [];
                                 root.lastSelectedIdx = -1;
@@ -2674,6 +2686,7 @@ FocusScope {
                                 Drag.mimeData: root.buildDragMime(listDelegate.path)
 
                                 Item {
+                                    id: listDragArea
                                     x: 0; y: 0; height: parent.height
                                     width: listDelegate.isSel ? parent.width : Math.min(parent.width - 176, 46 + listNameText.implicitWidth + 16)
                                     DragHandler {
@@ -2751,16 +2764,40 @@ FocusScope {
                                     id: rowMouse
                                     anchors.fill: parent; hoverEnabled: true
                                     acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    property bool _marqueeActive: false
                                     onPressed: (mouse) => {
+                                        _marqueeActive = false;
+                                        filesViewport._selMoved = false;
                                         if (mouse.button === Qt.LeftButton && (!root.isPicker || root.pickerMultiple)) {
-                                            const nameEnd = 46 + listNameText.implicitWidth + 16;
-                                            if (mouse.x > nameEnd && !listDelegate.isSel) {
-                                                mouse.accepted = false;
-                                                return;
+                                            if (mouse.x > listDragArea.width && !listDelegate.isSel) {
+                                                _marqueeActive = true;
+                                                const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
+                                                filesViewport.beginMarquee(pt.x, pt.y, mouse.modifiers);
                                             }
                                         }
                                     }
+                                    onPositionChanged: (mouse) => {
+                                        if (!_marqueeActive || !pressed || (mouse.buttons & Qt.LeftButton) === 0) return;
+                                        const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
+                                        filesViewport.moveMarquee(pt.x, pt.y);
+                                    }
+                                    onReleased: (mouse) => {
+                                        if (_marqueeActive) {
+                                            _marqueeActive = false;
+                                            filesViewport.endMarquee();
+                                        }
+                                    }
+                                    onCanceled: {
+                                        if (_marqueeActive) {
+                                            _marqueeActive = false;
+                                            filesViewport.endMarquee();
+                                        }
+                                    }
                                     onClicked: (mouse) => {
+                                        if (mouse.button === Qt.LeftButton && filesViewport._selMoved) {
+                                            filesViewport._selMoved = false;
+                                            return;
+                                        }
                                         if (mouse.button === Qt.RightButton) {
                                             root.handleItemRightClick(this, mouse, listDelegate.itemObj, index);
                                         } else {
