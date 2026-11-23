@@ -28,6 +28,17 @@ Singleton {
     property double lastAutoUpdateMs: 0
     readonly property string settingsPath: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/package-settings.json"
 
+    // Paithosh Shell git repo updates
+    readonly property string shellProjectRoot: Quickshell.shellDir.replace(/\/shell\/?$/, "")
+    property bool shellChecking: false
+    property bool shellUpdating: false
+    property bool shellCheckedOnce: false
+    property int shellUpdateBehind: 0
+    property string shellBranch: ""
+    property string shellCommit: ""
+    property string shellLatestSummary: ""
+    property string shellUpdateError: ""
+
     // Concise status bar event state (never uses notification popup)
     property bool statusEventOpen: false
     property string statusEventText: ""
@@ -690,6 +701,114 @@ Singleton {
                     root.lastError = "Authentication cancelled or cache clean failed";
                     root.triggerStatusEvent("Cache clean failed", "danger", true);
                 }
+            }
+        }
+    }
+
+    function checkShellUpdate() {
+        if (shellChecking || shellUpdating) return;
+        shellChecking = true;
+        shellCheckedOnce = true;
+        shellUpdateError = "";
+        shellCheckProc.outBuf = "";
+        shellCheckProc.running = false;
+        shellCheckProc.running = true;
+    }
+
+    function updateShell() {
+        if (shellChecking || shellUpdating) return;
+        shellUpdating = true;
+        shellUpdateError = "";
+        shellUpdateProc.errBuf = "";
+        triggerStatusEvent("Updating Paithosh Shell...", "info", false);
+        shellUpdateProc.running = false;
+        shellUpdateProc.running = true;
+    }
+
+    Timer {
+        id: shellReloadTimer
+        interval: 400
+        repeat: false
+        onTriggered: {
+            if (typeof Quickshell.reload === "function") Quickshell.reload(true);
+        }
+    }
+
+    Process {
+        id: shellCheckProc
+        property string outBuf: ""
+        command: [
+            "sh", "-c",
+            "dir=\"$1\"; " +
+            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'ERR=Not a git repository'; exit 1; }; " +
+            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || echo HEAD); " +
+            "local_hash=$(git -C \"$dir\" rev-parse --short HEAD 2>/dev/null || echo ''); " +
+            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo \"origin/$branch\"); " +
+            "remote=\"${upstream%%/*}\"; " +
+            "git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
+            "git -C \"$dir\" rev-parse --verify \"$upstream\" >/dev/null 2>&1 || { echo \"ERR=Remote branch $upstream not found\"; exit 1; }; " +
+            "behind=$(git -C \"$dir\" rev-list --count \"HEAD..$upstream\" 2>/dev/null || echo 0); " +
+            "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$upstream\" 2>/dev/null || echo ''); " +
+            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"",
+            "sh", root.shellProjectRoot
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: shellCheckProc.outBuf = text || ""
+        }
+        onExited: function(exitCode) {
+            root.shellChecking = false;
+            const lines = (shellCheckProc.outBuf || "").trim().split("\n");
+            let err = "";
+            for (let i = 0; i < lines.length; ++i) {
+                const eq = lines[i].indexOf("=");
+                if (eq === -1) continue;
+                const k = lines[i].slice(0, eq);
+                const v = lines[i].slice(eq + 1).trim();
+                if (k === "ERR") err = v;
+                else if (k === "BRANCH") root.shellBranch = v;
+                else if (k === "LOCAL") root.shellCommit = v;
+                else if (k === "BEHIND") root.shellUpdateBehind = parseInt(v, 10) || 0;
+                else if (k === "SUMMARY") root.shellLatestSummary = v;
+            }
+            if (exitCode !== 0) {
+                root.shellUpdateError = err !== "" ? err : "Failed to check shell updates";
+            } else {
+                root.shellUpdateError = "";
+            }
+        }
+    }
+
+    Process {
+        id: shellUpdateProc
+        property string errBuf: ""
+        command: [
+            "sh", "-c",
+            "dir=\"$1\"; " +
+            "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repository' >&2; exit 1; }; " +
+            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
+            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true); " +
+            "if [ -n \"$upstream\" ]; then git -C \"$dir\" pull --ff-only; " +
+            "elif [ -n \"$branch\" ]; then git -C \"$dir\" pull --ff-only origin \"$branch\"; " +
+            "else echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; fi",
+            "sh", root.shellProjectRoot
+        ]
+        stderr: SplitParser {
+            onRead: data => {
+                shellUpdateProc.errBuf += (shellUpdateProc.errBuf !== "" ? "\n" : "") + data;
+            }
+        }
+        onExited: function(exitCode) {
+            root.shellUpdating = false;
+            if (exitCode === 0) {
+                root.shellUpdateBehind = 0;
+                root.shellLatestSummary = "";
+                root.shellUpdateError = "";
+                root.triggerStatusEvent("Paithosh Shell updated — reloading...", "ok", true);
+                shellReloadTimer.restart();
+            } else {
+                const firstErr = (shellUpdateProc.errBuf || "").trim().split("\n")[0] || "";
+                root.shellUpdateError = firstErr !== "" ? firstErr : "Fast-forward pull failed";
+                root.triggerStatusEvent("Shell update failed", "danger", true);
             }
         }
     }

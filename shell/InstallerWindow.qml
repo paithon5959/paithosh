@@ -71,10 +71,11 @@ PanelWindow {
 
     // Release metadata (synced from GitHub latest release, with local fallback)
     property bool loadingRelease: true
-    property string releaseVersion: "v1.0.0"
+    property string releaseVersion: "v1.0.2"
     property string releaseDate: ""
     property bool releaseFromGithub: false
     property var releaseChangelogs: [
+        "• Added Shell updater",
         "• Dynamic Island shell for Hyprland with Mission Control, Media, Power, Weather, and Task Manager",
         "• Redesigned File Manager, File View, and File Picker with dual layout and Wayland drag-and-drop",
         "• Built-in Settings UI, Workspace Overview, Clipboard History, Screen Recorder, and VPN/Proxy controls",

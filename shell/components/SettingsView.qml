@@ -2284,6 +2284,44 @@ Item {
                         ColumnLayout {
                             Layout.fillWidth: true; spacing: 10
                             visible: root.currentPage === "updates"
+                            onVisibleChanged: if (visible && !PackageService.shellCheckedOnce) PackageService.checkShellUpdate()
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconChar: "⚡"
+                                    title: PackageService.shellBranch !== ""
+                                        ? ("Paithosh Shell  •  " + PackageService.shellBranch + (PackageService.shellCommit !== "" ? "@" + PackageService.shellCommit : ""))
+                                        : "Paithosh Shell"
+                                    subtitle: {
+                                        if (PackageService.shellChecking) return "Checking git repository for shell updates...";
+                                        if (PackageService.shellUpdating) return "Pulling latest changes and reloading shell...";
+                                        if (PackageService.shellUpdateError !== "") return PackageService.shellUpdateError;
+                                        if (PackageService.shellUpdateBehind > 0) {
+                                            return PackageService.shellUpdateBehind + (PackageService.shellUpdateBehind === 1 ? " new commit available" : " new commits available")
+                                                + (PackageService.shellLatestSummary !== "" ? " — " + PackageService.shellLatestSummary : "");
+                                        }
+                                        if (PackageService.shellCheckedOnce) return "Shell is up to date with your repository";
+                                        return "Update Paithosh Shell directly from your git repository";
+                                    }
+                                    searchKeywords: "paithosh shell git repo pull self update reload"
+                                    RowLayout {
+                                        spacing: 8
+                                        CtrlBtn {
+                                            text: PackageService.shellChecking ? "Checking..." : "Check"
+                                            ghost: true
+                                            enabled: !PackageService.shellChecking && !PackageService.shellUpdating
+                                            onClicked: PackageService.checkShellUpdate()
+                                        }
+                                        CtrlBtn {
+                                            text: PackageService.shellUpdating
+                                                ? "Updating..."
+                                                : (PackageService.shellUpdateBehind > 0 ? ("Update (" + PackageService.shellUpdateBehind + ")") : "Update")
+                                            enabled: !PackageService.shellChecking && !PackageService.shellUpdating && PackageService.shellUpdateBehind > 0
+                                            onClicked: PackageService.updateShell()
+                                        }
+                                    }
+                                }
+                            }
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false

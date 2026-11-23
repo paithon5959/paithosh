@@ -134,6 +134,15 @@ QtObject {
 
         // Updates
         {
+            id: "updates-shell",
+            page: "updates",
+            pageLabel: "Updates",
+            title: "Paithosh Shell Update",
+            subtitle: "Update shell from your git repository",
+            keywords: "paithosh shell git repo pull self update reload",
+            icon: "⚡"
+        },
+        {
             id: "updates-packages",
             page: "updates",
             pageLabel: "Updates",
