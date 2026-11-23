@@ -1,4 +1,4 @@
-# Paithosh (Paithonsh)
+# Paithosh (Paithon's shell)
 
 Simply a shell I built to tinker with.
 
