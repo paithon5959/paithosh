@@ -37,6 +37,7 @@ Singleton {
     property string shellBranch: ""
     property string shellCommit: ""
     property string shellLatestSummary: ""
+    property var shellCommits: []
     property string shellUpdateError: ""
 
     // Concise status bar event state (never uses notification popup)
@@ -749,7 +750,8 @@ Singleton {
             "git -C \"$dir\" rev-parse --verify \"$upstream\" >/dev/null 2>&1 || { echo \"ERR=Remote branch $upstream not found\"; exit 1; }; " +
             "behind=$(git -C \"$dir\" rev-list --count \"HEAD..$upstream\" 2>/dev/null || echo 0); " +
             "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$upstream\" 2>/dev/null || echo ''); " +
-            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"",
+            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"; " +
+            "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..$upstream\" 2>/dev/null || true",
             "sh", root.shellProjectRoot
         ]
         stdout: StdioCollector {
@@ -759,6 +761,7 @@ Singleton {
             root.shellChecking = false;
             const lines = (shellCheckProc.outBuf || "").trim().split("\n");
             let err = "";
+            const commits = [];
             for (let i = 0; i < lines.length; ++i) {
                 const eq = lines[i].indexOf("=");
                 if (eq === -1) continue;
@@ -769,7 +772,13 @@ Singleton {
                 else if (k === "LOCAL") root.shellCommit = v;
                 else if (k === "BEHIND") root.shellUpdateBehind = parseInt(v, 10) || 0;
                 else if (k === "SUMMARY") root.shellLatestSummary = v;
+                else if (k === "COMMIT" && v !== "") {
+                    const sp = v.indexOf(" ");
+                    if (sp !== -1) commits.push({ hash: v.slice(0, sp), subject: v.slice(sp + 1).trim() });
+                    else commits.push({ hash: v, subject: "" });
+                }
             }
+            root.shellCommits = (exitCode === 0 && root.shellUpdateBehind > 0) ? commits : [];
             if (exitCode !== 0) {
                 root.shellUpdateError = err !== "" ? err : "Failed to check shell updates";
             } else {

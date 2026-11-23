@@ -2287,7 +2287,7 @@ Item {
                             onVisibleChanged: if (visible && !PackageService.shellCheckedOnce) PackageService.checkShellUpdate()
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false
+                                    showDivider: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
                                     iconChar: "⚡"
                                     title: PackageService.shellBranch !== ""
                                         ? ("Paithosh Shell  •  " + PackageService.shellBranch + (PackageService.shellCommit !== "" ? "@" + PackageService.shellCommit : ""))
@@ -2319,6 +2319,44 @@ Item {
                                             enabled: !PackageService.shellChecking && !PackageService.shellUpdating && PackageService.shellUpdateBehind > 0
                                             onClicked: PackageService.updateShell()
                                         }
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.topMargin: 8
+                                    Layout.bottomMargin: 10
+                                    spacing: 5
+                                    visible: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
+                                    Repeater {
+                                        model: PackageService.shellCommits
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+                                            Text {
+                                                text: modelData.hash
+                                                color: Theme.accent
+                                                font.family: Theme.fontMono
+                                                font.pixelSize: 11
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: modelData.subject
+                                                color: Theme.textSub
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 12
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+                                    Text {
+                                        visible: PackageService.shellUpdateBehind > PackageService.shellCommits.length
+                                        text: "+" + (PackageService.shellUpdateBehind - PackageService.shellCommits.length) + " more commits"
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontMono
+                                        font.pixelSize: 11
                                     }
                                 }
                             }
