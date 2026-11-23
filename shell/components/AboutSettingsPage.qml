@@ -14,7 +14,7 @@ ColumnLayout {
     property var shellState: null
 
     // Shell & Runtime metadata
-    readonly property string shellVersion: "0.1.0"
+    property string shellVersion: "1.0.0"
     property string gitBranch: "master"
     property string gitCommit: "local"
     property string qsVersion: "Quickshell"
@@ -42,6 +42,7 @@ ColumnLayout {
 
     Component.onCompleted: {
         shellMetaProc.running = true;
+        releaseProc.running = true;
         runHealthCheck();
     }
 
@@ -63,6 +64,8 @@ ColumnLayout {
         TelemetryService.refreshSpecs();
         shellMetaProc.running = false;
         shellMetaProc.running = true;
+        releaseProc.running = false;
+        releaseProc.running = true;
         runHealthCheck();
     }
 
@@ -96,6 +99,7 @@ ColumnLayout {
         command: [
             "sh", "-c",
             "printf 'QS=%s\\n' \"$(qs --version 2>/dev/null | head -n1 | sed 's/ (revision.*//')\"; " +
+            "printf 'VER=%s\\n' \"$(git -C \"$1\" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')\"; " +
             "printf 'BRANCH=%s\\n' \"$(git -C \"$1\" rev-parse --abbrev-ref HEAD 2>/dev/null || echo local)\"; " +
             "printf 'HASH=%s\\n' \"$(git -C \"$1\" rev-parse --short HEAD 2>/dev/null || echo dev)\"; " +
             "printf 'QT=%s\\n' \"$(qmake6 -query QT_VERSION 2>/dev/null || qtdiag6 2>/dev/null | head -n1 | grep -oE '[0-9]+\\.[0-9]+\\.[0-9]+' || echo 6)\"; " +
@@ -112,11 +116,32 @@ ColumnLayout {
                     const v = lines[i].slice(eq + 1).trim();
                     if (!v) continue;
                     if (k === "QS") root.qsVersion = v;
+                    else if (k === "VER") root.shellVersion = v;
                     else if (k === "BRANCH") root.gitBranch = v;
                     else if (k === "HASH") root.gitCommit = v;
                     else if (k === "QT") root.qtVersion = v.startsWith("Qt") ? v : ("Qt " + v);
                     else if (k === "DE") root.sessionDesktop = v;
                 }
+            }
+        }
+    }
+
+    Process {
+        id: releaseProc
+        command: [
+            "python3", "-c",
+            "import json, urllib.request\n" +
+            "url = 'https://api.github.com/repos/paithon5959/paithosh/releases/latest'\n" +
+            "req = urllib.request.Request(url, headers={'Accept': 'application/vnd.github+json', 'User-Agent': 'paithosh-shell'})\n" +
+            "with urllib.request.urlopen(req, timeout=5) as resp:\n" +
+            "    d = json.loads(resp.read().decode('utf-8'))\n" +
+            "tag = (d.get('tag_name') or '').lstrip('v').strip()\n" +
+            "if tag: print(tag)\n"
+        ]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const ver = (text || "").trim();
+                if (ver) root.shellVersion = ver;
             }
         }
     }
