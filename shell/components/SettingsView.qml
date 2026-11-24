@@ -1700,6 +1700,18 @@ Item {
                                     iconChar: "🔕"; title: "Do Not Disturb"; subtitle: "Silence popups on the Dynamic Island status bar"
                                     CtrlSwitch { checked: NotificationService.dnd; onToggled: (v) => NotificationService.dnd = v }
                                 }
+                                SettingRow {
+                                    iconChar: "↻"; title: "Reload Shell"; subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config"
+                                    searchKeywords: "reload shell restart quickshell qs hyprctl"
+                                    CtrlBtn {
+                                        text: "Reload"
+                                        ghost: true
+                                        onClicked: Quickshell.execDetached([
+                                            "sh", "-c",
+                                            "pkill -x qs 2>/dev/null || true; sleep 0.25; hyprctl reload >/dev/null 2>&1; exec quickshell -p /home/paithon/Projects/paithosh/shell >/dev/null 2>&1"
+                                        ])
+                                    }
+                                }
                             }
                         }
 
