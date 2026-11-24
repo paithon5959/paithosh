@@ -378,25 +378,108 @@ assert "error:" in res.stderr or "fatal:" in res.stderr or "Local modifications"
 PY
 
     # 7k. KeybindService.qml parser classifies qsIpc binds from defaults/hypr/config/binds.lua
+    #     and writeProc preserves custom Lua, mainMod, escapes quotes/backslashes, & guards syntax
     local kb_home="$TMP_HOME/kb-home"
     HOME="$kb_home" XDG_CONFIG_HOME="$kb_home/.config" bash "$REPO_ROOT/installer/lib/sync-hypr.sh" --repo-root "$REPO_ROOT" --mode replace --no-reload >/dev/null
     python3 - "$REPO_ROOT/shell/services/KeybindService.qml" "$kb_home" "$REPO_ROOT/shell" <<'PY'
-import json, re, subprocess, sys
+import json, os, re, shutil, subprocess, sys
 qml = open(sys.argv[1], encoding="utf-8").read()
 m = re.search(r'id:\s*readProc\s*\n\s*command:\s*\["python3",\s*"-c",\s*`([\s\S]*?)`', qml)
 assert m, "Could not locate readProc script in KeybindService.qml"
 py_src = m.group(1).replace("\\\\", "\\")
+mw = re.search(r'id:\s*writeProc[\s\S]*?command:\s*\["python3",\s*"-c",\s*`([\s\S]*?)`', qml)
+assert mw, "Could not locate writeProc script in KeybindService.qml"
+write_src = mw.group(1).replace("\\\\", "\\")
+
+env = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": sys.argv[2]}
 res = subprocess.run(
     ["python3", "-c", py_src, sys.argv[3]],
-    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": sys.argv[2]},
-    capture_output=True, text=True, check=True
+    env=env, capture_output=True, text=True, check=True
 )
 binds = json.loads(res.stdout)
 cats = {}
+titles = {b["title"]: b for b in binds}
 for b in binds:
     cats[b["category"]] = cats.get(b["category"], 0) + 1
 assert cats.get("island", 0) >= 8, cats
 assert cats.get("screenshot", 0) >= 2, cats
+assert "Clipboard History" in titles and titles["Clipboard History"]["category"] == "island", titles.keys()
+assert "Screen Recording" in titles and titles["Screen Recording"]["category"] == "screenshot", titles.keys()
+assert "Launcher & Bar Peek (Super Tap)" in titles, titles.keys()
+
+binds_path = os.path.join(sys.argv[2], ".config", "hypr", "config", "binds.lua")
+orig_txt = open(binds_path, encoding="utf-8").read()
+orig_txt = orig_txt.replace('local mainMod  = "SUPER"', 'local mainMod  = "ALT"')
+custom_block = '\n-- User custom snippet\nlocal myCustomFlag = 1\nhl.unbind("SUPER + Z")\nhl.bind("SUPER + mouse_down", hl.dsp.focus({ workspace = "e+1" }))\n'
+open(binds_path, "w", encoding="utf-8").write(orig_txt + custom_block)
+
+binds = json.loads(subprocess.check_output(["python3", "-c", py_src, sys.argv[3]], env=env, text=True))
+m_sw = re.search(r'id:\s*"shotWindowClip".*?lua:\s*\'(.*?)\',\s*opts:', qml)
+assert m_sw, "Could not locate shotWindowClip in KeybindService.qml"
+sw_lua = m_sw.group(1).replace("\\'", "'").replace("\\\\", "\\")
+binds.append({
+    "id": "bind_test_sw",
+    "category": "screenshot",
+    "title": "Active Window → Clipboard",
+    "subtitle": "grim + hyprctl",
+    "actionType": "screenshot",
+    "actionLua": sw_lua,
+    "command": "",
+    "appId": "",
+    "groupTier": "core",
+    "combos": [{"combo": "ALT + SHIFT + W", "opts": "", "release": False, "locked": False, "repeating": False}],
+    "readOnly": False,
+    "mainMod": "ALT",
+})
+binds.append({
+    "id": "bind_test_esc",
+    "category": "command",
+    "title": 'echo "a\\b"',
+    "subtitle": "",
+    "actionType": "command",
+    "actionLua": 'hl.dsp.exec_cmd("echo \\"a\\\\b\\"")',
+    "command": 'echo "a\\b"',
+    "appId": "",
+    "groupTier": "core",
+    "combos": [{"combo": "ALT + F9", "opts": "", "release": False, "locked": False, "repeating": False}],
+    "readOnly": False,
+    "mainMod": "ALT",
+})
+
+wres = subprocess.run(["python3", "-c", write_src, json.dumps(binds), sys.argv[3]], env=env, capture_output=True, text=True)
+assert wres.returncode == 0 and wres.stdout.strip() == "ok", f"writeProc failed: {wres.stderr}"
+written1 = open(binds_path, encoding="utf-8").read()
+assert 'local mainMod  = "ALT"' in written1, "Lost custom mainMod"
+assert "local myCustomFlag = 1" in written1, "Lost custom local variable"
+assert 'hl.unbind("SUPER + Z")' in written1, "Lost hl.unbind"
+assert "mouse_down" in written1, "Lost custom mouse_down bind"
+if shutil.which("luajit"):
+    subprocess.run(["luajit", "-bl", binds_path, "/dev/null"], check=True)
+
+binds2 = json.loads(subprocess.check_output(["python3", "-c", py_src, sys.argv[3]], env=env, text=True))
+assert any(b["command"] == 'echo "a\\b"' for b in binds2), "Escaped command round-trip mismatch"
+subprocess.run(["python3", "-c", write_src, json.dumps(binds2), sys.argv[3]], env=env, check=True, capture_output=True, text=True)
+written2 = open(binds_path, encoding="utf-8").read()
+assert written1 == written2, "Second round-trip mutated binds.lua (not idempotent)"
+
+bad_binds = list(binds2) + [{
+    "id": "bind_bad",
+    "category": "command",
+    "title": "broken",
+    "subtitle": "",
+    "actionType": "command",
+    "actionLua": 'hl.dsp.exec_cmd("unterminated',
+    "command": "broken",
+    "appId": "",
+    "groupTier": "core",
+    "combos": [{"combo": "ALT + F10", "opts": "", "release": False, "locked": False, "repeating": False}],
+    "readOnly": False,
+    "mainMod": "ALT",
+}]
+bad_res = subprocess.run(["python3", "-c", write_src, json.dumps(bad_binds), sys.argv[3]], env=env, capture_output=True, text=True)
+if shutil.which("luajit") or shutil.which("luac") or shutil.which("lua"):
+    assert bad_res.returncode != 0, "Expected invalid Lua syntax to be rejected"
+    assert open(binds_path, encoding="utf-8").read() == written2, "binds.lua was modified despite Lua syntax failure"
 PY
     echo "  PASS: sync-hypr.sh, Hyprland Lua verify, KeybindService & shell updater verified"
 

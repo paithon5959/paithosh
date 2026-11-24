@@ -1038,6 +1038,7 @@ Singleton {
             root.checkHyprSyncStatus();
             if (_exitCode === 0) {
                 root.hyprSyncError = "";
+                KeybindService.refresh();
                 root.triggerStatusEvent("Hyprland config synced", "ok", true);
             } else {
                 const parsedErr = root.extractShellError(errBuf);

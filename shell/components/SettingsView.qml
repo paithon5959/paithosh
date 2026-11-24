@@ -337,6 +337,8 @@ Item {
         };
         const resolved = legacyMap[pageKey] || pageKey;
         if (resolved === "backup") BackupService.refreshAll();
+        if (resolved === "keybind") KeybindService.refresh();
+        else if (keybindEditorModal.open) keybindEditorModal.close();
         if (currentPage === resolved) return;
         currentPage = resolved;
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
@@ -1006,6 +1008,7 @@ Item {
 
     ContextMenu {
         id: selectMenu
+        z: 250
     }
 
     component CtrlBtn: Rectangle {
@@ -3347,7 +3350,7 @@ Item {
                                 implicitHeight: newCfgCol.implicitHeight + 20
                                 radius: 12
                                 color: Theme.cardBg
-                                border.width: 1; border.color: Theme.border
+                                border.width: 1; border.color: Theme.borderSubtle
 
                                 ColumnLayout {
                                     id: newCfgCol
@@ -3359,7 +3362,7 @@ Item {
                                         Text { text: "Tunnel name:"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
                                         Rectangle {
                                             Layout.fillWidth: true; height: 28; radius: 7
-                                            color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                            color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                             TextInput {
                                                 id: newTunnelName
                                                 anchors.fill: parent; anchors.margins: 6
@@ -3372,7 +3375,7 @@ Item {
 
                                     Rectangle {
                                         Layout.fillWidth: true; height: 110; radius: 8
-                                        color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                        color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                         Flickable {
                                             anchors.fill: parent; anchors.margins: 6
                                             contentWidth: width; contentHeight: newTunnelBody.implicitHeight
@@ -3454,7 +3457,7 @@ Item {
                                         spacing: 6
                                         Rectangle {
                                             width: 120; height: 26; radius: 6
-                                            color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                            color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                             TextInput {
                                                 id: httpHostInput
                                                 anchors.fill: parent; anchors.margins: 5
@@ -3465,7 +3468,7 @@ Item {
                                         }
                                         Rectangle {
                                             width: 64; height: 26; radius: 6
-                                            color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                            color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                             TextInput {
                                                 id: httpPortInput
                                                 anchors.fill: parent; anchors.margins: 5
@@ -3483,7 +3486,7 @@ Item {
                                         spacing: 6
                                         Rectangle {
                                             width: 120; height: 26; radius: 6
-                                            color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                            color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                             TextInput {
                                                 id: socksHostInput
                                                 anchors.fill: parent; anchors.margins: 5
@@ -3494,7 +3497,7 @@ Item {
                                         }
                                         Rectangle {
                                             width: 64; height: 26; radius: 6
-                                            color: Theme.pillBg; border.width: 1; border.color: Theme.border
+                                            color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
                                             TextInput {
                                                 id: socksPortInput
                                                 anchors.fill: parent; anchors.margins: 5
@@ -3933,7 +3936,7 @@ Item {
                             // 4. Customize by Area
                             SectionLabel { text: "Customize by area" }
                             HubCard { iconChar: "◐"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
-                            HubCard { iconChar: "⌨"; title: "Binding (Experimental)"; subtitle: "Experimental — Shortcuts, apps, screenshot & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
+                            HubCard { iconChar: "⌨"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconChar: "◫"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                         }
 
@@ -4522,8 +4525,10 @@ Item {
                         KeybindSettingsPage {
                             Layout.fillWidth: true
                             visible: root.currentPage === "keybind"
-                            selectMenu: selectMenu
-                            menuRoot: root
+                            onEditRequested: (bindObj, comboIdx, defaultTab) => {
+                                if (bindObj) keybindEditorModal.openEdit(bindObj, comboIdx);
+                                else keybindEditorModal.openNew(defaultTab);
+                            }
                         }
 
                         // ==================== 18. ABOUT ====================
@@ -5088,5 +5093,12 @@ Item {
                 }
             }
         }
+    }
+
+    KeybindEditorModal {
+        id: keybindEditorModal
+        z: 210
+        selectMenu: selectMenu
+        menuRoot: root
     }
 }
