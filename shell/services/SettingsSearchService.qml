@@ -156,9 +156,18 @@ QtObject {
             page: "updates",
             pageLabel: "Updates",
             title: "Paithosh Shell Update",
-            subtitle: "Update shell from your git repository",
-            keywords: "paithosh shell git repo pull self update reload",
+            subtitle: "Update shell from GitHub main branch or stable releases",
+            keywords: "paithosh shell git repo pull self update reload release stable main github",
             icon: "bolt"
+        },
+        {
+            id: "updates-shell-stream",
+            page: "updates",
+            pageLabel: "Updates",
+            title: "Shell Update Stream",
+            subtitle: "Choose between Main (GitHub) and Release (Stable)",
+            keywords: "update stream channel release stable main github branch",
+            icon: "download"
         },
         {
             id: "updates-hypr-sync",

@@ -2556,23 +2556,46 @@ Item {
                             spacing: 10
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
+                                    showDivider: true
                                     iconName: "bolt"
-                                    title: PackageService.shellBranch !== ""
-                                        ? ("Paithosh Shell  •  " + PackageService.shellBranch + (PackageService.shellCommit !== "" ? "@" + PackageService.shellCommit : ""))
-                                        : "Paithosh Shell"
+                                    title: {
+                                        if (PackageService.shellUpdateStream === "release" && PackageService.shellCurrentTag !== "") {
+                                            return "Paithosh Shell  •  " + PackageService.shellCurrentTag;
+                                        }
+                                        if (PackageService.shellBranch !== "") {
+                                            return "Paithosh Shell  •  " + PackageService.shellBranch + (PackageService.shellCommit !== "" ? "@" + PackageService.shellCommit : "");
+                                        }
+                                        return "Paithosh Shell";
+                                    }
                                     subtitle: {
-                                        if (PackageService.shellChecking) return "Checking git repository for shell updates...";
-                                        if (PackageService.shellUpdating) return "Pulling latest changes and reloading shell...";
+                                        const isRelease = PackageService.shellUpdateStream === "release";
+                                        if (PackageService.shellChecking) {
+                                            return isRelease ? "Checking GitHub releases for shell updates..." : "Checking main branch for shell updates...";
+                                        }
+                                        if (PackageService.shellUpdating) {
+                                            return isRelease ? "Switching to latest release and reloading shell..." : "Pulling latest changes from main and reloading shell...";
+                                        }
                                         if (PackageService.shellUpdateError !== "") return PackageService.shellUpdateError;
                                         if (PackageService.shellUpdateBehind > 0) {
+                                            if (isRelease && PackageService.shellTargetVersion !== "") {
+                                                return "Release " + PackageService.shellTargetVersion + " available (" + PackageService.shellUpdateBehind + (PackageService.shellUpdateBehind === 1 ? " commit)" : " commits)")
+                                                    + (PackageService.shellLatestSummary !== "" ? " — " + PackageService.shellLatestSummary : "");
+                                            }
                                             return PackageService.shellUpdateBehind + (PackageService.shellUpdateBehind === 1 ? " new commit available" : " new commits available")
                                                 + (PackageService.shellLatestSummary !== "" ? " — " + PackageService.shellLatestSummary : "");
                                         }
-                                        if (PackageService.shellCheckedOnce) return "Shell is up to date with your repository";
-                                        return "Update Paithosh Shell directly from your git repository";
+                                        if (isRelease && PackageService.shellUpdateAhead > 0 && PackageService.shellTargetVersion !== "") {
+                                            return "Ahead of latest stable release " + PackageService.shellTargetVersion + " (" + PackageService.shellUpdateAhead + (PackageService.shellUpdateAhead === 1 ? " commit)" : " commits)");
+                                        }
+                                        if (PackageService.shellCheckedOnce) {
+                                            if (isRelease) return "Shell is up to date with release " + (PackageService.shellTargetVersion || PackageService.shellCurrentTag || "stable");
+                                            return "Shell is up to date with " + (PackageService.shellTargetVersion || "main");
+                                        }
+                                        return isRelease
+                                            ? "Update Paithosh Shell from tagged GitHub releases (Stable)"
+                                            : "Update Paithosh Shell directly from GitHub main branch";
                                     }
-                                    searchKeywords: "paithosh shell git repo pull self update reload"
+                                    searchKeywords: "paithosh shell git repo pull self update reload release stable main github"
                                     RowLayout {
                                         spacing: 8
                                         CtrlBtn {
@@ -2582,10 +2605,21 @@ Item {
                                             onClicked: PackageService.checkShellUpdate()
                                         }
                                         CtrlBtn {
-                                            text: PackageService.shellUpdating
-                                                ? "Updating..."
-                                                : (PackageService.shellUpdateBehind > 0 ? ("Update (" + PackageService.shellUpdateBehind + ")") : "Update")
-                                            enabled: !PackageService.shellChecking && !PackageService.shellUpdating && PackageService.shellUpdateBehind > 0
+                                            readonly property bool canSwitchToRelease: PackageService.shellUpdateStream === "release"
+                                                && PackageService.shellUpdateBehind === 0
+                                                && PackageService.shellUpdateAhead > 0
+                                                && PackageService.shellTargetVersion !== ""
+                                            text: {
+                                                if (PackageService.shellUpdating) return "Updating...";
+                                                if (PackageService.shellUpdateBehind > 0) {
+                                                    return PackageService.shellUpdateStream === "release" && PackageService.shellTargetVersion !== ""
+                                                        ? ("Update (" + PackageService.shellTargetVersion + ")")
+                                                        : ("Update (" + PackageService.shellUpdateBehind + ")");
+                                                }
+                                                if (canSwitchToRelease) return "Switch (" + PackageService.shellTargetVersion + ")";
+                                                return "Update";
+                                            }
+                                            enabled: !PackageService.shellChecking && !PackageService.shellUpdating && (PackageService.shellUpdateBehind > 0 || canSwitchToRelease)
                                             onClicked: PackageService.updateShell()
                                         }
                                     }
@@ -2626,6 +2660,61 @@ Item {
                                         color: Theme.textMuted
                                         font.family: Theme.fontMono
                                         font.pixelSize: 11
+                                    }
+                                }
+                                SettingRow {
+                                    showDivider: !(PackageService.shellUpdateStream === "release" && PackageService.shellUpdateBehind === 0 && PackageService.shellUpdateAhead > 0 && PackageService.shellTargetVersion !== "")
+                                    iconName: "download"
+                                    title: "Update Stream"
+                                    subtitle: PackageService.shellUpdateStream === "release"
+                                        ? "Release (Stable) — update from tagged GitHub releases"
+                                        : "Main (GitHub) — pull latest commits directly from main branch"
+                                    searchKeywords: "update stream channel release stable main github branch"
+                                    CtrlSelect {
+                                        options: ["Main (GitHub)", "Release (Stable)"]
+                                        currentText: PackageService.shellUpdateStream === "release" ? "Release (Stable)" : "Main (GitHub)"
+                                        enabled: !PackageService.shellChecking && !PackageService.shellUpdating
+                                        onSelected: (v) => PackageService.setShellUpdateStream(v.indexOf("Release") === 0 ? "release" : "main")
+                                    }
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.bottomMargin: 10
+                                    implicitHeight: releaseReminderRow.implicitHeight + 16
+                                    radius: 8
+                                    color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.10)
+                                    border.width: 1
+                                    border.color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.30)
+                                    visible: PackageService.shellUpdateStream === "release"
+                                        && PackageService.shellUpdateBehind === 0
+                                        && PackageService.shellUpdateAhead > 0
+                                        && PackageService.shellTargetVersion !== ""
+                                    RowLayout {
+                                        id: releaseReminderRow
+                                        anchors.fill: parent
+                                        anchors.margins: 8
+                                        spacing: 8
+                                        SvgIcon {
+                                            sourceName: "info"
+                                            iconSize: 14
+                                            color: Theme.info
+                                            Layout.alignment: Qt.AlignTop
+                                            Layout.topMargin: 1
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            wrapMode: Text.WordWrap
+                                            text: "Reminder: Switching from main to " + PackageService.shellTargetVersion
+                                                + " rolls back " + PackageService.shellUpdateAhead
+                                                + (PackageService.shellUpdateAhead === 1 ? " commit" : " commits")
+                                                + ". Consider backing up first — some newer features may be unavailable and Hyprland config will need to be synced."
+                                            color: Theme.textSub
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 11
+                                        }
                                     }
                                 }
                                 SettingRow {

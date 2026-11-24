@@ -28,14 +28,18 @@ Singleton {
     property double lastAutoUpdateMs: 0
     readonly property string settingsPath: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/package-settings.json"
 
-    // Paithosh Shell git repo updates
+    // Paithosh Shell git repo updates ("main" | "release", default "main")
     readonly property string shellProjectRoot: Quickshell.shellDir.replace(/\/shell\/?$/, "")
+    property string shellUpdateStream: "main"
     property bool shellChecking: false
     property bool shellUpdating: false
     property bool shellCheckedOnce: false
     property int shellUpdateBehind: 0
+    property int shellUpdateAhead: 0
     property string shellBranch: ""
     property string shellCommit: ""
+    property string shellCurrentTag: ""
+    property string shellTargetVersion: ""
     property string shellLatestSummary: ""
     property var shellCommits: []
     property string shellUpdateError: ""
@@ -174,7 +178,8 @@ Singleton {
             autoUpdateSchedule: autoUpdateSchedule,
             betaUpdatesEnabled: betaUpdatesEnabled,
             lastAutoUpdateMs: lastAutoUpdateMs,
-            autoBackupMajorUpdates: autoBackupMajorUpdates
+            autoBackupMajorUpdates: autoBackupMajorUpdates,
+            shellUpdateStream: shellUpdateStream
         });
         saveSettingsProc.command = [
             "sh", "-c",
@@ -182,6 +187,20 @@ Singleton {
             "_", settingsPath, payload
         ];
         saveSettingsProc.running = true;
+    }
+
+    function setShellUpdateStream(stream) {
+        const next = (stream === "release") ? "release" : "main";
+        if (shellUpdateStream === next) return;
+        shellUpdateStream = next;
+        shellUpdateBehind = 0;
+        shellUpdateAhead = 0;
+        shellTargetVersion = "";
+        shellLatestSummary = "";
+        shellCommits = [];
+        shellUpdateError = "";
+        saveSettings();
+        checkShellUpdate();
     }
 
     function setAutoUpdateSchedule(schedule) {
@@ -515,6 +534,9 @@ Singleton {
                     if (typeof parsed.autoBackupMajorUpdates === "boolean") {
                         root.autoBackupMajorUpdates = parsed.autoBackupMajorUpdates;
                         root.syncBackupRecommendation();
+                    }
+                    if (parsed.shellUpdateStream === "main" || parsed.shellUpdateStream === "release") {
+                        root.shellUpdateStream = parsed.shellUpdateStream;
                     }
                 }
             } catch (e) {}
@@ -900,7 +922,10 @@ Singleton {
                 if (k === "ERR") err = v;
                 else if (k === "BRANCH") root.shellBranch = v;
                 else if (k === "LOCAL") root.shellCommit = v;
+                else if (k === "CUR_TAG") root.shellCurrentTag = v;
+                else if (k === "TARGET") root.shellTargetVersion = v;
                 else if (k === "BEHIND") root.shellUpdateBehind = parseInt(v, 10) || 0;
+                else if (k === "AHEAD") root.shellUpdateAhead = parseInt(v, 10) || 0;
                 else if (k === "SUMMARY") root.shellLatestSummary = v;
                 else if (k === "COMMIT" && v !== "") {
                     const sp = v.indexOf(" ");
@@ -915,7 +940,10 @@ Singleton {
             } else {
                 root.shellUpdateError = "";
                 if (root.shellUpdateBehind > 0 && root.shellUpdateBehind > prevBehind) {
-                    root.triggerStatusEvent("Paithosh Shell update available (" + root.shellUpdateBehind + ")", "info", true);
+                    const label = root.shellUpdateStream === "release" && root.shellTargetVersion !== ""
+                        ? ("Paithosh Shell " + root.shellTargetVersion + " available")
+                        : ("Paithosh Shell update available (" + root.shellUpdateBehind + ")");
+                    root.triggerStatusEvent(label, "info", true);
                 }
             }
             root.checkRequiredDeps();
@@ -923,20 +951,39 @@ Singleton {
 
         command: [
             "sh", "-c",
-            "dir=\"$1\"; " +
+            "dir=\"$1\"; stream=\"${2:-main}\"; " +
             "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'ERR=Not a git repository'; exit 1; }; " +
             "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || echo HEAD); " +
             "local_hash=$(git -C \"$dir\" rev-parse --short HEAD 2>/dev/null || echo ''); " +
-            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo ''); " +
-            "if [ -z \"$upstream\" ]; then cfg_remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); upstream=\"${cfg_remote}/${branch}\"; fi; " +
-            "remote=\"${upstream%%/*}\"; " +
-            "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
-            "git -C \"$dir\" rev-parse --verify \"$upstream\" >/dev/null 2>&1 || { echo \"ERR=Remote branch $upstream not found\"; exit 1; }; " +
-            "behind=$(git -C \"$dir\" rev-list --count \"HEAD..$upstream\" 2>/dev/null || echo 0); " +
-            "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$upstream\" 2>/dev/null || echo ''); " +
-            "printf 'BRANCH=%s\\nLOCAL=%s\\nBEHIND=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$behind\" \"$summary\"; " +
-            "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..$upstream\" 2>/dev/null || true",
-            "sh", root.shellProjectRoot
+            "cur_tag=$(git -C \"$dir\" describe --tags --exact-match HEAD 2>/dev/null || echo ''); " +
+            "remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); " +
+            "git -C \"$dir\" remote get-url \"$remote\" >/dev/null 2>&1 || remote=origin; " +
+            "if [ \"$stream\" = \"release\" ]; then " +
+                "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --tags --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch releases from $remote\"; exit 1; }; " +
+                "latest_tag=$(git -C \"$dir\" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1); " +
+                "[ -z \"$latest_tag\" ] && latest_tag=$(git -C \"$dir\" tag -l --sort=-v:refname 2>/dev/null | head -n1); " +
+                "[ -n \"$latest_tag\" ] || { echo 'ERR=No release tags found in repository'; exit 1; }; " +
+                "head_full=$(git -C \"$dir\" rev-parse HEAD 2>/dev/null || echo ''); " +
+                "tag_full=$(git -C \"$dir\" rev-parse \"${latest_tag}^{commit}\" 2>/dev/null || echo ''); " +
+                "if [ \"$head_full\" = \"$tag_full\" ]; then behind=0; ahead=0; " +
+                "else behind=$(git -C \"$dir\" rev-list --count \"HEAD..${latest_tag}\" 2>/dev/null || echo 0); " +
+                "ahead=$(git -C \"$dir\" rev-list --count \"${latest_tag}..HEAD\" 2>/dev/null || echo 0); fi; " +
+                "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$latest_tag\" 2>/dev/null || echo ''); " +
+                "printf 'BRANCH=%s\\nLOCAL=%s\\nCUR_TAG=%s\\nTARGET=%s\\nBEHIND=%s\\nAHEAD=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$cur_tag\" \"$latest_tag\" \"$behind\" \"$ahead\" \"$summary\"; " +
+                "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..${latest_tag}\" 2>/dev/null || true; " +
+            "else " +
+                "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
+                "if git -C \"$dir\" rev-parse --verify \"${remote}/main\" >/dev/null 2>&1; then target=\"${remote}/main\"; " +
+                "elif git -C \"$dir\" rev-parse --verify \"${remote}/HEAD\" >/dev/null 2>&1; then target=$(git -C \"$dir\" symbolic-ref --short \"refs/remotes/${remote}/HEAD\" 2>/dev/null || echo \"${remote}/master\"); " +
+                "elif git -C \"$dir\" rev-parse --verify \"${remote}/master\" >/dev/null 2>&1; then target=\"${remote}/master\"; " +
+                "else echo \"ERR=Remote main branch not found on $remote\"; exit 1; fi; " +
+                "behind=$(git -C \"$dir\" rev-list --count \"HEAD..${target}\" 2>/dev/null || echo 0); " +
+                "ahead=$(git -C \"$dir\" rev-list --count \"${target}..HEAD\" 2>/dev/null || echo 0); " +
+                "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$target\" 2>/dev/null || echo ''); " +
+                "printf 'BRANCH=%s\\nLOCAL=%s\\nCUR_TAG=%s\\nTARGET=%s\\nBEHIND=%s\\nAHEAD=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$cur_tag\" \"$target\" \"$behind\" \"$ahead\" \"$summary\"; " +
+                "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..${target}\" 2>/dev/null || true; " +
+            "fi",
+            "sh", root.shellProjectRoot, root.shellUpdateStream
         ]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -974,6 +1021,7 @@ Singleton {
             root.shellUpdating = false;
             if (_exitCode === 0) {
                 root.shellUpdateBehind = 0;
+                root.shellUpdateAhead = 0;
                 root.shellLatestSummary = "";
                 root.shellCommits = [];
                 root.shellUpdateError = "";
@@ -992,26 +1040,41 @@ Singleton {
                 });
             } else {
                 const parsedErr = root.extractShellError(errBuf);
-                root.shellUpdateError = parsedErr !== "" ? parsedErr : "Fast-forward pull failed";
+                root.shellUpdateError = parsedErr !== "" ? parsedErr : (root.shellUpdateStream === "release" ? "Release checkout failed" : "Fast-forward pull failed");
                 root.triggerStatusEvent("Shell update failed", "danger", true);
             }
         }
 
         command: [
             "sh", "-c",
-            "set -eu; dir=\"$1\"; " +
+            "set -eu; dir=\"$1\"; stream=\"${2:-main}\"; " +
             "git -C \"$dir\" rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo 'Not a git repository' >&2; exit 1; }; " +
-            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
-            "[ -n \"$branch\" ] || { echo 'Detached HEAD — cannot fast-forward pull' >&2; exit 1; }; " +
             "if ! git -C \"$dir\" diff --quiet || ! git -C \"$dir\" diff --cached --quiet; then " +
-            "echo 'error: Local modifications in repository block fast-forward update' >&2; exit 1; fi; " +
-            "upstream=$(git -C \"$dir\" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true); " +
-            "if [ -n \"$upstream\" ]; then GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" pull --ff-only --quiet; " +
-            "else remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); " +
-            "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" pull --ff-only --quiet \"$remote\" \"$branch\"; fi; " +
+            "echo 'error: Local modifications in repository block update' >&2; exit 1; fi; " +
+            "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
+            "remote=$(git -C \"$dir\" config \"branch.${branch}.remote\" 2>/dev/null || echo origin); " +
+            "git -C \"$dir\" remote get-url \"$remote\" >/dev/null 2>&1 || remote=origin; " +
+            "if [ \"$stream\" = \"release\" ]; then " +
+                "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --tags --quiet \"$remote\"; " +
+                "latest_tag=$(git -C \"$dir\" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1); " +
+                "[ -z \"$latest_tag\" ] && latest_tag=$(git -C \"$dir\" tag -l --sort=-v:refname 2>/dev/null | head -n1); " +
+                "[ -n \"$latest_tag\" ] || { echo 'error: No release tags found in repository' >&2; exit 1; }; " +
+                "git -C \"$dir\" checkout --quiet \"$latest_tag\"; " +
+            "else " +
+                "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\"; " +
+                "if git -C \"$dir\" rev-parse --verify \"${remote}/main\" >/dev/null 2>&1; then target_branch=main; target=\"${remote}/main\"; " +
+                "elif git -C \"$dir\" rev-parse --verify \"${remote}/HEAD\" >/dev/null 2>&1; then target=$(git -C \"$dir\" symbolic-ref --short \"refs/remotes/${remote}/HEAD\" 2>/dev/null || echo \"${remote}/master\"); target_branch=\"${target#*/}\"; " +
+                "elif git -C \"$dir\" rev-parse --verify \"${remote}/master\" >/dev/null 2>&1; then target_branch=master; target=\"${remote}/master\"; " +
+                "else echo \"error: Remote main branch not found on $remote\" >&2; exit 1; fi; " +
+                "if [ \"$branch\" != \"$target_branch\" ]; then " +
+                    "if git -C \"$dir\" show-ref --verify --quiet \"refs/heads/${target_branch}\"; then git -C \"$dir\" checkout --quiet \"$target_branch\"; " +
+                    "else git -C \"$dir\" checkout --quiet -b \"$target_branch\" \"$target\"; fi; " +
+                "fi; " +
+                "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" merge --ff-only --quiet \"$target\"; " +
+            "fi; " +
             "if [ -f \"$dir/installer/lib/sync-hypr.sh\" ]; then " +
             "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --mode update; fi",
-            "sh", root.shellProjectRoot
+            "sh", root.shellProjectRoot, root.shellUpdateStream
         ]
         stdout: StdioCollector {
             onStreamFinished: {
