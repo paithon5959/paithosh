@@ -409,14 +409,6 @@ Item {
     }
 
     // Inline reusable components matching settings.html CSS
-    component LazyPage: Loader {
-        required property string pageKey
-        Layout.fillWidth: true
-        Layout.preferredHeight: item ? item.implicitHeight : 0
-        visible: root.currentPage === pageKey
-        active: Boolean(root.loadedPages[pageKey])
-    }
-
     component SectionLabel: Text {
         Layout.fillWidth: true
         Layout.topMargin: 4
@@ -1339,8 +1331,11 @@ Item {
                         }
 
                         // ==================== 1. HOME ====================
-                        LazyPage {
-                            pageKey: "home"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "home"
+                            active: Boolean(root.loadedPages["home"])
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
@@ -1663,8 +1658,11 @@ Item {
                         }
 
                         // ==================== 2. SYSTEM ====================
-                        LazyPage {
-                            pageKey: "system"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "system"
+                            active: Boolean(root.loadedPages["system"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SectionLabel { text: "System options" }
@@ -1747,8 +1745,11 @@ Item {
                         }
 
                         // ==================== 2b. ACCESSIBILITY ====================
-                        LazyPage {
-                            pageKey: "accessibility"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "accessibility"
+                            active: Boolean(root.loadedPages["accessibility"])
                             sourceComponent: ColumnLayout {
                             id: accessibilityPage
                             spacing: 12
@@ -2018,8 +2019,11 @@ Item {
                         }
 
                         // ==================== 3. DISPLAY ====================
-                        LazyPage {
-                            pageKey: "display"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "display"
+                            active: Boolean(root.loadedPages["display"])
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
@@ -2198,8 +2202,11 @@ Item {
                         }
 
                         // ==================== 4. SOUND ====================
-                        LazyPage {
-                            pageKey: "sound"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "sound"
+                            active: Boolean(root.loadedPages["sound"])
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
@@ -2407,8 +2414,11 @@ Item {
                         }
 
                         // ==================== 5. POWER ====================
-                        LazyPage {
-                            pageKey: "power"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "power"
+                            active: Boolean(root.loadedPages["power"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SettingGroup {
@@ -2421,8 +2431,11 @@ Item {
                         }
 
                         // ==================== 6. UPDATES ====================
-                        LazyPage {
-                            pageKey: "updates"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "updates"
+                            active: Boolean(root.loadedPages["updates"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SettingGroup {
@@ -2687,8 +2700,11 @@ Item {
                         }
 
                         // ==================== 6b. BACKUP & RESTORE ====================
-                        LazyPage {
-                            pageKey: "backup"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "backup"
+                            active: Boolean(root.loadedPages["backup"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
 
@@ -3150,8 +3166,11 @@ Item {
                         }
 
                         // ==================== 7. NETWORK ====================
-                        LazyPage {
-                            pageKey: "network"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "network"
+                            active: Boolean(root.loadedPages["network"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SectionLabel { text: "Network options" }
@@ -3183,8 +3202,11 @@ Item {
                         }
 
                         // ==================== 8. WIFI ====================
-                        LazyPage {
-                            pageKey: "wifi"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "wifi"
+                            active: Boolean(root.loadedPages["wifi"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SettingGroup {
@@ -3356,8 +3378,11 @@ Item {
                         }
 
                         // ==================== 9. VPN ====================
-                        LazyPage {
-                            pageKey: "vpn"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "vpn"
+                            active: Boolean(root.loadedPages["vpn"])
                             sourceComponent: ColumnLayout {
                             id: vpnPage
                             spacing: 12
@@ -3587,8 +3612,11 @@ Item {
                         }
 
                         // ==================== 10. PERSONALIZATION (MAINPAGE) ====================
-                        LazyPage {
-                            pageKey: "personalization"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "personalization"
+                            active: Boolean(root.loadedPages["personalization"])
                             sourceComponent: ColumnLayout {
                             spacing: 14
 
@@ -4011,8 +4039,11 @@ Item {
                         }
 
                         // ==================== 11. APPEARANCE ====================
-                        LazyPage {
-                            pageKey: "appearance"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "appearance"
+                            active: Boolean(root.loadedPages["appearance"])
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
@@ -4349,8 +4380,11 @@ Item {
                         }
 
                         // ==================== 12. LAYOUT ====================
-                        LazyPage {
-                            pageKey: "layout"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "layout"
+                            active: Boolean(root.loadedPages["layout"])
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
@@ -4596,8 +4630,11 @@ Item {
                         }
 
                         // ==================== KEYBINDS ====================
-                        LazyPage {
-                            pageKey: "keybind"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "keybind"
+                            active: Boolean(root.loadedPages["keybind"])
                             sourceComponent: KeybindSettingsPage {
                                 onEditRequested: (bindObj, comboIdx, defaultTab) => {
                                     keybindEditorLoader.active = true;
@@ -4610,8 +4647,11 @@ Item {
                         }
 
                         // ==================== 17b. STORAGE ====================
-                        LazyPage {
-                            pageKey: "storage"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "storage"
+                            active: Boolean(root.loadedPages["storage"])
                             sourceComponent: StorageSettingsPage {
                                 shellState: root.shellState
                                 onConfirmActionRequested: (payload) => storageConfirmOverlay.openWith(payload)
@@ -4619,8 +4659,11 @@ Item {
                         }
 
                         // ==================== 18. ABOUT ====================
-                        LazyPage {
-                            pageKey: "about"
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "about"
+                            active: Boolean(root.loadedPages["about"])
                             sourceComponent: AboutSettingsPage {
                                 shellState: root.shellState
                             }
