@@ -271,9 +271,9 @@ Item {
                         Layout.fillWidth: true
                         height: 156
                         radius: 12
-                        color: sel ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.06)
+                        color: sel ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : Qt.rgba(1, 1, 1, 0.06)
                         border.width: 1.5
-                        border.color: sel ? Theme.text : Qt.rgba(1, 1, 1, 0.10)
+                        border.color: sel ? Theme.accent : Theme.borderSubtle
                         clip: true
 
                         Behavior on color { ColorAnimation { duration: 150 } }

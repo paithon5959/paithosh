@@ -283,7 +283,7 @@ Item {
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             radius: 2
-                            color: Theme.text
+                            color: Theme.accent
                             width: parent.width * MediaService.progress
                         }
                     }
@@ -362,7 +362,7 @@ Item {
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
                                     radius: 3
-                                    color: Theme.text
+                                    color: Theme.accent
                                     width: Math.max(0, Math.min(parent.width, parent.width * (currentVal / 100.0)))
                                 }
                             }
@@ -372,7 +372,9 @@ Item {
                                 width: 14
                                 height: 14
                                 radius: 7
-                                color: Theme.text
+                                color: Theme.accent
+                                border.width: 1
+                                border.color: Qt.rgba(0, 0, 0, 0.45)
                                 x: Math.max(0, Math.min(parent.width - width, parent.width * (currentVal / 100.0) - width / 2))
                                 scale: slMouse.pressed ? 1.15 : 1.0
                                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
