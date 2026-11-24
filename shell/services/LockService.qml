@@ -17,6 +17,19 @@ Singleton {
     property string activeScreenName: ""
     property string _pendingPassword: ""
 
+    // Lock Screen Customization (persisted in settings.json via shell.qml)
+    property string effectPreset: "none"       // "none" | "snow" | "rain" | "wind"
+    property string ambientSound: "wind"       // "none" | "wind" | "rain" | "snow"
+    property bool silentMode: false            // Master silence override while locked
+    property bool sfxEnabled: true             // Lock / unlock / error / key SFX
+    property bool showNotifications: true
+    property bool hideNotifContent: false
+    property bool showMedia: true
+    property bool showSystemAlerts: true
+    property int effectIntensity: 100          // 50..150
+    property int ambientVolume: 35             // 5..100
+    property int dimOpacity: 36                // 15..75
+
     signal authFailed()
 
     PamContext {
@@ -40,8 +53,10 @@ Singleton {
                 root.isError = false;
                 root.unlockSuccess = true;
                 root.exiting = true;
-                SoundService.stopLockWind();
-                SoundService.playIconPop();
+                SoundService.stopLockAmbient();
+                if (!root.silentMode && root.sfxEnabled) {
+                    SoundService.playIconPop();
+                }
                 unlockReleaseTimer.restart();
             } else {
                 root._handleAuthFailure();
@@ -93,6 +108,7 @@ Singleton {
             root.exiting = false;
             root.unlockSuccess = false;
             root.activeScreenName = "";
+            SoundService.stopLockAmbient();
         }
     }
 
@@ -133,8 +149,14 @@ Singleton {
         root.locked = true;
         root.transitionProgress = 0.0;
         root.transitionVisible = true;
-        SoundService.playLock();
-        SoundService.startLockWind();
+        if (!root.silentMode && root.sfxEnabled) {
+            SoundService.playLock();
+        }
+        if (!root.silentMode && root.ambientSound !== "none") {
+            SoundService.startLockAmbient(root.ambientSound);
+        } else {
+            SoundService.stopLockAmbient();
+        }
         Qt.callLater(function() {
             root.transitionProgress = 1.0;
             lockEngageTimer.restart();
@@ -175,7 +197,9 @@ Singleton {
 
     function _handleAuthFailure() {
         root.isError = true;
-        SoundService.playLockError();
+        if (!root.silentMode && root.sfxEnabled) {
+            SoundService.playLockError();
+        }
         errorResetTimer.restart();
         root.authFailed();
     }

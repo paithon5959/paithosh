@@ -85,6 +85,21 @@ ShellRoot {
                     } else if (typeof obj.wallpaperIndex === "number") {
                         bgLayer.applyWallpaperIndex(obj.wallpaperIndex);
                     }
+                    if (typeof obj.lockEffectPreset === "string" && ["none", "snow", "rain", "wind"].indexOf(obj.lockEffectPreset) !== -1) {
+                        LockService.effectPreset = obj.lockEffectPreset;
+                    }
+                    if (typeof obj.lockAmbientSound === "string" && ["none", "wind", "rain", "snow"].indexOf(obj.lockAmbientSound) !== -1) {
+                        LockService.ambientSound = obj.lockAmbientSound;
+                    }
+                    if (typeof obj.lockSilentMode === "boolean") LockService.silentMode = obj.lockSilentMode;
+                    if (typeof obj.lockSfxEnabled === "boolean") LockService.sfxEnabled = obj.lockSfxEnabled;
+                    if (typeof obj.lockShowNotifications === "boolean") LockService.showNotifications = obj.lockShowNotifications;
+                    if (typeof obj.lockHideNotifContent === "boolean") LockService.hideNotifContent = obj.lockHideNotifContent;
+                    if (typeof obj.lockShowMedia === "boolean") LockService.showMedia = obj.lockShowMedia;
+                    if (typeof obj.lockShowSystemAlerts === "boolean") LockService.showSystemAlerts = obj.lockShowSystemAlerts;
+                    if (typeof obj.lockEffectIntensity === "number") LockService.effectIntensity = Math.max(50, Math.min(150, Math.round(obj.lockEffectIntensity)));
+                    if (typeof obj.lockAmbientVolume === "number") LockService.ambientVolume = Math.max(5, Math.min(100, Math.round(obj.lockAmbientVolume)));
+                    if (typeof obj.lockDimOpacity === "number") LockService.dimOpacity = Math.max(15, Math.min(75, Math.round(obj.lockDimOpacity)));
                 }
             } catch (e) {}
             stateObj._applyingExternalState = false;
@@ -487,7 +502,18 @@ ShellRoot {
                 speedMultiplier: Theme.speedMultiplier,
                 transitionMode: bgLayer.transitionMode,
                 wallpaperIndex: bgLayer.currentIndex,
-                wallpaperPath: bgLayer.currentWallpaperPath
+                wallpaperPath: bgLayer.currentWallpaperPath,
+                lockEffectPreset: LockService.effectPreset,
+                lockAmbientSound: LockService.ambientSound,
+                lockSilentMode: LockService.silentMode,
+                lockSfxEnabled: LockService.sfxEnabled,
+                lockShowNotifications: LockService.showNotifications,
+                lockHideNotifContent: LockService.hideNotifContent,
+                lockShowMedia: LockService.showMedia,
+                lockShowSystemAlerts: LockService.showSystemAlerts,
+                lockEffectIntensity: LockService.effectIntensity,
+                lockAmbientVolume: LockService.ambientVolume,
+                lockDimOpacity: LockService.dimOpacity
             };
             settingsWriter.payload = JSON.stringify(data, null, 2);
             settingsWriter.running = false;
@@ -1031,6 +1057,17 @@ ShellRoot {
                 stateObj.closeModal();
             }
         }
+        function onEffectPresetChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onAmbientSoundChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onSilentModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onSfxEnabledChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onShowNotificationsChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onHideNotifContentChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onShowMediaChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onShowSystemAlertsChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onEffectIntensityChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onAmbientVolumeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onDimOpacityChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
 
     // Native Wayland Session Lock (Minimal Statusbar Lock Screen)

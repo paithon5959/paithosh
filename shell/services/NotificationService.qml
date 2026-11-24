@@ -35,7 +35,9 @@ Singleton {
             if (!root.dnd && !notif.lastGeneration) {
                 root.activeToast = entry;
                 toastExpireTimer.restart();
-                SoundService.playNotify();
+                if (!(LockService.locked && LockService.silentMode)) {
+                    SoundService.playNotify();
+                }
             }
         }
     }

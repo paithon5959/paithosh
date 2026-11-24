@@ -113,6 +113,11 @@ Item {
         }
     }
 
+    Component.onDestruction: SoundService.stopPreviewAmbient()
+    onVisibleChanged: {
+        if (!visible) SoundService.stopPreviewAmbient();
+    }
+
     Connections {
         target: CompositorService
         function onMonitorDetailsChanged() {
@@ -313,6 +318,7 @@ Item {
         { key: "appearance", label: "Appearance", icon: "", group: "personalization", sub: true },
         { key: "keybind", label: "Binding", icon: "", group: "personalization", sub: true },
         { key: "layout", label: "Layout", icon: "", group: "personalization", sub: true },
+        { key: "lockscreen", label: "Lock Screen", icon: "", group: "personalization", sub: true },
         { key: "about", label: "About", icon: "ⓘ", group: "", sub: false }
     ]
 
@@ -339,7 +345,9 @@ Item {
             "hyprland": "layout",
             "layouts": "layout",
             "island": "layout",
-            "binding": "keybind"
+            "binding": "keybind",
+            "lock": "lockscreen",
+            "lock_screen": "lockscreen"
         };
         return legacyMap[pageKey] || pageKey || "home";
     }
@@ -347,6 +355,7 @@ Item {
     function openPage(pageKey) {
         const resolved = resolvePageKey(pageKey);
         if (currentPage === resolved) return;
+        if (resolved !== "lockscreen") SoundService.stopPreviewAmbient();
         if (!root.loadedPages[resolved]) {
             const next = Object.assign({}, root.loadedPages);
             next[resolved] = true;
@@ -365,7 +374,7 @@ Item {
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
         if (["display", "sound", "power", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
         if (["wifi", "vpn", "discord_rpc"].indexOf(resolved) !== -1) networkOpen = true;
-        if (["appearance", "keybind", "layout"].indexOf(resolved) !== -1) personalizationOpen = true;
+        if (["appearance", "keybind", "layout", "lockscreen"].indexOf(resolved) !== -1) personalizationOpen = true;
         pageFlick.contentY = 0;
         pageInAnim.restart();
     }
@@ -444,6 +453,7 @@ Item {
         property string title: ""
         property string subtitle: ""
         property string badge: ""
+        property string iconName: ""
         property string searchKeywords: ""
         property bool active: false
         readonly property bool spotActive: root.isSpotlightActive()
@@ -473,8 +483,15 @@ Item {
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 6
+                SvgIcon {
+                    visible: pCard.iconName !== ""
+                    sourceName: pCard.iconName
+                    iconSize: 15
+                    color: pCard.active ? Theme.accent : Theme.textSub
+                }
                 Text {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: pCard.title
                     color: Theme.text
                     font.family: Theme.fontSans
@@ -704,6 +721,7 @@ Item {
     component HubCard: Rectangle {
         id: hCard
         property string iconChar: ""
+        property string iconName: ""
         property string title: ""
         property string subtitle: ""
         property string pillText: ""
@@ -741,7 +759,14 @@ Item {
                 color: Theme.surfaceRaised
                 border.width: 1; border.color: hMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
                 Behavior on border.color { ColorAnimation { duration: 140 } }
-                Text { anchors.centerIn: parent; text: hCard.iconChar; color: Theme.text; font.pixelSize: 14 }
+                SvgIcon {
+                    visible: hCard.iconName !== ""
+                    anchors.centerIn: parent
+                    sourceName: hCard.iconName
+                    iconSize: 16
+                    color: Theme.text
+                }
+                Text { visible: hCard.iconName === "" && hCard.iconChar !== ""; anchors.centerIn: parent; text: hCard.iconChar; color: Theme.text; font.pixelSize: 14 }
             }
 
             ColumnLayout {
@@ -4419,6 +4444,17 @@ Item {
                             HubCard { iconChar: "◐"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
                             HubCard { iconChar: "⌨"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconChar: "◫"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
+                            HubCard {
+                                iconName: "lock"
+                                title: "Lock Screen"
+                                subtitle: "Ambient effects, sound presets, notifications & alerts"
+                                pillText: {
+                                    const eff = LockService.effectPreset === "snow" ? "Snow" : (LockService.effectPreset === "rain" ? "Rain" : (LockService.effectPreset === "wind" ? "Wind" : "Clean"));
+                                    const snd = LockService.silentMode ? "Muted" : (LockService.ambientSound === "wind" ? "Wind" : (LockService.ambientSound === "rain" ? "Rain" : (LockService.ambientSound === "snow" ? "Winter" : "Silent")));
+                                    return eff + " • " + snd;
+                                }
+                                onTriggered: root.openPage("lockscreen")
+                            }
                         }
                         }
 
@@ -5103,6 +5139,698 @@ Item {
                                     if (keybindEditorLoader.item) {
                                         if (bindObj) keybindEditorLoader.item.openEdit(bindObj, comboIdx);
                                         else keybindEditorLoader.item.openNew(defaultTab);
+                                    }
+                                }
+                            }
+                        }
+
+                        // ==================== 12b. LOCK SCREEN ====================
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "lockscreen"
+                            active: Boolean(root.loadedPages["lockscreen"])
+                            sourceComponent: ColumnLayout {
+                                id: lockScreenPage
+                                spacing: 14
+
+                                readonly property string effectLabel: {
+                                    if (LockService.effectPreset === "snow") return "Snowfall";
+                                    if (LockService.effectPreset === "rain") return "Rain";
+                                    if (LockService.effectPreset === "wind") return "Wind Breeze";
+                                    return "None";
+                                }
+                                readonly property string soundLabel: {
+                                    if (LockService.silentMode || LockService.ambientSound === "none") return "Silent";
+                                    if (LockService.ambientSound === "wind") return "Gentle Wind";
+                                    if (LockService.ambientSound === "rain") return "Soft Rain";
+                                    if (LockService.ambientSound === "snow") return "Winter Air";
+                                    return "Silent";
+                                }
+                                readonly property string widgetSummary: {
+                                    const parts = [];
+                                    if (LockService.showNotifications) parts.push("Notifs");
+                                    if (LockService.showMedia) parts.push("Media");
+                                    if (LockService.showSystemAlerts) parts.push("Alerts");
+                                    return parts.length > 0 ? parts.join(" + ") : "Minimal";
+                                }
+
+                                // 0. Live Lock Screen Preview Card
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: lockPreviewCol.implicitHeight + 24
+                                    radius: 14
+                                    color: Theme.cardBg
+                                    border.width: 1
+                                    border.color: Theme.borderSubtle
+                                    clip: true
+
+                                    ColumnLayout {
+                                        id: lockPreviewCol
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 10
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 8
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                spacing: 2
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: "Lock Screen Preview"
+                                                    color: Theme.text
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 13
+                                                    font.weight: Font.DemiBold
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: lockScreenPage.effectLabel + " • " + (LockService.silentMode ? "Silent Lock" : lockScreenPage.soundLabel) + " • " + lockScreenPage.widgetSummary
+                                                    color: Theme.textSub
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 11
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+                                            CtrlBtn {
+                                                text: SoundService.previewAmbientPlaying ? "Stop Audio" : "Preview Audio"
+                                                ghost: !SoundService.previewAmbientPlaying
+                                                enabled: !LockService.silentMode && LockService.ambientSound !== "none" && SoundService.enabled
+                                                onClicked: SoundService.togglePreviewAmbient(LockService.ambientSound)
+                                            }
+                                            CtrlBtn {
+                                                text: "Test Lock"
+                                                ghost: true
+                                                onClicked: {
+                                                    SoundService.stopPreviewAmbient();
+                                                    LockService.lock();
+                                                }
+                                            }
+                                        }
+
+                                        // Preview Canvas (Real Wallpaper + Dim Scrim + Ambient Effect + Scaled Pills + Toast)
+                                        Rectangle {
+                                            id: lockPreviewCanvas
+                                            readonly property bool isBottomPreview: (root.shellState ? root.shellState.barPosition : root.barPosition) === "bottom"
+                                            Layout.fillWidth: true
+                                            height: 210
+                                            radius: 10
+                                            clip: true
+                                            color: Theme.surfaceBg
+                                            border.width: 1
+                                            border.color: Theme.borderSubtle
+
+                                            Image {
+                                                anchors.fill: parent
+                                                source: (typeof bgLayer !== "undefined" && bgLayer.wallpapers && bgLayer.wallpapers.length > 0)
+                                                    ? bgLayer.wallpapers[Math.max(0, Math.min(bgLayer.currentIndex, bgLayer.wallpapers.length - 1))]
+                                                    : ""
+                                                fillMode: Image.PreserveAspectCrop
+                                                asynchronous: true
+                                                smooth: true
+                                                visible: status === Image.Ready
+                                            }
+
+                                            // Backdrop Dim Scrim
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                color: Theme.pillBg
+                                                opacity: LockService.dimOpacity / 100.0
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                            }
+
+                                            // Live Ambient Visual Effect
+                                            LockAmbientEffect {
+                                                anchors.fill: parent
+                                                effect: LockService.effectPreset
+                                                intensity: LockService.effectIntensity
+                                                active: root.currentPage === "lockscreen" && root.visible
+                                                previewMode: true
+                                            }
+
+                                            // Scaled Orbiting Lock Pill Row
+                                            Row {
+                                                id: previewPillRow
+                                                spacing: 0
+                                                height: 30
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                y: lockPreviewCanvas.isBottomPreview ? (parent.height - height - 10) : 10
+                                                Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+                                                // Main Lock Pill
+                                                Rectangle {
+                                                    height: 30
+                                                    width: previewMainRow.implicitWidth + 22
+                                                    radius: 15
+                                                    color: Theme.pillBg
+                                                    border.width: 1
+                                                    border.color: Theme.borderSubtle
+                                                    clip: true
+
+                                                    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                                                    Row {
+                                                        id: previewMainRow
+                                                        anchors.centerIn: parent
+                                                        spacing: 8
+
+                                                        Text {
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            text: WeatherService.tempText
+                                                            color: Theme.text
+                                                            font.family: Theme.fontSans
+                                                            font.pixelSize: 11
+                                                            font.weight: Font.Bold
+                                                        }
+
+                                                        SvgIcon {
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            sourceName: "lock"
+                                                            iconSize: 11
+                                                            color: Theme.textSub
+                                                        }
+
+                                                        Item {
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            height: 18
+                                                            width: LockService.showNotifications ? 16 : 0
+                                                            opacity: LockService.showNotifications ? 1.0 : 0.0
+                                                            clip: true
+                                                            Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                                            SvgIcon {
+                                                                anchors.centerIn: parent
+                                                                sourceName: "bell"
+                                                                iconSize: 11
+                                                                color: Theme.text
+                                                            }
+                                                            Rectangle {
+                                                                width: 5
+                                                                height: 5
+                                                                radius: 2.5
+                                                                color: Theme.danger
+                                                                anchors.right: parent.right
+                                                                anchors.top: parent.top
+                                                                anchors.topMargin: 2
+                                                                anchors.rightMargin: 1
+                                                            }
+                                                        }
+
+                                                        Text {
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            text: Qt.formatTime(new Date(), "hh:mm")
+                                                            color: Theme.text
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 11
+                                                            font.weight: Font.Medium
+                                                        }
+                                                    }
+                                                }
+
+                                                // Scaled Media Split Pill
+                                                Item {
+                                                    height: 30
+                                                    clip: true
+                                                    width: LockService.showMedia ? (8 + previewMediaPill.width) : 0
+                                                    opacity: LockService.showMedia ? 1.0 : 0.0
+                                                    visible: width > 0.5 || opacity > 0.01
+
+                                                    Behavior on width {
+                                                        NumberAnimation {
+                                                            duration: LockService.showMedia ? Theme.springMs : Theme.smoothMs
+                                                            easing.type: LockService.showMedia ? Easing.OutBack : Easing.OutCubic
+                                                            easing.overshoot: 0.75
+                                                        }
+                                                    }
+                                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                                    Rectangle {
+                                                        id: previewMediaPill
+                                                        x: LockService.showMedia ? 8 : 0
+                                                        height: 30
+                                                        width: Math.min(138, previewMediaRow.implicitWidth + 18)
+                                                        radius: 15
+                                                        color: Theme.pillBg
+                                                        border.width: 1
+                                                        border.color: Theme.borderSubtle
+                                                        scale: LockService.showMedia ? 1.0 : 0.86
+                                                        Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                        Behavior on scale { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+
+                                                        Row {
+                                                            id: previewMediaRow
+                                                            anchors.centerIn: parent
+                                                            spacing: 6
+
+                                                            Row {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                spacing: 1.5
+                                                                height: 10
+                                                                Rectangle { width: 2; height: 6; y: 2; radius: 1; color: Theme.accent }
+                                                                Rectangle { width: 2; height: 10; y: 0; radius: 1; color: Theme.accent }
+                                                                Rectangle { width: 2; height: 7; y: 1.5; radius: 1; color: Theme.accent }
+                                                            }
+
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                text: MediaService.active ? MediaService.trackTitle : "Lofi Beats"
+                                                                color: Theme.text
+                                                                font.family: Theme.fontSans
+                                                                font.pixelSize: 10
+                                                                font.weight: Font.Medium
+                                                                elide: Text.ElideRight
+                                                                width: Math.min(implicitWidth, 72)
+                                                            }
+
+                                                            SvgIcon {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                sourceName: MediaService.isPlaying ? "pause" : "play"
+                                                                iconSize: 9
+                                                                color: Theme.textSub
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Scaled System Alert Split Pill
+                                                Item {
+                                                    height: 30
+                                                    clip: true
+                                                    width: LockService.showSystemAlerts ? (8 + previewAlertPill.width) : 0
+                                                    opacity: LockService.showSystemAlerts ? 1.0 : 0.0
+                                                    visible: width > 0.5 || opacity > 0.01
+
+                                                    Behavior on width {
+                                                        NumberAnimation {
+                                                            duration: LockService.showSystemAlerts ? Theme.springMs : Theme.smoothMs
+                                                            easing.type: LockService.showSystemAlerts ? Easing.OutBack : Easing.OutCubic
+                                                            easing.overshoot: 0.75
+                                                        }
+                                                    }
+                                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                                    Rectangle {
+                                                        id: previewAlertPill
+                                                        readonly property color alertTint: TelemetryService.overheatAlert ? Theme.dangerText : Theme.warn
+                                                        x: LockService.showSystemAlerts ? 8 : 0
+                                                        height: 30
+                                                        width: previewAlertRow.implicitWidth + 18
+                                                        radius: 15
+                                                        color: Theme.pillBg
+                                                        border.width: 1
+                                                        border.color: Qt.rgba(alertTint.r, alertTint.g, alertTint.b, 0.45)
+                                                        scale: LockService.showSystemAlerts ? 1.0 : 0.86
+                                                        Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                        Behavior on scale { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.1 } }
+
+                                                        Rectangle {
+                                                            anchors.fill: parent
+                                                            radius: 15
+                                                            color: Qt.rgba(previewAlertPill.alertTint.r, previewAlertPill.alertTint.g, previewAlertPill.alertTint.b, 0.10)
+                                                        }
+
+                                                        Row {
+                                                            id: previewAlertRow
+                                                            anchors.centerIn: parent
+                                                            spacing: 5
+                                                            SvgIcon {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                sourceName: TelemetryService.overheatAlert ? "thermometer" : "battery-low"
+                                                                iconSize: 11
+                                                                color: previewAlertPill.alertTint
+                                                            }
+                                                            Text {
+                                                                anchors.verticalCenter: parent.verticalCenter
+                                                                text: TelemetryService.overheatAlert
+                                                                    ? (TelemetryService.cpuTempC + "℃")
+                                                                    : (PowerService.lowBatteryAlert ? (PowerService.batteryPct + "%") : "12%")
+                                                                color: previewAlertPill.alertTint
+                                                                font.family: Theme.fontMono
+                                                                font.pixelSize: 10
+                                                                font.weight: Font.DemiBold
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Scaled Notification Card Preview
+                                            Rectangle {
+                                                id: previewNotifCard
+                                                width: 224
+                                                height: previewNotifCol.implicitHeight + 16
+                                                radius: 12
+                                                color: Theme.pillBg
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+                                                clip: true
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                readonly property real targetY: lockPreviewCanvas.isBottomPreview
+                                                    ? (previewPillRow.y - height - 6)
+                                                    : (previewPillRow.y + previewPillRow.height + 6)
+                                                y: targetY + (LockService.showNotifications ? 0 : (lockPreviewCanvas.isBottomPreview ? 6 : -6))
+                                                opacity: LockService.showNotifications ? 1.0 : 0.0
+                                                scale: LockService.showNotifications ? 1.0 : 0.92
+                                                visible: opacity > 0.01
+
+                                                Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 0.85 } }
+
+                                                ColumnLayout {
+                                                    id: previewNotifCol
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    anchors.top: parent.top
+                                                    anchors.margins: 8
+                                                    spacing: 3
+
+                                                    RowLayout {
+                                                        Layout.fillWidth: true
+                                                        spacing: 5
+                                                        Rectangle { width: 5; height: 5; radius: 2.5; color: Theme.danger }
+                                                        Text {
+                                                            Layout.fillWidth: true
+                                                            Layout.minimumWidth: 0
+                                                            text: "Paithosh"
+                                                            color: Theme.textSub
+                                                            font.family: Theme.fontSans
+                                                            font.pixelSize: 10
+                                                            font.weight: Font.DemiBold
+                                                            elide: Text.ElideRight
+                                                        }
+                                                        Text {
+                                                            text: "now"
+                                                            color: Theme.textMuted
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 9
+                                                        }
+                                                    }
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: LockService.hideNotifContent ? "New notification" : "Screenshot saved"
+                                                        color: Theme.text
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 11
+                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: LockService.hideNotifContent ? "Content hidden on lock screen" : "~/Pictures/lock-preview.png"
+                                                        color: LockService.hideNotifContent ? Theme.textMuted : Theme.textSub
+                                                        font.family: LockService.hideNotifContent ? Theme.fontSans : Theme.fontMono
+                                                        font.pixelSize: 10
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+
+                                            // Subtle Audio Status Chip
+                                            Rectangle {
+                                                anchors.right: parent.right
+                                                anchors.rightMargin: 10
+                                                y: lockPreviewCanvas.isBottomPreview ? 10 : (parent.height - height - 10)
+                                                height: 20
+                                                width: previewAudioChipRow.implicitWidth + 14
+                                                radius: 10
+                                                color: Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.85)
+                                                border.width: 1
+                                                border.color: SoundService.previewAmbientPlaying
+                                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45)
+                                                    : Theme.borderSubtle
+
+                                                Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                                                Row {
+                                                    id: previewAudioChipRow
+                                                    anchors.centerIn: parent
+                                                    spacing: 5
+                                                    SvgIcon {
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        sourceName: (LockService.silentMode || LockService.ambientSound === "none") ? "volume-x" : "volume"
+                                                        iconSize: 10
+                                                        color: SoundService.previewAmbientPlaying ? Theme.accent : Theme.textSub
+                                                    }
+                                                    Text {
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        text: LockService.silentMode
+                                                            ? "Silent Mode"
+                                                            : (SoundService.previewAmbientPlaying ? ("Playing • " + lockScreenPage.soundLabel) : lockScreenPage.soundLabel)
+                                                        color: SoundService.previewAmbientPlaying ? Theme.text : Theme.textSub
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 9
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // 1. Ambient Visual Effect Presets
+                                SectionLabel { text: "Ambient visual effects" }
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    columnSpacing: 10
+                                    rowSpacing: 10
+
+                                    PresetCard {
+                                        title: "None"
+                                        subtitle: "Clean wallpaper & floating pill only"
+                                        iconName: "eye-off"
+                                        searchKeywords: "none clean off lock screen effect"
+                                        active: LockService.effectPreset === "none"
+                                        onTriggered: LockService.effectPreset = "none"
+                                    }
+                                    PresetCard {
+                                        title: "Snowfall"
+                                        subtitle: "Soft layered snowflakes drifting gently"
+                                        iconName: "snowflake"
+                                        searchKeywords: "snow snowfall winter particles lock screen effect"
+                                        active: LockService.effectPreset === "snow"
+                                        onTriggered: LockService.effectPreset = "snow"
+                                    }
+                                    PresetCard {
+                                        title: "Rain"
+                                        subtitle: "Crisp angled rain over dimmed glass"
+                                        iconName: "cloud-rain"
+                                        searchKeywords: "rain rainfall weather particles lock screen effect"
+                                        active: LockService.effectPreset === "rain"
+                                        onTriggered: LockService.effectPreset = "rain"
+                                    }
+                                    PresetCard {
+                                        title: "Wind Breeze"
+                                        subtitle: "Subtle translucent air streams & motes"
+                                        iconName: "wind"
+                                        searchKeywords: "wind breeze air particles lock screen effect"
+                                        active: LockService.effectPreset === "wind"
+                                        onTriggered: LockService.effectPreset = "wind"
+                                    }
+                                }
+
+                                // 2. Ambient Sound Presets
+                                SectionLabel { text: "Ambient sound presets" }
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    columnSpacing: 10
+                                    rowSpacing: 10
+                                    opacity: LockService.silentMode ? 0.48 : 1.0
+                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                    PresetCard {
+                                        title: "Silent"
+                                        subtitle: "No background ambient sound"
+                                        iconName: "volume-x"
+                                        badge: LockService.silentMode ? "Muted" : ""
+                                        searchKeywords: "silent none mute quiet lock screen audio"
+                                        active: !LockService.silentMode && LockService.ambientSound === "none"
+                                        onTriggered: {
+                                            LockService.ambientSound = "none";
+                                            SoundService.stopPreviewAmbient();
+                                        }
+                                    }
+                                    PresetCard {
+                                        title: "Gentle Wind"
+                                        subtitle: "Soft, airy low-pass breeze"
+                                        iconName: "wind"
+                                        searchKeywords: "wind breeze ambient sound lock screen"
+                                        active: !LockService.silentMode && LockService.ambientSound === "wind"
+                                        onTriggered: {
+                                            LockService.silentMode = false;
+                                            LockService.ambientSound = "wind";
+                                            SoundService.startPreviewAmbient("wind");
+                                        }
+                                    }
+                                    PresetCard {
+                                        title: "Soft Rain"
+                                        subtitle: "Warm, distant rainfall ambience"
+                                        iconName: "cloud-rain"
+                                        searchKeywords: "rain rainfall ambient sound lock screen"
+                                        active: !LockService.silentMode && LockService.ambientSound === "rain"
+                                        onTriggered: {
+                                            LockService.silentMode = false;
+                                            LockService.ambientSound = "rain";
+                                            SoundService.startPreviewAmbient("rain");
+                                        }
+                                    }
+                                    PresetCard {
+                                        title: "Winter Air"
+                                        subtitle: "Quiet crystalline winter calm"
+                                        iconName: "snowflake"
+                                        searchKeywords: "snow winter ambient sound lock screen"
+                                        active: !LockService.silentMode && LockService.ambientSound === "snow"
+                                        onTriggered: {
+                                            LockService.silentMode = false;
+                                            LockService.ambientSound = "snow";
+                                            SoundService.startPreviewAmbient("snow");
+                                        }
+                                    }
+                                }
+
+                                // 3. Sound & Quiet Mode
+                                SectionLabel { text: "Audio & quiet mode" }
+                                SettingGroup {
+                                    SettingRow {
+                                        showDivider: false
+                                        iconName: "volume-x"
+                                        title: "Silent Lock Screen"
+                                        subtitle: "Mute all ambient loops, lock SFX, key clicks & notification chimes while locked"
+                                        searchKeywords: "silent mute quiet lock screen audio sfx"
+                                        CtrlSwitch {
+                                            checked: LockService.silentMode
+                                            onToggled: (v) => {
+                                                LockService.silentMode = v;
+                                                if (v) SoundService.stopPreviewAmbient();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "volume"
+                                        title: "Lock & Unlock SFX"
+                                        subtitle: "Tactile audio cues for lock, unlock, wrong password & typing"
+                                        searchKeywords: "sfx sound chime click error password lock unlock"
+                                        opacity: spotMatched ? (LockService.silentMode ? 0.48 : 1.0) : 0.28
+                                        CtrlSwitch {
+                                            checked: LockService.sfxEnabled
+                                            onToggled: (v) => LockService.sfxEnabled = v
+                                        }
+                                    }
+                                }
+
+                                // 4. Lock Screen Widgets & Alerts
+                                SectionLabel { text: "Lock screen widgets & alerts" }
+                                SettingGroup {
+                                    SettingRow {
+                                        showDivider: false
+                                        iconName: "bell"
+                                        title: "Notifications"
+                                        subtitle: "Show unread badge in lock pill and notification toast cards"
+                                        searchKeywords: "notifications toast bell badge lock screen"
+                                        CtrlSwitch {
+                                            checked: LockService.showNotifications
+                                            onToggled: (v) => LockService.showNotifications = v
+                                        }
+                                    }
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: LockService.showNotifications ? hideContentRow.implicitHeight : 0
+                                        opacity: LockService.showNotifications ? 1.0 : 0.0
+                                        visible: Layout.preferredHeight > 1
+                                        clip: true
+
+                                        Behavior on Layout.preferredHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                        SettingRow {
+                                            id: hideContentRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            iconName: "eye-off"
+                                            title: "Hide Sensitive Content"
+                                            subtitle: "Mask notification titles & message bodies until unlocked"
+                                            searchKeywords: "hide sensitive content privacy notifications mask lock screen"
+                                            CtrlSwitch {
+                                                checked: LockService.hideNotifContent
+                                                onToggled: (v) => LockService.hideNotifContent = v
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "music"
+                                        title: "Media Player"
+                                        subtitle: "Show floating media split-pill with playback controls"
+                                        searchKeywords: "media player music mpris controls lock screen"
+                                        CtrlSwitch {
+                                            checked: LockService.showMedia
+                                            onToggled: (v) => LockService.showMedia = v
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "thermometer"
+                                        title: "System Alerts"
+                                        subtitle: "Show low battery (<= 15%), high temperature (>= 90℃) & charger status"
+                                        searchKeywords: "system alerts low battery high temperature overheat thermal charger lock screen"
+                                        CtrlSwitch {
+                                            checked: LockService.showSystemAlerts
+                                            onToggled: (v) => LockService.showSystemAlerts = v
+                                        }
+                                    }
+                                }
+
+                                // 5. Advanced Tuning (Collapsed by Default)
+                                AdvancedSection {
+                                    title: "Advanced Lock Screen Tuning"
+                                    subtitle: "Particle intensity, ambient loudness & backdrop dimming"
+
+                                    SettingRow {
+                                        showDivider: false
+                                        iconName: "snowflake"
+                                        title: "Effect Intensity"
+                                        subtitle: "Particle density and drift speed for Snow, Rain & Wind"
+                                        searchKeywords: "intensity density speed snow rain wind"
+                                        CtrlSlider {
+                                            from: 50; to: 150; stepSize: 5; unit: "%"
+                                            value: LockService.effectIntensity
+                                            onMoved: (v) => LockService.effectIntensity = Math.round(v)
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "volume"
+                                        title: "Ambient Volume"
+                                        subtitle: "Background ambient loudness relative to master UI sound"
+                                        searchKeywords: "ambient volume loudness audio"
+                                        CtrlSlider {
+                                            from: 5; to: 100; stepSize: 5; unit: "%"
+                                            value: LockService.ambientVolume
+                                            onMoved: (v) => {
+                                                LockService.ambientVolume = Math.round(v);
+                                                SoundService.refreshPreviewAmbient();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "eye"
+                                        title: "Backdrop Dimming"
+                                        subtitle: "Scrim opacity behind the lock pill and ambient effects"
+                                        searchKeywords: "dimming scrim brightness backdrop opacity"
+                                        CtrlSlider {
+                                            from: 15; to: 75; stepSize: 5; unit: "%"
+                                            value: LockService.dimOpacity
+                                            onMoved: (v) => LockService.dimOpacity = Math.round(v)
+                                        }
                                     }
                                 }
                             }

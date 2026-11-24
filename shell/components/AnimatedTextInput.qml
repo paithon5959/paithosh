@@ -9,13 +9,14 @@ TextInput {
     property color cursorColor: Theme.accent
     property int cursorSlideDuration: 85
     property int charFadeDuration: 180
+    property bool soundEnabled: true
 
     property string _lastText: ""
 
     Keys.onPressed: function(event) {
         if (event.key !== Qt.Key_Shift && event.key !== Qt.Key_Control &&
             event.key !== Qt.Key_Alt && event.key !== Qt.Key_Meta) {
-            SoundService.playKey();
+            if (root.soundEnabled) SoundService.playKey();
         }
     }
 

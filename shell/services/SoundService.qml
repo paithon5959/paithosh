@@ -77,17 +77,50 @@ Singleton {
         }
     }
 
-    property bool _windActive: false
+    readonly property var _ambientFiles: ({
+        "wind": "lock-wind.wav",
+        "rain": "lock-rain.wav",
+        "snow": "lock-snow.wav"
+    })
+    property bool _ambientActive: false
+    property bool _ambientPreview: false
+    property string _ambientPreset: "wind"
+    readonly property bool previewAmbientPlaying: _ambientPreview && ambientLoopProc.running
+    readonly property real _effectiveAmbientVol: Math.max(0.0, Math.min(1.0, root.volume * (LockService.ambientVolume / 100.0) * 0.45))
 
-    Process {
-        id: windLoopProc
-        running: false
-        command: ["pw-play", "--volume=" + Math.max(0.0, Math.min(1.0, root.volume * 0.16)).toFixed(2), root._soundPath("lock-wind.wav")]
-        onExited: {
-            if (root._windActive && root.enabled) {
-                windLoopProc.running = true;
+    function _ambientCmd(file, vol) {
+        return [
+            "bash", "-c",
+            "exec pw-cat -p --raw --rate=48000 --channels=1 --format=s16 --volume=\"$2\" - < <(while tail -c +45 \"$1\"; do :; done)",
+            "_",
+            _soundPath(file),
+            vol.toFixed(2)
+        ];
+    }
+
+    Timer {
+        id: previewRestartTimer
+        interval: 120
+        repeat: false
+        onTriggered: {
+            if (root._ambientPreview && root.enabled && !LockService.silentMode) {
+                const file = root._ambientFiles[root._ambientPreset];
+                if (file) {
+                    ambientLoopProc.running = false;
+                    ambientLoopProc.command = root._ambientCmd(file, root._effectiveAmbientVol);
+                    ambientLoopProc.running = true;
+                } else {
+                    root._ambientPreview = false;
+                    ambientLoopProc.running = false;
+                }
             }
         }
+    }
+
+    Process {
+        id: ambientLoopProc
+        running: false
+        command: root._ambientCmd("lock-wind.wav", 0.16)
     }
 
     function _soundPath(file) {
@@ -183,15 +216,65 @@ Singleton {
     function playLock() { play("lock.wav", 0.75); }
     function playLockError() { play("lock-error.wav", 0.75); }
 
-    function startLockWind() {
-        if (!enabled) return;
-        _windActive = true;
-        if (!windLoopProc.running) windLoopProc.running = true;
+    function startLockAmbient(preset) {
+        previewRestartTimer.stop();
+        _ambientPreview = false;
+        const file = _ambientFiles[preset];
+        if (!enabled || LockService.silentMode || !file) {
+            _ambientActive = false;
+            ambientLoopProc.running = false;
+            return;
+        }
+        _ambientPreset = preset;
+        _ambientActive = true;
+        ambientLoopProc.running = false;
+        ambientLoopProc.command = _ambientCmd(file, _effectiveAmbientVol);
+        ambientLoopProc.running = true;
     }
 
-    function stopLockWind() {
-        _windActive = false;
-        if (windLoopProc.running) windLoopProc.running = false;
+    function stopLockAmbient() {
+        _ambientActive = false;
+        if (!_ambientPreview && ambientLoopProc.running) {
+            ambientLoopProc.running = false;
+        }
+    }
+
+    function startPreviewAmbient(preset) {
+        const target = preset || LockService.ambientSound;
+        const file = _ambientFiles[target];
+        if (!enabled || LockService.silentMode || !file) {
+            stopPreviewAmbient();
+            return;
+        }
+        _ambientPreset = target;
+        _ambientPreview = true;
+        previewRestartTimer.restart();
+    }
+
+    function togglePreviewAmbient(preset) {
+        if (_ambientPreview) {
+            stopPreviewAmbient();
+            return;
+        }
+        startPreviewAmbient(preset);
+    }
+
+    function refreshPreviewAmbient(preset) {
+        if (preset !== undefined) _ambientPreset = preset;
+        if (!_ambientPreview) return;
+        if (LockService.silentMode || !_ambientFiles[_ambientPreset]) {
+            stopPreviewAmbient();
+        } else {
+            previewRestartTimer.restart();
+        }
+    }
+
+    function stopPreviewAmbient() {
+        previewRestartTimer.stop();
+        _ambientPreview = false;
+        if (!_ambientActive && ambientLoopProc.running) {
+            ambientLoopProc.running = false;
+        }
     }
     function playAudioMuted() { play("audio-muted.wav", 0.85, true); }
 

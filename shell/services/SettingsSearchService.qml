@@ -375,6 +375,53 @@ QtObject {
             icon: "◐"
         },
 
+        // Lock Screen
+        {
+            id: "lockscreen-effects",
+            page: "lockscreen",
+            pageLabel: "Lock Screen",
+            title: "Ambient visual effects",
+            subtitle: "Snowfall, rain, wind breeze & particle intensity on lock screen",
+            keywords: "lock screen snow snowfall rain wind breeze particles weather effect",
+            icon: "❄"
+        },
+        {
+            id: "lockscreen-audio",
+            page: "lockscreen",
+            pageLabel: "Lock Screen",
+            title: "Ambient sound & Silent mode",
+            subtitle: "Gentle wind, soft rain, winter air, silent lock screen & lock SFX",
+            keywords: "lock screen sound audio silent mute wind rain snow sfx quiet",
+            icon: "♪"
+        },
+        {
+            id: "lockscreen-notifications",
+            page: "lockscreen",
+            pageLabel: "Lock Screen",
+            title: "Lock screen notifications",
+            subtitle: "Unread bell badge, toast cards & hide sensitive content",
+            keywords: "lock screen notifications toast bell privacy hide sensitive content",
+            icon: "🔔"
+        },
+        {
+            id: "lockscreen-media",
+            page: "lockscreen",
+            pageLabel: "Lock Screen",
+            title: "Lock screen media player",
+            subtitle: "Floating media split-pill with playback controls on lock screen",
+            keywords: "lock screen media player music controls mpris",
+            icon: "▶"
+        },
+        {
+            id: "lockscreen-alerts",
+            page: "lockscreen",
+            pageLabel: "Lock Screen",
+            title: "Lock screen system alerts",
+            subtitle: "Low battery, high temperature overheat & charger alerts",
+            keywords: "lock screen system alerts low battery high temperature overheat thermal charger",
+            icon: "⚡"
+        },
+
         // About
         {
             id: "about-system",

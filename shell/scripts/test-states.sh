@@ -111,6 +111,8 @@ ipc openSettings "layout"
 sleep 0.35
 ipc openSettings "keybind"
 sleep 0.35
+ipc openSettings "lockscreen"
+sleep 0.45
 ipc openFiles
 sleep 0.35
 ipc openPicker "upload"
