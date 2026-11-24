@@ -88,6 +88,9 @@ Singleton {
     property real _ambientGain: 0.0
     property real _ambientTargetGain: 0.0
     property int _ambientPendingFadeMs: 0
+    property real _mediaFadeGain: 1.0
+    property var _mediaFadeStreams: ({})
+    property var _mediaFadeOutCallback: null
     readonly property bool _mediaPlaying: MediaService.isPlaying
     readonly property bool previewAmbientPlaying: _ambientPreview && _ambientTargetGain > 0.01
     readonly property real _effectiveAmbientVol: Math.max(0.0, Math.min(1.0, root.volume * (LockService.ambientVolume / 100.0) * 0.45))
@@ -163,18 +166,135 @@ Singleton {
         }
     }
 
+    function _restoreMediaFadeStreams() {
+        mediaFadeAnim.stop();
+        mediaRestoreTimer.stop();
+        mediaRestoreFallbackTimer.stop();
+        _mediaFadeOutCallback = null;
+        for (const id in _mediaFadeStreams) {
+            const entry = _mediaFadeStreams[id];
+            if (entry && entry.node && entry.node.audio) {
+                entry.node.audio.volume = entry.orig;
+            }
+        }
+        _mediaFadeStreams = ({});
+        _mediaFadeGain = 1.0;
+    }
+
+    function fadeOutMediaAndRun(durationMs, callback) {
+        mediaFadeAnim.stop();
+        mediaRestoreTimer.stop();
+        const streams = AudioService.appPlaybackStreams;
+        const map = ({});
+        let count = 0;
+        for (let i = 0; i < streams.length; i++) {
+            const n = streams[i];
+            if (!n || !n.audio || n.audio.muted) continue;
+            const key = String(n.id);
+            const orig = (_mediaFadeStreams[key] !== undefined) ? _mediaFadeStreams[key].orig : n.audio.volume;
+            if (isNaN(orig) || orig <= 0.001) continue;
+            map[key] = { node: n, orig: orig };
+            count++;
+        }
+        if (count === 0) {
+            if (typeof callback === "function") callback();
+            return;
+        }
+        _mediaFadeStreams = map;
+        _mediaFadeOutCallback = typeof callback === "function" ? callback : null;
+        // Begin ambient fade-in early so media fade-out & ambient fade-in crossfade smoothly
+        if (_ambientActive && !_ambientPreview && enabled && !LockService.silentMode && Boolean(_ambientFiles[_ambientPreset])) {
+            _fadeInAmbient(1400);
+        }
+        mediaFadeAnim.from = _mediaFadeGain;
+        mediaFadeAnim.to = 0.0;
+        mediaFadeAnim.duration = Math.max(180, Math.round((durationMs || 550) * _mediaFadeGain));
+        mediaFadeAnim.start();
+    }
+
+    Timer {
+        id: mediaRestoreTimer
+        interval: 180
+        repeat: false
+        onTriggered: root._restoreMediaFadeStreams()
+    }
+
+    Timer {
+        id: mediaRestoreFallbackTimer
+        interval: 1800
+        repeat: false
+        onTriggered: root._restoreMediaFadeStreams()
+    }
+
+    function _fadeInMediaStreams(durationMs) {
+        _restoreMediaFadeStreams();
+        const streams = AudioService.appPlaybackStreams;
+        const map = ({});
+        let count = 0;
+        for (let i = 0; i < streams.length; i++) {
+            const n = streams[i];
+            if (!n || !n.audio || n.audio.muted) continue;
+            const v = n.audio.volume;
+            if (isNaN(v) || v <= 0.001) continue;
+            map[String(n.id)] = { node: n, orig: v };
+            n.audio.volume = 0.0;
+            count++;
+        }
+        if (count === 0) return;
+        _mediaFadeStreams = map;
+        _mediaFadeGain = 0.0;
+        mediaFadeAnim.from = 0.0;
+        mediaFadeAnim.to = 1.0;
+        mediaFadeAnim.duration = durationMs;
+        mediaFadeAnim.start();
+    }
+
+    on_MediaFadeGainChanged: {
+        for (const id in _mediaFadeStreams) {
+            const entry = _mediaFadeStreams[id];
+            if (entry && entry.node && entry.node.audio) {
+                entry.node.audio.volume = entry.orig * _mediaFadeGain;
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: mediaFadeAnim
+        target: root
+        property: "_mediaFadeGain"
+        easing.type: Easing.InOutSine
+        onStopped: {
+            if (root._mediaFadeGain >= 0.995) {
+                root._restoreMediaFadeStreams();
+            } else if (root._mediaFadeGain <= 0.005 && root._mediaFadeOutCallback) {
+                const cb = root._mediaFadeOutCallback;
+                root._mediaFadeOutCallback = null;
+                cb();
+                mediaRestoreFallbackTimer.restart();
+            }
+        }
+    }
+
     function _syncLockAmbientState() {
         const shouldPlay = _ambientActive && enabled && !LockService.silentMode && !_mediaPlaying && Boolean(_ambientFiles[_ambientPreset]);
         if (shouldPlay) {
             _fadeInAmbient(1400);
         } else {
-            _fadeOutAmbient(700);
+            _fadeOutAmbient(850);
         }
     }
 
     on_AmbientGainChanged: _applyAmbientVolume()
     on_EffectiveAmbientVolChanged: _applyAmbientVolume()
     on_MediaPlayingChanged: {
+        if (LockService.locked) {
+            if (_mediaPlaying) {
+                _fadeInMediaStreams(950);
+            } else {
+                mediaRestoreFallbackTimer.stop();
+                mediaRestoreTimer.restart();
+            }
+        }
         if (_ambientActive && !_ambientPreview) {
             _syncLockAmbientState();
         }
@@ -377,6 +497,7 @@ Singleton {
 
     function stopLockAmbient() {
         _ambientActive = false;
+        _restoreMediaFadeStreams();
         if (!_ambientPreview) {
             _fadeOutAmbient(380);
         }

@@ -893,7 +893,15 @@ Scope {
                                             onClicked: {
                                                 LockService.activeScreenName = surface.screenName;
                                                 if (modelData.key === "prev") MediaService.previous();
-                                                else if (modelData.key === "play") MediaService.togglePlay();
+                                                else if (modelData.key === "play") {
+                                                    if (MediaService.isPlaying) {
+                                                        SoundService.fadeOutMediaAndRun(550, function() {
+                                                            if (MediaService.isPlaying) MediaService.togglePlay();
+                                                        });
+                                                    } else {
+                                                        MediaService.togglePlay();
+                                                    }
+                                                }
                                                 else MediaService.next();
                                                 if (!surface.inputOpen) keyCatcher.forceActiveFocus();
                                             }
