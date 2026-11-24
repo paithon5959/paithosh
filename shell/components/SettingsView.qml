@@ -12,7 +12,8 @@ Item {
     implicitHeight: 540
 
     property var shellState: null
-    property string currentPage: "home"
+    property string currentPage: ""
+    property var loadedPages: ({})
     property string pendingHyprMode: ""
     property string searchQuery: ""
     readonly property string activeSearchQuery: searchQuery.trim()
@@ -104,6 +105,9 @@ Item {
     Component.onCompleted: {
         root.syncDisplayFromCompositor();
         root.syncPersonalizationFromShellState();
+        if (root.currentPage === "") {
+            root.openPage(root.shellState ? (root.shellState.settingsPage || "home") : "home");
+        }
         if (root.shellState && root.shellState.settingsSpotlight) {
             root.applyExternalSearch(root.shellState.settingsSpotlight);
         }
@@ -324,7 +328,7 @@ Item {
         else if (group === "personalization") personalizationOpen = !personalizationOpen;
     }
 
-    function openPage(pageKey) {
+    function resolvePageKey(pageKey) {
         const legacyMap = {
             "fonts": "appearance",
             "decoration": "appearance",
@@ -336,17 +340,32 @@ Item {
             "island": "layout",
             "binding": "keybind"
         };
-        const resolved = legacyMap[pageKey] || pageKey;
+        return legacyMap[pageKey] || pageKey || "home";
+    }
+
+    function openPage(pageKey) {
+        const resolved = resolvePageKey(pageKey);
+        if (currentPage === resolved) return;
+        if (!root.loadedPages[resolved]) {
+            const next = Object.assign({}, root.loadedPages);
+            next[resolved] = true;
+            root.loadedPages = next;
+        }
+        if (resolved === "updates") {
+            if (!PackageService.shellCheckedOnce) PackageService.checkShellUpdate();
+            PackageService.checkHyprSyncStatus();
+        }
         if (resolved === "backup") BackupService.refreshAll();
         if (resolved === "storage") StorageService.scanIfStale();
+        if (resolved === "about") TelemetryService.refreshSpecs();
         if (resolved === "keybind") KeybindService.refresh();
-        else if (keybindEditorModal.open) keybindEditorModal.close();
-        if (currentPage === resolved) return;
+        else if (keybindEditorLoader.item && keybindEditorLoader.item.open) keybindEditorLoader.item.close();
         currentPage = resolved;
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
-        if (["display", "sound", "power", "updates", "backup", "storage"].indexOf(resolved) !== -1) systemOpen = true;
+        if (["display", "sound", "power", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
         if (["wifi", "vpn"].indexOf(resolved) !== -1) networkOpen = true;
         if (["appearance", "keybind", "layout"].indexOf(resolved) !== -1) personalizationOpen = true;
+        pageFlick.contentY = 0;
         pageInAnim.restart();
     }
 
@@ -390,6 +409,14 @@ Item {
     }
 
     // Inline reusable components matching settings.html CSS
+    component LazyPage: Loader {
+        required property string pageKey
+        Layout.fillWidth: true
+        Layout.preferredHeight: item ? item.implicitHeight : 0
+        visible: root.currentPage === pageKey
+        active: Boolean(root.loadedPages[pageKey])
+    }
+
     component SectionLabel: Text {
         Layout.fillWidth: true
         Layout.topMargin: 4
@@ -1312,9 +1339,10 @@ Item {
                         }
 
                         // ==================== 1. HOME ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "home"
+                        LazyPage {
+                            pageKey: "home"
+                            sourceComponent: ColumnLayout {
+                            spacing: 12
 
                             Rectangle {
                                 Layout.fillWidth: true; height: 68; radius: 12
@@ -1632,11 +1660,13 @@ Item {
                                 CtrlBtn { text: "Layout"; ghost: true; onClicked: root.openPage("layout") }
                             }
                         }
+                        }
 
                         // ==================== 2. SYSTEM ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "system"
+                        LazyPage {
+                            pageKey: "system"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
                             SectionLabel { text: "System options" }
                             HubCard { iconChar: "▭"; title: "Display"; subtitle: "Resolution, scaling & orientation"; pillText: root.displayRes + " • " + root.displayScale.replace(" (Recommended)", ""); onTriggered: root.openPage("display") }
                             HubCard { iconChar: "♪"; title: "Sound & Audio"; subtitle: "PipeWire sinks, input & balance"; pillText: AudioService.muted ? "Muted" : (AudioService.volumePct + "%"); onTriggered: root.openPage("sound") }
@@ -1714,12 +1744,14 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 2b. ACCESSIBILITY ====================
-                        ColumnLayout {
+                        LazyPage {
+                            pageKey: "accessibility"
+                            sourceComponent: ColumnLayout {
                             id: accessibilityPage
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "accessibility"
+                            spacing: 12
                             property bool advancedOpen: false
 
                             readonly property string activeRecPreset: root.shellState ? root.shellState.recordPreset : ScreenRecordService.preset
@@ -1983,11 +2015,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 3. DISPLAY ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "display"
+                        LazyPage {
+                            pageKey: "display"
+                            sourceComponent: ColumnLayout {
+                            spacing: 12
 
                             // 1. Live Display Preview (mirrors Personalization main page)
                             SectionLabel { text: "Display preview" }
@@ -2161,11 +2195,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 4. SOUND ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "sound"
+                        LazyPage {
+                            pageKey: "sound"
+                            sourceComponent: ColumnLayout {
+                            spacing: 12
 
                             // Output (Default Sink + All Output Devices)
                             SettingGroup {
@@ -2368,11 +2404,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 5. POWER ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "power"
+                        LazyPage {
+                            pageKey: "power"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false; iconChar: "⚡"; title: "Power profile"; subtitle: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "% (" + PowerService.timeRemaining + ")"
@@ -2380,17 +2418,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 6. UPDATES ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "updates"
-                            onVisibleChanged: {
-                                if (visible) {
-                                    if (!PackageService.shellCheckedOnce) PackageService.checkShellUpdate();
-                                    PackageService.checkHyprSyncStatus();
-                                }
-                            }
+                        LazyPage {
+                            pageKey: "updates"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
                             SettingGroup {
                                 SettingRow {
                                     showDivider: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
@@ -2650,11 +2684,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 6b. BACKUP & RESTORE ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "backup"
+                        LazyPage {
+                            pageKey: "backup"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
 
                             // Staged Rollback Banner (only visible after staging a rollback prior to reboot)
                             Rectangle {
@@ -3111,11 +3147,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 7. NETWORK ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "network"
+                        LazyPage {
+                            pageKey: "network"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
                             SectionLabel { text: "Network options" }
                             HubCard { iconChar: "◈"; title: "Wi-Fi"; subtitle: "Wireless networks, SSID & signal"; pillText: NetworkService.wifiEnabled ? NetworkService.activeSsid : "Off"; onTriggered: { root.openPage("wifi"); NetworkService.refreshNetworks(true); } }
                             HubCard { iconChar: "🛡"; title: "VPN & Proxy"; subtitle: "WireGuard tunnels & HTTP proxy"; pillText: VpnProxyService.vpnActive ? ("WireGuard • " + VpnProxyService.activeTunnel) : "WireGuard • Standby"; onTriggered: root.openPage("vpn") }
@@ -3142,11 +3180,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 8. WIFI ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 10
-                            visible: root.currentPage === "wifi"
+                        LazyPage {
+                            pageKey: "wifi"
+                            sourceComponent: ColumnLayout {
+                            spacing: 10
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false; iconChar: "◈"
@@ -3313,12 +3353,14 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 9. VPN ====================
-                        ColumnLayout {
+                        LazyPage {
+                            pageKey: "vpn"
+                            sourceComponent: ColumnLayout {
                             id: vpnPage
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "vpn"
+                            spacing: 12
                             property bool showNewConfig: false
 
                             SectionLabel { text: "WIREGUARD (WG-QUICK)" }
@@ -3542,11 +3584,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 10. PERSONALIZATION (MAINPAGE) ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 14
-                            visible: root.currentPage === "personalization"
+                        LazyPage {
+                            pageKey: "personalization"
+                            sourceComponent: ColumnLayout {
+                            spacing: 14
 
                             // 1. Live Desktop Theme Preview (uses real Wallpaper, Theme tokens & Dynamic Island layout)
                             Rectangle {
@@ -3964,11 +4008,13 @@ Item {
                             HubCard { iconChar: "⌨"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconChar: "◫"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                         }
+                        }
 
                         // ==================== 11. APPEARANCE ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "appearance"
+                        LazyPage {
+                            pageKey: "appearance"
+                            sourceComponent: ColumnLayout {
+                            spacing: 12
 
                             SectionLabel { text: "Surface & Accent" }
                             SettingGroup {
@@ -4300,11 +4346,13 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== 12. LAYOUT ====================
-                        ColumnLayout {
-                            Layout.fillWidth: true; spacing: 12
-                            visible: root.currentPage === "layout"
+                        LazyPage {
+                            pageKey: "layout"
+                            sourceComponent: ColumnLayout {
+                            spacing: 12
 
                             SectionLabel { text: "Window Tiling Layout" }
                             GridLayout {
@@ -4545,30 +4593,37 @@ Item {
                                 }
                             }
                         }
+                        }
 
                         // ==================== KEYBINDS ====================
-                        KeybindSettingsPage {
-                            Layout.fillWidth: true
-                            visible: root.currentPage === "keybind"
-                            onEditRequested: (bindObj, comboIdx, defaultTab) => {
-                                if (bindObj) keybindEditorModal.openEdit(bindObj, comboIdx);
-                                else keybindEditorModal.openNew(defaultTab);
+                        LazyPage {
+                            pageKey: "keybind"
+                            sourceComponent: KeybindSettingsPage {
+                                onEditRequested: (bindObj, comboIdx, defaultTab) => {
+                                    keybindEditorLoader.active = true;
+                                    if (keybindEditorLoader.item) {
+                                        if (bindObj) keybindEditorLoader.item.openEdit(bindObj, comboIdx);
+                                        else keybindEditorLoader.item.openNew(defaultTab);
+                                    }
+                                }
                             }
                         }
 
                         // ==================== 17b. STORAGE ====================
-                        StorageSettingsPage {
-                            Layout.fillWidth: true
-                            visible: root.currentPage === "storage"
-                            shellState: root.shellState
-                            onConfirmActionRequested: (payload) => storageConfirmOverlay.openWith(payload)
+                        LazyPage {
+                            pageKey: "storage"
+                            sourceComponent: StorageSettingsPage {
+                                shellState: root.shellState
+                                onConfirmActionRequested: (payload) => storageConfirmOverlay.openWith(payload)
+                            }
                         }
 
                         // ==================== 18. ABOUT ====================
-                        AboutSettingsPage {
-                            Layout.fillWidth: true
-                            visible: root.currentPage === "about"
-                            shellState: root.shellState
+                        LazyPage {
+                            pageKey: "about"
+                            sourceComponent: AboutSettingsPage {
+                                shellState: root.shellState
+                            }
                         }
                     }
                 }
@@ -5339,10 +5394,14 @@ Item {
         }
     }
 
-    KeybindEditorModal {
-        id: keybindEditorModal
+    Loader {
+        id: keybindEditorLoader
+        anchors.fill: parent
         z: 210
-        selectMenu: selectMenu
-        menuRoot: root
+        active: false
+        sourceComponent: KeybindEditorModal {
+            selectMenu: selectMenu
+            menuRoot: root
+        }
     }
 }
