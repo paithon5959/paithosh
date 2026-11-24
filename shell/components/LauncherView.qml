@@ -95,7 +95,7 @@ Item {
                     name: hit.title,
                     category: "Settings • " + hit.pageLabel,
                     iconName: "",
-                    fallbackSvg: "settings",
+                    fallbackSvg: hit.icon || "settings",
                     action: (function(targetHit, targetQuery) {
                         return function() {
                             root.shellState.settingsSpotlight = targetQuery;

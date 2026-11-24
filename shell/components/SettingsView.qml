@@ -331,8 +331,8 @@ Item {
     property string profileNameInput: "default"
 
     readonly property var navItems: [
-        { key: "home", label: "Home", icon: "⌂", group: "", sub: false },
-        { key: "system", label: "System", icon: "⚙", group: "system", sub: false, hasChildren: true },
+        { key: "home", label: "Home", icon: "home", group: "", sub: false },
+        { key: "system", label: "System", icon: "settings", group: "system", sub: false, hasChildren: true },
         { key: "display", label: "Display", icon: "", group: "system", sub: true },
         { key: "sound", label: "Sound & Audio", icon: "", group: "system", sub: true },
         { key: "power", label: "Power & Battery", icon: "", group: "system", sub: true },
@@ -340,16 +340,16 @@ Item {
         { key: "backup", label: "Backup & Restore", icon: "", group: "system", sub: true },
         { key: "storage", label: "Storage", icon: "", group: "system", sub: true },
         { key: "accessibility", label: "Accessibility", icon: "", group: "system", sub: true },
-        { key: "network", label: "Network & internet", icon: "◈", group: "network", sub: false, hasChildren: true },
+        { key: "network", label: "Network & internet", icon: "wifi", group: "network", sub: false, hasChildren: true },
         { key: "wifi", label: "Wi-Fi", icon: "", group: "network", sub: true },
         { key: "vpn", label: "VPN & Proxy", icon: "", group: "network", sub: true },
         { key: "discord_rpc", label: "Discord RPC", icon: "", group: "network", sub: true },
-        { key: "personalization", label: "Personalization", icon: "✎", group: "personalization", sub: false, hasChildren: true },
+        { key: "personalization", label: "Personalization", icon: "palette", group: "personalization", sub: false, hasChildren: true },
         { key: "appearance", label: "Appearance", icon: "", group: "personalization", sub: true },
         { key: "keybind", label: "Binding", icon: "", group: "personalization", sub: true },
         { key: "layout", label: "Layout", icon: "", group: "personalization", sub: true },
         { key: "lockscreen", label: "Lock Screen", icon: "", group: "personalization", sub: true },
-        { key: "about", label: "About", icon: "ⓘ", group: "", sub: false }
+        { key: "about", label: "About", icon: "info", group: "", sub: false }
     ]
 
     function isGroupOpen(group) {
@@ -596,7 +596,12 @@ Item {
                 anchors.leftMargin: 14
                 anchors.rightMargin: 14
                 spacing: 10
-                Text { text: "⚙"; color: advMouse.containsMouse ? Theme.text : Theme.textMuted; font.pixelSize: 14; Behavior on color { ColorAnimation { duration: 140 } } }
+                SvgIcon {
+                    sourceName: "settings"
+                    iconSize: 15
+                    color: advMouse.containsMouse ? Theme.text : Theme.textMuted
+                    Behavior on color { ColorAnimation { duration: 140 } }
+                }
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 1
@@ -651,7 +656,6 @@ Item {
 
     component SettingRow: Item {
         id: sRow
-        property string iconChar: ""
         property string iconName: ""
         property string title: ""
         property string subtitle: ""
@@ -697,23 +701,15 @@ Item {
             spacing: 12
 
             Rectangle {
-                visible: sRow.iconName !== "" || sRow.iconChar !== ""
+                visible: sRow.iconName !== ""
                 width: 30; height: 30; radius: 8
                 color: Theme.surfaceRaised
                 border.width: 1; border.color: Theme.borderSubtle
                 SvgIcon {
-                    visible: sRow.iconName !== ""
                     anchors.centerIn: parent
                     sourceName: sRow.iconName
                     iconSize: 15
                     color: Theme.textSub
-                }
-                Text {
-                    visible: sRow.iconName === "" && sRow.iconChar !== ""
-                    anchors.centerIn: parent
-                    text: sRow.iconChar
-                    color: Theme.textSub
-                    font.pixelSize: 13
                 }
             }
 
@@ -750,7 +746,6 @@ Item {
 
     component HubCard: Rectangle {
         id: hCard
-        property string iconChar: ""
         property string iconName: ""
         property string title: ""
         property string subtitle: ""
@@ -796,7 +791,6 @@ Item {
                     iconSize: 16
                     color: Theme.text
                 }
-                Text { visible: hCard.iconName === "" && hCard.iconChar !== ""; anchors.centerIn: parent; text: hCard.iconChar; color: Theme.text; font.pixelSize: 14 }
             }
 
             ColumnLayout {
@@ -818,10 +812,10 @@ Item {
                 Text { id: pillLbl; anchors.centerIn: parent; text: hCard.pillText; color: hMouse.containsMouse ? Theme.text : Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10; Behavior on color { ColorAnimation { duration: 140 } } }
             }
 
-            Text {
-                text: "›"
+            SvgIcon {
+                sourceName: "chevron-right"
+                iconSize: 14
                 color: hMouse.containsMouse ? Theme.text : Theme.textMuted
-                font.pixelSize: 16
                 transform: Translate {
                     x: hMouse.containsMouse ? 2 : 0
                     Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -888,13 +882,12 @@ Item {
         Behavior on border.color { ColorAnimation { duration: 130 } }
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
-        Text {
+        SvgIcon {
             anchors.centerIn: parent
             visible: tb.checked
-            text: "✓"
+            sourceName: "check"
+            iconSize: 11
             color: Theme.accentFg
-            font.pixelSize: 11
-            font.weight: Font.Bold
         }
 
         MouseArea {
@@ -1057,7 +1050,7 @@ Item {
                 font.pixelSize: 12
                 elide: Text.ElideRight
             }
-            Text { text: "▾"; color: Theme.textMuted; font.pixelSize: 11 }
+            SvgIcon { sourceName: "chevron-right"; iconSize: 12; color: Theme.textMuted; rotation: 90 }
         }
 
         MouseArea {
@@ -1091,12 +1084,13 @@ Item {
     component CtrlBtn: Rectangle {
         id: cBtn
         property string text: ""
+        property string iconName: ""
         property bool ghost: false
         property bool danger: false
         signal clicked()
 
         height: 30
-        implicitWidth: btnLbl.implicitWidth + 22
+        implicitWidth: Math.max(30, btnRow.implicitWidth + (cBtn.text !== "" ? 22 : 14))
         radius: 8
         clip: true
         color: danger
@@ -1116,14 +1110,25 @@ Item {
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
-        Text {
-            id: btnLbl
+        RowLayout {
+            id: btnRow
             anchors.centerIn: parent
-            text: cBtn.text
-            color: cBtn.danger ? (cBtn.ghost ? Theme.dangerText : "#ffffff") : (cBtn.ghost ? Theme.text : Theme.accentFg)
-            font.family: Theme.fontSans
-            font.pixelSize: 12
-            font.weight: Font.DemiBold
+            spacing: 6
+            SvgIcon {
+                visible: cBtn.iconName !== ""
+                sourceName: cBtn.iconName
+                iconSize: 13
+                color: cBtn.danger ? (cBtn.ghost ? Theme.dangerText : "#ffffff") : (cBtn.ghost ? Theme.text : Theme.accentFg)
+            }
+            Text {
+                id: btnLbl
+                visible: cBtn.text !== ""
+                text: cBtn.text
+                color: cBtn.danger ? (cBtn.ghost ? Theme.dangerText : "#ffffff") : (cBtn.ghost ? Theme.text : Theme.accentFg)
+                font.family: Theme.fontSans
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+            }
         }
 
         MouseArea {
@@ -1199,7 +1204,7 @@ Item {
                     Behavior on border.color { ColorAnimation { duration: 140 } }
                     RowLayout {
                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8; spacing: 6
-                        Text { text: "⌕"; font.pixelSize: 13; color: Theme.textMuted }
+                        SvgIcon { sourceName: "search"; iconSize: 13; color: Theme.textMuted }
                         AnimatedTextInput {
                             id: searchInput
                             Layout.fillWidth: true
@@ -1215,14 +1220,18 @@ Item {
                                 visible: searchInput.text.length === 0
                             }
                         }
-                        Text {
+                        Item {
                             visible: searchInput.text.length > 0
-                            text: "✕"
-                            font.pixelSize: 11
-                            color: clearSearchMouse.containsMouse ? Theme.text : Theme.textMuted
+                            width: 16; height: 16
                             scale: clearSearchMouse.pressed ? 0.85 : 1.0
-                            Behavior on color { ColorAnimation { duration: 120 } }
                             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                            SvgIcon {
+                                anchors.centerIn: parent
+                                sourceName: "close"
+                                iconSize: 11
+                                color: clearSearchMouse.containsMouse ? Theme.text : Theme.textMuted
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                            }
                             MouseArea {
                                 id: clearSearchMouse
                                 anchors.fill: parent
@@ -1311,10 +1320,10 @@ Item {
                                     color: navDelegate.isActive ? Theme.text : Theme.textSub
                                     elide: Text.ElideRight
                                 }
-                                Text {
+                                SvgIcon {
                                     visible: modelData.hasChildren === true && root.searchQuery.trim() === ""
-                                    text: "›"
-                                    font.pixelSize: 14
+                                    sourceName: "chevron-right"
+                                    iconSize: 13
                                     color: Theme.textMuted
                                     rotation: root.isGroupOpen(modelData.group) ? 90 : 0
                                     Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
@@ -1521,7 +1530,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: AudioService.muted ? "🔇" : "🔊"
+                                    iconName: AudioService.muted ? "volume-x" : "volume"
                                     title: "Master Volume"
                                     subtitle: AudioService.hasLiveSink
                                         ? ((AudioService.muted ? "Muted • " : "") + "PipeWire default sink")
@@ -1542,7 +1551,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "☀"
+                                    iconName: "monitor"
                                     title: "Display Brightness"
                                     subtitle: "Backlight brightness level"
                                     CtrlSlider {
@@ -1722,11 +1731,11 @@ Item {
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SectionLabel { text: "System options" }
-                            HubCard { iconChar: "▭"; title: "Display"; subtitle: "Resolution, scaling & orientation"; pillText: root.displayRes + " • " + root.displayScale.replace(" (Recommended)", ""); onTriggered: root.openPage("display") }
-                            HubCard { iconChar: "♪"; title: "Sound & Audio"; subtitle: "PipeWire sinks, input & balance"; pillText: AudioService.muted ? "Muted" : (AudioService.volumePct + "%"); onTriggered: root.openPage("sound") }
-                            HubCard { iconChar: "⚡"; title: "Power & Battery"; subtitle: "Profiles, sleep & AC behavior"; pillText: root.formatPowerProfile(PowerService.powerProfile); onTriggered: root.openPage("power") }
+                            HubCard { iconName: "monitor"; title: "Display"; subtitle: "Resolution, scaling & orientation"; pillText: root.displayRes + " • " + root.displayScale.replace(" (Recommended)", ""); onTriggered: root.openPage("display") }
+                            HubCard { iconName: "volume"; title: "Sound & Audio"; subtitle: "PipeWire sinks, input & balance"; pillText: AudioService.muted ? "Muted" : (AudioService.volumePct + "%"); onTriggered: root.openPage("sound") }
+                            HubCard { iconName: "bolt"; title: "Power & Battery"; subtitle: "Profiles, sleep & AC behavior"; pillText: root.formatPowerProfile(PowerService.powerProfile); onTriggered: root.openPage("power") }
                             HubCard {
-                                iconChar: "↻"
+                                iconName: "package-update"
                                 title: "Updates"
                                 subtitle: "System repositories & installed packages"
                                 pillText: PackageService.checking
@@ -1737,7 +1746,7 @@ Item {
                                 onTriggered: root.openPage("updates")
                             }
                             HubCard {
-                                iconChar: "⛁"
+                                iconName: "shield"
                                 title: "Backup & Restore"
                                 subtitle: "Btrfs system snapshots & /home .pak data backups"
                                 pillText: BackupService.busy
@@ -1750,7 +1759,7 @@ Item {
                                 onTriggered: root.openPage("backup")
                             }
                             HubCard {
-                                iconChar: "⛁"
+                                iconName: "hard-drive"
                                 title: "Storage"
                                 subtitle: "File sight breakdown & Shredder cleanup"
                                 pillText: StorageService.scanning
@@ -1761,7 +1770,7 @@ Item {
                                 onTriggered: root.openPage("storage")
                             }
                             HubCard {
-                                iconChar: "♿"; title: "Accessibility"; subtitle: "Screen recording presets, resolution, fps & audio"
+                                iconName: "hard-drive"; title: "Accessibility"; subtitle: "Screen recording presets, resolution, fps & audio"
                                 pillText: ScreenRecordService.preset === "low" ? "Low Storage" : (ScreenRecordService.preset === "high" ? "High Quality" : (ScreenRecordService.preset === "custom" ? "Custom" : "Standard"))
                                 onTriggered: root.openPage("accessibility")
                             }
@@ -1769,23 +1778,23 @@ Item {
                             SectionLabel { text: "Nearby settings" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "◐"; title: "Night Light"; subtitle: "Shift display to warmer colors after sunset"
+                                    showDivider: false; iconName: "moon"; title: "Night Light"; subtitle: "Shift display to warmer colors after sunset"
                                     CtrlSwitch { checked: root.nightLight; onToggled: (v) => root.nightLight = v }
                                 }
                                 SettingRow {
-                                    iconChar: "🔊"; title: "Master Volume"; subtitle: "Quick output level for default PipeWire sink"
+                                    iconName: "volume"; title: "Master Volume"; subtitle: "Quick output level for default PipeWire sink"
                                     CtrlSlider { from: 0; to: 100; value: AudioService.volumePct; unit: "%"; onMoved: (v) => AudioService.setVolume(v, false) }
                                 }
                                 SettingRow {
-                                    iconChar: "⚡"; title: "Power mode"; subtitle: "Tune CPU governor and thermal profile"
+                                    iconName: "bolt"; title: "Power mode"; subtitle: "Tune CPU governor and thermal profile"
                                     CtrlSelect { options: ["Power Saver", "Balanced", "Performance"]; currentText: root.formatPowerProfile(PowerService.powerProfile); onSelected: (v) => PowerService.setPowerProfile(root.powerProfileKey(v)) }
                                 }
                                 SettingRow {
-                                    iconChar: "🔕"; title: "Do Not Disturb"; subtitle: "Silence popups on the Dynamic Island status bar"
+                                    iconName: "bell-off"; title: "Do Not Disturb"; subtitle: "Silence popups on the Dynamic Island status bar"
                                     CtrlSwitch { checked: NotificationService.dnd; onToggled: (v) => NotificationService.dnd = v }
                                 }
                                 SettingRow {
-                                    iconChar: "↻"; title: "Reload Shell"; subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config"
+                                    iconName: "refresh"; title: "Reload Shell"; subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config"
                                     searchKeywords: "reload shell restart quickshell qs hyprctl"
                                     CtrlBtn {
                                         text: "Reload"
@@ -1996,7 +2005,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "🔊"; title: "Record with Audio"; subtitle: "Include audio when recording screen"
+                                    iconName: "volume"; title: "Record with Audio"; subtitle: "Include audio when recording screen"
                                     CtrlSwitch {
                                         checked: root.shellState ? (root.shellState.recordAudio || root.shellState.recordMic) : (ScreenRecordService.recordAudio || ScreenRecordService.recordMic)
                                         onToggled: (v) => {
@@ -2010,7 +2019,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "📁"; title: "Save Location (>20MB)"; subtitle: (root.shellState && root.shellState.recordSaveDir !== "") ? root.shellState.recordSaveDir : (ScreenRecordService.saveDir !== "" ? ScreenRecordService.saveDir : "~/Videos (default)")
+                                    iconName: "folder"; title: "Save Location (>20MB)"; subtitle: (root.shellState && root.shellState.recordSaveDir !== "") ? root.shellState.recordSaveDir : (ScreenRecordService.saveDir !== "" ? ScreenRecordService.saveDir : "~/Videos (default)")
                                     PillButton {
                                         text: "Browse..."
                                         onClicked: if (root.shellState) root.shellState.openScreenRecordDirPicker()
@@ -2025,7 +2034,7 @@ Item {
                                 subtitle: "Resolution, frame rate, output & microphone audio"
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "▭"; title: "Resolution"; subtitle: "Output video scale (Native = monitor resolution)"
+                                    iconName: "monitor"; title: "Resolution"; subtitle: "Output video scale (Native = monitor resolution)"
                                     CtrlSelect {
                                         options: ["Native", "1080p", "720p", "480p"]
                                         currentText: accessibilityPage.activeRecRes === "native" ? "Native" : accessibilityPage.activeRecRes
@@ -2041,7 +2050,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "⏱"; title: "Frame Rate (FPS)"; subtitle: "Lower FPS reduces CPU usage and file size"
+                                    iconName: "gauge"; title: "Frame Rate (FPS)"; subtitle: "Lower FPS reduces CPU usage and file size"
                                     CtrlSelect {
                                         options: ["20 FPS", "30 FPS", "60 FPS"]
                                         currentText: accessibilityPage.activeRecFps + " FPS"
@@ -2057,7 +2066,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🔊"; title: "Output Audio (System)"; subtitle: "Capture desktop sound from default speaker monitor"
+                                    iconName: "volume"; title: "Output Audio (System)"; subtitle: "Capture desktop sound from default speaker monitor"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.recordAudio : ScreenRecordService.recordAudio
                                         onToggled: (v) => {
@@ -2067,7 +2076,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🎙"; title: "Input Audio (Microphone)"; subtitle: "Capture default microphone (mixed if Output is also on)"
+                                    iconName: "mic"; title: "Input Audio (Microphone)"; subtitle: "Capture default microphone (mixed if Output is also on)"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.recordMic : ScreenRecordService.recordMic
                                         onToggled: (v) => {
@@ -2245,7 +2254,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "☀"
+                                    iconName: "monitor"
                                     title: "Display brightness"
                                     subtitle: "Adjust built-in display backlight level"
                                     CtrlSlider {
@@ -2260,23 +2269,23 @@ Item {
                             SectionLabel { text: "Scale & layout" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "⤢"; title: "Scale"; subtitle: "Change the size of text, apps, and other items"
+                                    showDivider: false; iconName: "monitor"; title: "Scale"; subtitle: "Change the size of text, apps, and other items"
                                     CtrlSelect { options: ["100%", "125% (Recommended)", "150%", "200%"]; currentText: root.displayScale; onSelected: (v) => { root.displayScale = v; root.applyDisplayChange(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "▭"; title: "Display resolution"; subtitle: "Adjust the resolution to fit your connected display (Max: " + root.maxDisplayRes + ")"
+                                    iconName: "monitor"; title: "Display resolution"; subtitle: "Adjust the resolution to fit your connected display (Max: " + root.maxDisplayRes + ")"
                                     CtrlSelect { options: root.displayResOptions; currentText: root.displayRes; onSelected: (v) => { root.displayRes = v; root.updateRefreshOptionsForRes(v, 0); root.applyDisplayChange(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "⚡"; title: "Refresh rate"; subtitle: "Choose a higher refresh rate for smoother motion"
+                                    iconName: "monitor"; title: "Refresh rate"; subtitle: "Choose a higher refresh rate for smoother motion"
                                     CtrlSelect { options: root.displayRefreshOptions; currentText: root.displayRefreshRate; onSelected: (v) => { root.displayRefreshRate = v; root.applyDisplayChange(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "↻"; title: "Display orientation"; subtitle: "Rotate screen layout for Wayland output"
+                                    iconName: "monitor"; title: "Display orientation"; subtitle: "Rotate screen layout for Wayland output"
                                     CtrlSelect { options: ["Landscape", "Portrait"]; currentText: root.displayOrient; onSelected: (v) => { root.displayOrient = v; root.applyDisplayChange(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "🔒"; title: "Rotation lock"; subtitle: "Prevent automatic orientation changes"
+                                    iconName: "lock"; title: "Rotation lock"; subtitle: "Prevent automatic orientation changes"
                                     CtrlSwitch { checked: root.rotationLock; onToggled: (v) => root.rotationLock = v }
                                 }
                             }
@@ -2296,7 +2305,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: AudioService.muted ? "🔇" : "🔊"
+                                    iconName: AudioService.muted ? "volume-x" : "volume"
                                     title: "Output"
                                     subtitle: AudioService.hasLiveSink
                                         ? (AudioService.deviceDisplayName(AudioService.sink) + " • " + (AudioService.muted ? "Muted" : (AudioService.volumePct + "%")))
@@ -2308,7 +2317,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "♪"
+                                    iconName: "volume"
                                     title: "Output volume"
                                     subtitle: "Master playback volume"
                                     CtrlSlider {
@@ -2323,7 +2332,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "🎧"
+                                    iconName: "headphones"
                                     title: "Output devices"
                                     subtitle: AudioService.outputDevices.length + (AudioService.outputDevices.length === 1 ? " device available" : " devices available")
                                 }
@@ -2334,7 +2343,7 @@ Item {
                                         readonly property bool isDefault: AudioService.sink && modelData.id === AudioService.sink.id
                                         readonly property bool devMuted: AudioService.isDeviceMuted(modelData)
                                         readonly property int devVol: AudioService.deviceVolumePct(modelData)
-                                        iconChar: isDefault ? "●" : "○"
+                                        iconName: isDefault ? "circle-dot" : "circle"
                                         title: AudioService.deviceDisplayName(modelData)
                                         subtitle: (isDefault ? "Default • " : "") + (devMuted ? "Muted" : (devVol + "%"))
                                         RowLayout {
@@ -2362,7 +2371,7 @@ Item {
                                 }
                                 SettingRow {
                                     visible: AudioService.outputDevices.length === 0
-                                    iconChar: "—"
+                                    iconName: "minus"
                                     title: "No output devices found"
                                     subtitle: "Connect speakers or headphones"
                                 }
@@ -2421,7 +2430,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: AudioService.inputMuted ? "🎙" : "🎤"
+                                    iconName: AudioService.inputMuted ? "mic-off" : "mic"
                                     title: "Input"
                                     subtitle: AudioService.hasLiveSource
                                         ? (AudioService.deviceDisplayName(AudioService.source) + " • " + (AudioService.inputMuted ? "Muted" : (AudioService.inputVolumePct + "%")))
@@ -2433,7 +2442,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🎚"
+                                    iconName: "sliders"
                                     title: "Input volume"
                                     subtitle: "Master microphone gain"
                                     CtrlSlider {
@@ -2448,7 +2457,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "🎙"
+                                    iconName: "mic"
                                     title: "Input devices"
                                     subtitle: AudioService.inputDevices.length + (AudioService.inputDevices.length === 1 ? " device available" : " devices available")
                                 }
@@ -2459,7 +2468,7 @@ Item {
                                         readonly property bool isDefault: AudioService.source && modelData.id === AudioService.source.id
                                         readonly property bool devMuted: AudioService.isDeviceMuted(modelData)
                                         readonly property int devVol: AudioService.deviceVolumePct(modelData)
-                                        iconChar: isDefault ? "●" : "○"
+                                        iconName: isDefault ? "circle-dot" : "circle"
                                         title: AudioService.deviceDisplayName(modelData)
                                         subtitle: (isDefault ? "Default • " : "") + (devMuted ? "Muted" : (devVol + "%"))
                                         RowLayout {
@@ -2487,7 +2496,7 @@ Item {
                                 }
                                 SettingRow {
                                     visible: AudioService.inputDevices.length === 0
-                                    iconChar: "—"
+                                    iconName: "minus"
                                     title: "No input devices found"
                                     subtitle: "Connect a microphone"
                                 }
@@ -2505,7 +2514,7 @@ Item {
                             spacing: 10
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "⚡"; title: "Power profile"; subtitle: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "% (" + PowerService.timeRemaining + ")"
+                                    showDivider: false; iconName: "bolt"; title: "Power profile"; subtitle: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "% (" + PowerService.timeRemaining + ")"
                                     CtrlSelect { options: ["Power Saver", "Balanced", "Performance"]; currentText: root.formatPowerProfile(PowerService.powerProfile); onSelected: (v) => PowerService.setPowerProfile(root.powerProfileKey(v)) }
                                 }
                             }
@@ -2523,7 +2532,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
-                                    iconChar: "⚡"
+                                    iconName: "bolt"
                                     title: PackageService.shellBranch !== ""
                                         ? ("Paithosh Shell  •  " + PackageService.shellBranch + (PackageService.shellCommit !== "" ? "@" + PackageService.shellCommit : ""))
                                         : "Paithosh Shell"
@@ -2633,7 +2642,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "↻"
+                                    iconName: "package-update"
                                     title: "System Updates"
                                     subtitle: {
                                         if (PackageService.checking) return "Checking for available package updates...";
@@ -2666,7 +2675,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🛡"
+                                    iconName: "shield"
                                     title: PackageService.isMajorUpdate ? "Pre-Update System Backup  •  Major Update" : "Pre-Update System Backup"
                                     subtitle: {
                                         if (PackageService.backingUpBeforeUpdate) return "Creating system state archive before package upgrade...";
@@ -2692,7 +2701,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🕒"
+                                    iconName: "package-update"
                                     title: "Automatic Updates"
                                     subtitle: "Schedule automatic package updates (Daily, Weekly, or Monthly)"
                                     searchKeywords: "auto update schedule daily weekly monthly timer"
@@ -2709,7 +2718,7 @@ Item {
                                 }
                                 SettingRow {
                                     visible: PackageService.isFedora
-                                    iconChar: "🧪"
+                                    iconName: "package-update"
                                     title: "Beta Updates"
                                     subtitle: "Include Fedora testing repository (updates-testing) packages"
                                     searchKeywords: "beta testing updates-testing fedora"
@@ -2720,7 +2729,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🧹"
+                                    iconName: "trash"
                                     title: PackageService.cacheSizeText !== "" ? ("Package Cache  •  " + PackageService.cacheSizeText) : "Package Cache"
                                     subtitle: {
                                         if (PackageService.cleaningCache) return "Cleaning package manager cache... " + PackageService.cleanCacheProgress + "%";
@@ -2773,7 +2782,7 @@ Item {
                                 visible: PackageService.updateCount === 0 && !PackageService.checking
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "✓"
+                                    iconName: "check"
                                     title: "No pending updates"
                                     subtitle: "Your system packages are on the latest available versions."
                                 }
@@ -2857,12 +2866,12 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "⛁"
+                                    iconName: "hard-drive"
                                     title: BackupService.isBtrfsRoot
                                         ? ("Btrfs Root: subvol=" + (BackupService.btrfsInfo.rootSubvol || "root") + " (" + (BackupService.btrfsInfo.rootDevice || "/") + ")")
                                         : ("Root Filesystem: " + (BackupService.btrfsInfo.rootFstype || "unknown"))
                                     subtitle: (BackupService.btrfsInfo.homeSeparateSubvol ? "/home on separate subvolume (safe)" : "/home shared with /")
-                                        + (BackupService.btrfsInfo.bootSeparate ? (" • /boot " + (BackupService.btrfsInfo.bootFstype || "") + " (" + (BackupService.btrfsInfo.kernelRunning || "") + (BackupService.btrfsInfo.vmlinuzExists ? " ✓" : " ⚠") + ")") : "")
+                                        + (BackupService.btrfsInfo.bootSeparate ? (" • /boot " + (BackupService.btrfsInfo.bootFstype || "") + " (" + (BackupService.btrfsInfo.kernelRunning || "") + (BackupService.btrfsInfo.vmlinuzExists ? " • OK" : " • Missing") + ")") : "")
                                     searchKeywords: "btrfs subvolume root home boot kernel transparency"
                                     CtrlBtn {
                                         text: "Refresh"
@@ -2872,11 +2881,11 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "🛡"
+                                    iconName: "shield"
                                     title: BackupService.btrfsInfo.polkitAgentActive ? "Privilege Mode: Polkit Agent" : "Privilege Mode: Secure Sudo Prompt (stdin)"
                                     subtitle: "Free disk space: " + BackupService.formatBytes(Number(BackupService.btrfsInfo.diskAvailBytes || 0))
                                         + " (" + (BackupService.btrfsInfo.diskUsedPct || 0) + "% used)"
-                                        + ((BackupService.btrfsInfo.diskUsedPct || 0) >= 85 ? " • ⚠ Low disk space" : "")
+                                        + ((BackupService.btrfsInfo.diskUsedPct || 0) >= 85 ? " • Low disk space" : "")
                                         + (BackupService.systemBackups.length > 10 ? (" • " + BackupService.systemBackups.length + " snapshots stored") : "")
                                     searchKeywords: "polkit sudo disk space elevation"
                                 }
@@ -2886,7 +2895,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "🛡"
+                                    iconName: "shield"
                                     title: "System Backup"
                                     subtitle: {
                                         if (BackupService.backingUpSystem || BackupService.verifying || BackupService.rollingBack) return BackupService.statusText;
@@ -2913,7 +2922,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "↻"
+                                    iconName: "refresh"
                                     title: "Auto-backup before major updates"
                                     subtitle: "Automatically turn on System Backup when updating kernel, hyprland, mesa, systemd or ≥10 packages"
                                     searchKeywords: "auto backup major update kernel hyprland mesa systemd"
@@ -2924,7 +2933,7 @@ Item {
                                 }
                                 SettingRow {
                                     visible: BackupService.isBtrfsRoot
-                                    iconChar: "⛁"
+                                    iconName: "hard-drive"
                                     title: "Include Btrfs root subvolume snapshot"
                                     subtitle: "Verified read-only snapshot of subvol=" + (BackupService.btrfsInfo.rootSubvol || "root") + " at top-level @paithosh-snapshots"
                                     searchKeywords: "btrfs subvolume snapshot root top-level rollback"
@@ -2989,12 +2998,10 @@ Item {
                                             required property var modelData
                                             Layout.fillWidth: true
                                             spacing: 6
-                                            Text {
-                                                text: modelData.status === "ok" ? "✓" : (modelData.status === "warn" ? "!" : (modelData.status === "fail" ? "✗" : "•"))
+                                            SvgIcon {
+                                                sourceName: modelData.status === "ok" ? "check" : (modelData.status === "warn" ? "alert-triangle" : (modelData.status === "fail" ? "close" : "circle-dot"))
+                                                iconSize: 12
                                                 color: modelData.status === "ok" ? Theme.ok : (modelData.status === "warn" ? Theme.warn : (modelData.status === "fail" ? Theme.dangerText : Theme.info))
-                                                font.family: Theme.fontMono
-                                                font.pixelSize: 11
-                                                font.weight: Font.Bold
                                             }
                                             Text {
                                                 Layout.fillWidth: true
@@ -3014,7 +3021,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "⛁"
+                                    iconName: "archive"
                                     title: "Data Backup (.pak Archive)"
                                     subtitle: (BackupService.backingUpData || BackupService.restoringData || BackupService.importingPak)
                                         ? BackupService.statusText
@@ -3058,7 +3065,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "📁"
+                                    iconName: "folder"
                                     title: ".pak Store Folder"
                                     subtitle: BackupService.dataBackupDir
                                     searchKeywords: "pak store folder directory path"
@@ -3083,7 +3090,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "⚡"
+                                    iconName: "bolt"
                                     title: "Exclude cache & build artifacts"
                                     subtitle: "Skip .cache, node_modules, target, __pycache__ & venv (keeps .git intact)"
                                     searchKeywords: "exclude cache node_modules target venv"
@@ -3156,7 +3163,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         showDivider: index > 0
-                                        iconChar: modelData.hasBtrfsSnap ? "🛡" : "⛁"
+                                        iconName: modelData.hasBtrfsSnap ? "shield" : "hard-drive"
                                         title: modelData.id
                                         subtitle: (modelData.dateText || "Unknown")
                                             + (modelData.sizeText !== "" ? (" • " + modelData.sizeText) : "")
@@ -3193,7 +3200,7 @@ Item {
                                 SettingRow {
                                     visible: BackupService.systemBackups.length === 0
                                     showDivider: false
-                                    iconChar: "—"
+                                    iconName: "shield"
                                     title: "No system backups yet"
                                     subtitle: "Run Backup System above or enable Pre-Update System Backup when updating packages."
                                 }
@@ -3207,7 +3214,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         showDivider: index > 0
-                                        iconChar: "⛁"
+                                        iconName: "archive"
                                         title: modelData.name
                                         subtitle: modelData.dateText + " • " + modelData.sizeText
                                             + (modelData.corrupt ? " • Corrupt Archive" : (modelData.legacyZip ? " • Legacy .zip" : " • .pak (ZIP)"))
@@ -3239,7 +3246,7 @@ Item {
                                 SettingRow {
                                     visible: BackupService.dataBackups.length === 0
                                     showDivider: false
-                                    iconChar: "—"
+                                    iconName: "minus"
                                     title: "No .pak backups in store yet"
                                     subtitle: "Select /home folders above and click Backup Data to save a .pak file, or import an existing .pak."
                                 }
@@ -3256,34 +3263,34 @@ Item {
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SectionLabel { text: "Network options" }
-                            HubCard { iconChar: "◈"; title: "Wi-Fi"; subtitle: "Wireless networks, SSID & signal"; pillText: NetworkService.wifiEnabled ? NetworkService.activeSsid : "Off"; onTriggered: { root.openPage("wifi"); NetworkService.refreshNetworks(true); } }
-                            HubCard { iconChar: "🛡"; title: "VPN & Proxy"; subtitle: "WireGuard tunnels & HTTP proxy"; pillText: VpnProxyService.vpnActive ? ("WireGuard • " + VpnProxyService.activeTunnel) : "WireGuard • Standby"; onTriggered: root.openPage("vpn") }
+                            HubCard { iconName: "wifi"; title: "Wi-Fi"; subtitle: "Wireless networks, SSID & signal"; pillText: NetworkService.wifiEnabled ? NetworkService.activeSsid : "Off"; onTriggered: { root.openPage("wifi"); NetworkService.refreshNetworks(true); } }
+                            HubCard { iconName: "shield"; title: "VPN & Proxy"; subtitle: "WireGuard tunnels & HTTP proxy"; pillText: VpnProxyService.vpnActive ? ("WireGuard • " + VpnProxyService.activeTunnel) : "WireGuard • Standby"; onTriggered: root.openPage("vpn") }
                             HubCard {
-                                iconChar: "◈"
+                                iconName: "message-square"
                                 title: "Discord RPC"
                                 subtitle: "Live presence & Linux larper persona"
                                 pillText: !DiscordRpcService.enabled ? "Off" : (DiscordRpcService.connected ? "Connected" : "Discord Offline")
                                 onTriggered: root.openPage("discord_rpc")
                             }
-                            HubCard { iconChar: "◉"; title: "DNS & Routing"; subtitle: "Encrypted DoH & split-horizon"; pillText: "1.1.1.1 • DoH Active"; onTriggered: {} }
-                            HubCard { iconChar: "📱"; title: "KDE Connect & Share"; subtitle: "Local LAN pairing & file drop"; pillText: "Pixel 8 Pro • Paired"; onTriggered: {} }
+                            HubCard { iconName: "globe"; title: "DNS & Routing"; subtitle: "Encrypted DoH & split-horizon"; pillText: "1.1.1.1 • DoH Active"; onTriggered: {} }
+                            HubCard { iconName: "smartphone"; title: "KDE Connect & Share"; subtitle: "Local LAN pairing & file drop"; pillText: "Pixel 8 Pro • Paired"; onTriggered: {} }
 
                             SectionLabel { text: "Nearby settings" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "◈"; title: "Wi-Fi Radio (wlan0)"; subtitle: "Connected to Paithon_5G • 5 GHz WPA3"
+                                    showDivider: false; iconName: "wifi"; title: "Wi-Fi Radio (wlan0)"; subtitle: "Connected to Paithon_5G • 5 GHz WPA3"
                                     CtrlSwitch { checked: NetworkService.wifiEnabled; onToggled: (v) => NetworkService.setWifiEnabled(v) }
                                 }
                                 SettingRow {
-                                    iconChar: "✈"; title: "Airplane mode"; subtitle: "Stop all wireless communication"
+                                    iconName: "plane"; title: "Airplane mode"; subtitle: "Stop all wireless communication"
                                     CtrlSwitch { checked: root.airplaneMode; onToggled: (v) => root.airplaneMode = v }
                                 }
                                 SettingRow {
-                                    iconChar: "◉"; title: "DNS Provider"; subtitle: "Resolver used for all system queries"
+                                    iconName: "globe"; title: "DNS Provider"; subtitle: "Resolver used for all system queries"
                                     CtrlSelect { options: ["Cloudflare (1.1.1.1)", "Quad9 (9.9.9.9)", "System Auto (DHCP)"]; currentText: root.dnsProvider; onSelected: (v) => root.dnsProvider = v }
                                 }
                                 SettingRow {
-                                    iconChar: "◔"; title: "Metered connection"; subtitle: "Pause automatic background package sync"
+                                    iconName: "gauge"; title: "Metered connection"; subtitle: "Pause automatic background package sync"
                                     CtrlSwitch { checked: root.meteredConn; onToggled: (v) => root.meteredConn = v }
                                 }
                             }
@@ -3300,7 +3307,7 @@ Item {
                             spacing: 10
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "◈"
+                                    showDivider: false; iconName: "wifi"
                                     title: "Wi-Fi Adapter (" + NetworkService.wifiDevice + ")"
                                     subtitle: NetworkService.wifiEnabled
                                         ? (NetworkService.activeSsid !== "Disconnected" ? ("Connected to " + NetworkService.activeSsid) : "Not connected")
@@ -3419,7 +3426,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         showDivider: index > 0
-                                        iconChar: modelData.inUse ? "●" : "○"
+                                        iconName: modelData.inUse ? "circle-dot" : "circle"
                                         title: modelData.ssid
                                         subtitle: {
                                             const parts = [];
@@ -3451,7 +3458,7 @@ Item {
                                 }
                                 SettingRow {
                                     showDivider: NetworkService.networks.length > 0
-                                    iconChar: "+"; title: "Hidden network"; subtitle: "Enter SSID manually"
+                                    iconName: "plus"; title: "Hidden network"; subtitle: "Enter SSID manually"
                                     CtrlBtn {
                                         text: "Join"
                                         onClicked: {
@@ -3482,7 +3489,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "🛡"
+                                    iconName: "shield"
                                     title: VpnProxyService.vpnActive ? ("Active: " + VpnProxyService.activeTunnel) : "No active tunnel"
                                     subtitle: VpnProxyService.vpnActive
                                         ? ("Endpoint: " + VpnProxyService.vpnEndpoint + " • DNS: " + VpnProxyService.vpnDns)
@@ -3498,7 +3505,8 @@ Item {
                                             onClicked: vpnPage.showNewConfig = !vpnPage.showNewConfig
                                         }
                                         CtrlBtn {
-                                            text: "↻"
+                                            iconName: "refresh"
+                                            ghost: true
                                             onClicked: VpnProxyService.refresh()
                                         }
                                     }
@@ -3595,7 +3603,7 @@ Item {
                                         required property var modelData
                                         required property int index
                                         showDivider: index > 0
-                                        iconChar: modelData.active ? "●" : "○"
+                                        iconName: modelData.active ? "circle-dot" : "circle"
                                         title: modelData.name + (modelData.active ? " (Connected)" : "")
                                         subtitle: "Endpoint: " + modelData.endpoint + " • DNS: " + modelData.dns
                                         RowLayout {
@@ -3620,7 +3628,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "⇄"
+                                    iconName: "repeat"
                                     title: "Enable System Proxy"
                                     subtitle: "Apply gsettings proxy & ~/.config/paithosh/proxy.env"
                                     CtrlSwitch {
@@ -4454,15 +4462,15 @@ Item {
                             SectionLabel { text: "Quick standard settings" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "✦"; title: "Window Blur (Kawase)"; subtitle: "Frosted translucency behind panels"
+                                    showDivider: false; iconName: "palette"; title: "Window Blur (Kawase)"; subtitle: "Frosted translucency behind panels"
                                     CtrlSwitch { checked: CompositorService.blurEnabled; onToggled: (v) => { CompositorService.setBlurConfig(v, CompositorService.blurSize, CompositorService.blurPasses, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "⚡"; title: "Hyprland Animations"; subtitle: "Smooth spring window transitions"
+                                    iconName: "palette"; title: "Hyprland Animations"; subtitle: "Smooth spring window transitions"
                                     CtrlSwitch { checked: CompositorService.animationsEnabled; onToggled: (v) => { CompositorService.setAnimationsEnabled(v); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "⛶"; title: "Dynamic Island Auto-Hide"; subtitle: "Hide status bar when fullscreen or overlapped"
+                                    iconName: "maximize"; title: "Dynamic Island Auto-Hide"; subtitle: "Hide status bar when fullscreen or overlapped"
                                     CtrlSwitch {
                                         checked: root.shellState ? (root.shellState.autoHideOnOverlap || root.shellState.hideBarFullscreen) : root.hideBarFullscreen
                                         onToggled: (v) => {
@@ -4477,7 +4485,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "▢"; title: "Active Border Highlight"; subtitle: "Crisp outline on focused window"
+                                    iconName: "square-rounded"; title: "Active Border Highlight"; subtitle: "Crisp outline on focused window"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.activeBorderHighlight : root.activeBorderHighlight
                                         onToggled: (v) => {
@@ -4491,9 +4499,9 @@ Item {
 
                             // 4. Customize by Area
                             SectionLabel { text: "Customize by area" }
-                            HubCard { iconChar: "◐"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
-                            HubCard { iconChar: "⌨"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
-                            HubCard { iconChar: "◫"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
+                            HubCard { iconName: "palette"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
+                            HubCard { iconName: "keyboard"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
+                            HubCard { iconName: "layout"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                             HubCard {
                                 iconName: "lock"
                                 title: "Lock Screen"
@@ -4520,11 +4528,11 @@ Item {
                             SectionLabel { text: "Surface & Accent" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "◐"; title: "Global Surface Theme"; subtitle: "Contrast & backdrop style synced across apps"
+                                    showDivider: false; iconName: "palette"; title: "Global Surface Theme"; subtitle: "Contrast & backdrop style synced across apps"
                                     CtrlSelect { options: ["OLED Pure", "Mica Dark", "Adaptive"]; currentText: root.globalSurfaceTheme; onSelected: (v) => { root.globalSurfaceTheme = v; if (root.shellState) root.shellState.globalSurfaceTheme = v; root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "Aa"; title: "Accent Style"; subtitle: "Solid monochrome or directional gradient"
+                                    iconName: "palette"; title: "Accent Style"; subtitle: "Solid monochrome or directional gradient"
                                     CtrlSelect { options: ["Solid", "Gradient"]; currentText: root.accentMode; onSelected: (v) => { root.accentMode = v; Theme.accentMode = v; root.markAppearanceChanged(); } }
                                 }
                             }
@@ -4872,19 +4880,19 @@ Item {
 
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "◐"; title: "Drop Shadows"; subtitle: "Render soft ambient window shadows"
+                                    showDivider: false; iconName: "palette"; title: "Drop Shadows"; subtitle: "Render soft ambient window shadows"
                                     CtrlSwitch { checked: CompositorService.shadowEnabled; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, v, CompositorService.inactiveOpacity); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "◈"; title: "Dim inactive windows"; subtitle: "Subtle translucency on unfocused windows"
+                                    iconName: "palette"; title: "Dim inactive windows"; subtitle: "Subtle translucency on unfocused windows"
                                     CtrlSwitch { checked: CompositorService.inactiveOpacity < 0.99; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, CompositorService.shadowEnabled, v ? 0.94 : 1.0); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "✦"; title: "Hyprland Animations"; subtitle: CompositorService.animationsEnabled ? "Enabled • Spring & bezier motion active" : "Disabled • Instant window transitions"
+                                    iconName: "palette"; title: "Hyprland Animations"; subtitle: CompositorService.animationsEnabled ? "Enabled • Spring & bezier motion active" : "Disabled • Instant window transitions"
                                     CtrlSwitch { checked: CompositorService.animationsEnabled; onToggled: (v) => { CompositorService.setAnimationsEnabled(v); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "◎"; title: "Kawase Blur"; subtitle: CompositorService.blurEnabled ? ("Enabled • " + CompositorService.blurSize + "px • " + CompositorService.blurPasses + " passes") : "Disabled"
+                                    iconName: "palette"; title: "Kawase Blur"; subtitle: CompositorService.blurEnabled ? ("Enabled • " + CompositorService.blurSize + "px • " + CompositorService.blurPasses + " passes") : "Disabled"
                                     CtrlSwitch { checked: CompositorService.blurEnabled; onToggled: (v) => { CompositorService.setBlurConfig(v, CompositorService.blurSize, CompositorService.blurPasses, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
                                 }
                             }
@@ -4892,35 +4900,35 @@ Item {
                             AdvancedSection {
                                 subtitle: "Corner rounding, shadow spread, spring physics & Kawase blur"
                                 SettingRow {
-                                    showDivider: false; iconChar: "▢"; title: "Corner rounding"; subtitle: "Window border radius"
+                                    showDivider: false; iconName: "palette"; title: "Corner rounding"; subtitle: "Window border radius"
                                     CtrlSlider { from: 0; to: 28; value: CompositorService.cornerRounding; unit: "px"; onMoved: (v) => { CompositorService.setDecoration(v, CompositorService.shadowEnabled, CompositorService.inactiveOpacity); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "◈"; title: "Inactive opacity"; subtitle: "Opacity of unfocused windows"
+                                    iconName: "palette"; title: "Inactive opacity"; subtitle: "Opacity of unfocused windows"
                                     CtrlSlider { from: 60; to: 100; value: Math.round(CompositorService.inactiveOpacity * 100); unit: "%"; onMoved: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, CompositorService.shadowEnabled, v / 100.0); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "◐"; title: "Shadow range"; subtitle: "Drop shadow spread radius"
+                                    iconName: "palette"; title: "Shadow range"; subtitle: "Drop shadow spread radius"
                                     CtrlSlider { from: 0; to: 48; value: root.shadowRange; unit: "px"; onMoved: (v) => { root.shadowRange = v; Theme.shadowRange = v; root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "⚡"; title: "Spring Stiffness"; subtitle: "Motion responsiveness (" + CompositorService.springStiffness + ")"
+                                    iconName: "palette"; title: "Spring Stiffness"; subtitle: "Motion responsiveness (" + CompositorService.springStiffness + ")"
                                     CtrlSlider { from: 80; to: 600; value: CompositorService.springStiffness; unit: ""; enabled: CompositorService.animationsEnabled; onMoved: (v) => { CompositorService.setSpringCurve(v, CompositorService.springDamping); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "〰"; title: "Spring Damping"; subtitle: "Settle resistance (" + CompositorService.springDamping + ")"
+                                    iconName: "palette"; title: "Spring Damping"; subtitle: "Settle resistance (" + CompositorService.springDamping + ")"
                                     CtrlSlider { from: 5; to: 60; value: CompositorService.springDamping; unit: ""; enabled: CompositorService.animationsEnabled; onMoved: (v) => { CompositorService.setSpringCurve(CompositorService.springStiffness, v); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "◎"; title: "Blur Size"; subtitle: "Kawase blur radius in pixels"
+                                    iconName: "palette"; title: "Blur Size"; subtitle: "Kawase blur radius in pixels"
                                     CtrlSlider { from: 1; to: 24; value: CompositorService.blurSize; unit: "px"; enabled: CompositorService.blurEnabled; onMoved: (v) => { CompositorService.setBlurConfig(CompositorService.blurEnabled, v, CompositorService.blurPasses, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "≡"; title: "Blur Passes"; subtitle: "Dual-pass iterations (1–6)"
+                                    iconName: "palette"; title: "Blur Passes"; subtitle: "Dual-pass iterations (1–6)"
                                     CtrlSlider { from: 1; to: 6; value: CompositorService.blurPasses; unit: ""; enabled: CompositorService.blurEnabled; onMoved: (v) => { CompositorService.setBlurConfig(CompositorService.blurEnabled, CompositorService.blurSize, v, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconChar: "✨"; title: "Blur Vibrancy"; subtitle: "Color boost (" + Math.round(CompositorService.blurVibrancy * 100) + "%)"
+                                    iconName: "palette"; title: "Blur Vibrancy"; subtitle: "Color boost (" + Math.round(CompositorService.blurVibrancy * 100) + "%)"
                                     CtrlSlider { from: 0; to: 100; value: Math.round(CompositorService.blurVibrancy * 100); unit: "%"; enabled: CompositorService.blurEnabled; onMoved: (v) => { CompositorService.setBlurConfig(CompositorService.blurEnabled, CompositorService.blurSize, CompositorService.blurPasses, v / 100.0); root.markAppearanceChanged(); } }
                                 }
                             }
@@ -4985,7 +4993,7 @@ Item {
                             AdvancedSection {
                                 subtitle: "Master split ratio & split orientation"
                                 SettingRow {
-                                    showDivider: false; iconChar: "◫"; title: "Master split ratio"; subtitle: "Percentage width reserved for primary window"
+                                    showDivider: false; iconName: "layout"; title: "Master split ratio"; subtitle: "Percentage width reserved for primary window"
                                     CtrlSlider { from: 30; to: 80; value: root.masterRatio; unit: "%"; onMoved: (v) => { root.masterRatio = v; Theme.masterRatio = v; } }
                                 }
                                 SettingRow {
@@ -5019,7 +5027,7 @@ Item {
 
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconChar: "▢"; title: "Active Border Highlight"; subtitle: "Show crisp outline on focused window"
+                                    showDivider: false; iconName: "square-rounded"; title: "Active Border Highlight"; subtitle: "Show crisp outline on focused window"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.activeBorderHighlight : root.activeBorderHighlight
                                         onToggled: (v) => {
@@ -5033,15 +5041,15 @@ Item {
                             AdvancedSection {
                                 subtitle: "Raw inner/outer pixel gaps & border thickness"
                                 SettingRow {
-                                    showDivider: false; iconChar: "❖"; title: "Inner gaps"; subtitle: "Space between tiled windows"
+                                    showDivider: false; iconName: "grid-gap"; title: "Inner gaps"; subtitle: "Space between tiled windows"
                                     CtrlSlider { from: 0; to: 32; value: CompositorService.gapsIn; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(v, CompositorService.gapsOut, CompositorService.borderSize) }
                                 }
                                 SettingRow {
-                                    iconChar: "◰"; title: "Outer gaps"; subtitle: "Margin around screen edges"
+                                    iconName: "grid-gap"; title: "Outer gaps"; subtitle: "Margin around screen edges"
                                     CtrlSlider { from: 0; to: 48; value: CompositorService.gapsOut; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(CompositorService.gapsIn, v, CompositorService.borderSize) }
                                 }
                                 SettingRow {
-                                    iconChar: "□"; title: "Border thickness"; subtitle: "Window stroke width"
+                                    iconName: "square-rounded"; title: "Border thickness"; subtitle: "Window stroke width"
                                     CtrlSlider { from: 0; to: 6; value: CompositorService.borderSize; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(CompositorService.gapsIn, CompositorService.gapsOut, v) }
                                 }
                             }
@@ -5094,7 +5102,7 @@ Item {
 
                             SettingGroup {
                                 SettingRow {
-                                    iconChar: "⇵"
+                                    iconName: "move-vertical"
                                     title: "Status bar position"
                                     subtitle: "Place Dynamic Island at the top or bottom edge of the screen"
                                     CtrlSelect {
@@ -5109,7 +5117,7 @@ Item {
                                 }
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "⛶"
+                                    iconName: "maximize"
                                     title: "Behavior"
                                     subtitle: "Control when Dynamic Island hides on fullscreen or window overlap"
                                     CtrlSelect {
@@ -5153,7 +5161,7 @@ Item {
                             AdvancedSection {
                                 subtitle: "Corner radius & screen edge offset"
                                 SettingRow {
-                                    showDivider: false; iconChar: "◐"; title: "Status bar corner radius"; subtitle: "Roundness of Dynamic Island pills"
+                                    showDivider: false; iconName: "square-rounded"; title: "Status bar corner radius"; subtitle: "Roundness of Dynamic Island pills"
                                     CtrlSelect {
                                         options: ["12px", "18px", "26px (Default)"]
                                         currentText: root.shellState ? root.shellState.islandCornerRadius : root.islandCornerRadius
@@ -5164,7 +5172,7 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconChar: "↕"; title: "Screen edge offset"; subtitle: "12px at rest, 16px on hover / Dashboard"
+                                    iconName: "move-vertical"; title: "Screen edge offset"; subtitle: "12px at rest, 16px on hover / Dashboard"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.topEdgeOffset : root.topEdgeOffset
                                         onToggled: (v) => {
@@ -6474,12 +6482,10 @@ Item {
                                             required property var modelData
                                             Layout.fillWidth: true
                                             spacing: 6
-                                            Text {
-                                                text: modelData.status === "ok" ? "✓" : (modelData.status === "warn" ? "!" : "✗")
+                                            SvgIcon {
+                                                sourceName: modelData.status === "ok" ? "check" : (modelData.status === "warn" ? "alert-triangle" : "close")
+                                                iconSize: 12
                                                 color: modelData.status === "ok" ? Theme.ok : (modelData.status === "warn" ? Theme.warn : Theme.dangerText)
-                                                font.family: Theme.fontMono
-                                                font.pixelSize: 11
-                                                font.weight: Font.Bold
                                             }
                                             Text {
                                                 Layout.fillWidth: true

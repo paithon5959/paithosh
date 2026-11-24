@@ -5,6 +5,7 @@ import Quickshell
 import Quickshell.Io
 import ".."
 import "../services"
+import "common"
 
 ColumnLayout {
     id: root
@@ -320,7 +321,7 @@ ColumnLayout {
 
     component AboutRow: Item {
         id: aRow
-        property string iconChar: ""
+        property string iconName: ""
         property string title: ""
         property string subtitle: ""
         property bool showDivider: true
@@ -349,17 +350,16 @@ ColumnLayout {
             spacing: 12
 
             Rectangle {
-                visible: aRow.iconChar !== ""
+                visible: aRow.iconName !== ""
                 width: 30; height: 30; radius: 8
                 color: Theme.surfaceRaised
                 border.width: 1; border.color: Theme.borderSubtle
                 clip: true
-                Text {
+                SvgIcon {
                     anchors.centerIn: parent
-                    text: aRow.iconChar
+                    sourceName: aRow.iconName
+                    iconSize: 15
                     color: Theme.textSub
-                    font.family: Theme.fontSans
-                    font.pixelSize: 13
                 }
             }
 
@@ -397,7 +397,7 @@ ColumnLayout {
     component AboutPillBtn: Rectangle {
         id: btn
         property string label: ""
-        property string iconChar: ""
+        property string iconName: ""
         property bool active: false
         property color activeBg: Theme.accent
         property color activeFg: Theme.accentFg
@@ -419,12 +419,11 @@ ColumnLayout {
             id: btnRow
             anchors.centerIn: parent
             spacing: 5
-            Text {
-                visible: btn.iconChar !== ""
-                text: btn.iconChar
+            SvgIcon {
+                visible: btn.iconName !== ""
+                sourceName: btn.iconName
+                iconSize: 12
                 color: btn.active ? btn.activeFg : Theme.text
-                font.family: Theme.fontSans
-                font.pixelSize: 12
             }
             Text {
                 visible: btn.label !== ""
@@ -555,15 +554,15 @@ ColumnLayout {
             RowLayout {
                 spacing: 6
                 AboutPillBtn {
-                    iconChar: root.copiedFeedback ? "✓" : "⧉"
+                    iconName: root.copiedFeedback ? "check" : "copy"
                     label: root.copiedFeedback ? "Copied" : "Copy"
                     active: root.copiedFeedback
                     activeBg: Theme.ok
-                    activeFg: "#000000"
+                    activeFg: Theme.pillBg
                     onTriggered: root.copySystemSummary()
                 }
                 AboutPillBtn {
-                    iconChar: "↻"
+                    iconName: "refresh"
                     onTriggered: root.refreshAll()
                 }
             }
@@ -576,7 +575,7 @@ ColumnLayout {
     AboutGroup {
         AboutRow {
             showDivider: false
-            iconChar: "λ"
+            iconName: "terminal"
             title: "OS"
             subtitle: TelemetryService.osName + " (" + TelemetryService.arch + ")"
             MetaChip {
@@ -585,7 +584,7 @@ ColumnLayout {
             }
         }
         AboutRow {
-            iconChar: "⚙"
+            iconName: "settings"
             title: "Compositor"
             subtitle: TelemetryService.hyprVersion
             MetaChip {
@@ -594,7 +593,7 @@ ColumnLayout {
             }
         }
         AboutRow {
-            iconChar: "⌨"
+            iconName: "keyboard"
             title: "Host & Shell"
             subtitle: TelemetryService.hostname + " • " + TelemetryService.shellName
             MetaChip {
@@ -603,7 +602,7 @@ ColumnLayout {
             }
         }
         AboutRow {
-            iconChar: "▤"
+            iconName: "cpu"
             title: "Processor & Graphics"
             subtitle: TelemetryService.cpuModel + (TelemetryService.cpuCores !== "" ? (" (" + TelemetryService.cpuCores + ")") : "")
             MetaChip {
@@ -611,7 +610,7 @@ ColumnLayout {
             }
         }
         AboutRow {
-            iconChar: "⛁"
+            iconName: "hard-drive"
             title: "Memory & Storage"
             subtitle: "RAM " + TelemetryService.memDetail + " (" + TelemetryService.ramPct + "%) • " + TelemetryService.swapSummary
             MetaChip {
@@ -643,7 +642,7 @@ ColumnLayout {
 
         AboutPillBtn {
             height: 26
-            iconChar: root.healthRunning ? "…" : "↻"
+            iconName: root.healthRunning ? "clock" : "refresh"
             label: root.healthRunning ? "Running" : "Run Check"
             onTriggered: root.runHealthCheck()
         }
@@ -656,7 +655,7 @@ ColumnLayout {
                 required property var modelData
                 required property int index
                 showDivider: index > 0
-                iconChar: modelData.status === "ok" ? "✓" : (modelData.status === "error" ? "✕" : "!")
+                iconName: modelData.status === "ok" ? "check" : (modelData.status === "error" ? "close" : "alert-triangle")
                 title: modelData.title
                 subtitle: modelData.detail
 

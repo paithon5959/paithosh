@@ -13,7 +13,7 @@ QtObject {
             title: "System specifications",
             subtitle: "Processor, memory, graphics and storage overview",
             keywords: "cpu ram gpu disk specs hardware",
-            icon: "⌂"
+            icon: "home"
         },
         {
             id: "home-volume",
@@ -22,7 +22,7 @@ QtObject {
             title: "Master Volume",
             subtitle: "Quick audio output volume level",
             keywords: "sound audio speaker mute",
-            icon: "🔊"
+            icon: "volume"
         },
         {
             id: "home-brightness",
@@ -31,7 +31,7 @@ QtObject {
             title: "Display Brightness",
             subtitle: "Backlight brightness level",
             keywords: "screen backlight dim light",
-            icon: "☀"
+            icon: "sun"
         },
 
         // System
@@ -42,7 +42,7 @@ QtObject {
             title: "Night Light",
             subtitle: "Shift display to warmer colors after sunset",
             keywords: "blue light warm temperature color eye",
-            icon: "◐"
+            icon: "moon"
         },
         {
             id: "system-dnd",
@@ -51,7 +51,7 @@ QtObject {
             title: "Do Not Disturb",
             subtitle: "Silence popups on the Dynamic Island status bar",
             keywords: "dnd notifications silence quiet dynamic island",
-            icon: "🔕"
+            icon: "bell-off"
         },
         {
             id: "system-power-mode",
@@ -60,7 +60,7 @@ QtObject {
             title: "Power mode",
             subtitle: "Tune CPU governor and thermal profile",
             keywords: "performance balanced powersave cpu",
-            icon: "⚡"
+            icon: "bolt"
         },
 
         // Display
@@ -71,7 +71,7 @@ QtObject {
             title: "Scale",
             subtitle: "Change the size of text, apps, and other items",
             keywords: "hidpi dpi zoom fractional scaling",
-            icon: "⤢"
+            icon: "maximize"
         },
         {
             id: "display-resolution",
@@ -80,7 +80,7 @@ QtObject {
             title: "Display resolution",
             subtitle: "Adjust the resolution to fit your connected display",
             keywords: "monitor screen 1080p 1440p 4k refresh rate",
-            icon: "▭"
+            icon: "monitor"
         },
         {
             id: "display-orientation",
@@ -89,7 +89,7 @@ QtObject {
             title: "Display orientation",
             subtitle: "Rotate screen layout for Wayland output",
             keywords: "rotate portrait landscape",
-            icon: "↻"
+            icon: "refresh"
         },
         {
             id: "display-rotation-lock",
@@ -98,7 +98,7 @@ QtObject {
             title: "Rotation lock",
             subtitle: "Prevent automatic orientation changes",
             keywords: "sensor lock screen rotate",
-            icon: "🔒"
+            icon: "lock"
         },
 
         // Sound & Audio
@@ -109,7 +109,7 @@ QtObject {
             title: "Output volume",
             subtitle: "Master playback volume and output devices",
             keywords: "speaker headphone pipewire sink audio",
-            icon: "♪"
+            icon: "volume"
         },
         {
             id: "sound-input",
@@ -118,7 +118,7 @@ QtObject {
             title: "Input volume",
             subtitle: "Master microphone gain and input devices",
             keywords: "mic microphone recording pipewire source",
-            icon: "🎙"
+            icon: "mic"
         },
         {
             id: "sound-apps",
@@ -127,7 +127,7 @@ QtObject {
             title: "Application volume",
             subtitle: "Per-application playback volume and mute",
             keywords: "app application mixer stream volume mute pipewire",
-            icon: "♪"
+            icon: "music"
         },
 
         // Power & Battery
@@ -138,7 +138,7 @@ QtObject {
             title: "Power profile",
             subtitle: "Battery status, performance, balanced and power saver",
             keywords: "battery charge ac thermal tlp power-profiles-daemon",
-            icon: "⚡"
+            icon: "bolt"
         },
 
         // Updates
@@ -149,7 +149,7 @@ QtObject {
             title: "Reload Shell",
             subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config",
             keywords: "reload shell restart quickshell qs hyprctl",
-            icon: "↻"
+            icon: "refresh"
         },
         {
             id: "updates-shell",
@@ -158,7 +158,7 @@ QtObject {
             title: "Paithosh Shell Update",
             subtitle: "Update shell from your git repository",
             keywords: "paithosh shell git repo pull self update reload",
-            icon: "⚡"
+            icon: "bolt"
         },
         {
             id: "updates-hypr-sync",
@@ -167,7 +167,7 @@ QtObject {
             title: "Hyprland Default Config",
             subtitle: "Sync defaults/hypr Lua config & automatic backup",
             keywords: "hyprland config lua defaults sync backup",
-            icon: "⚡"
+            icon: "code"
         },
         {
             id: "updates-packages",
@@ -176,7 +176,7 @@ QtObject {
             title: "Updates",
             subtitle: "System repositories & installed packages",
             keywords: "pacman aur apt upgrade software check updates",
-            icon: "↻"
+            icon: "package-update"
         },
 
         // Backup & Restore
@@ -187,7 +187,7 @@ QtObject {
             title: "System Backup & Btrfs Snapshot",
             subtitle: "Verified Btrfs subvolume snapshots, kernel check & system rollback",
             keywords: "backup restore snapshot btrfs system rollback verify grubby update major",
-            icon: "🛡"
+            icon: "shield"
         },
         {
             id: "backup-data",
@@ -196,7 +196,7 @@ QtObject {
             title: "User Data Backup (.pak Store)",
             subtitle: "Save & restore important /home folders as .pak ZIP archives",
             keywords: "backup data pak zip store home documents projects pictures desktop archive restore verify import",
-            icon: "⛁"
+            icon: "archive"
         },
 
         // Storage
@@ -207,7 +207,7 @@ QtObject {
             title: "Storage & File Sight",
             subtitle: "Disk breakdown across apps, OS, shell, tmp/cache and user documents",
             keywords: "storage disk space gb usage apps os shell cache documents folders",
-            icon: "⛁"
+            icon: "hard-drive"
         },
         {
             id: "storage-shredder",
@@ -216,7 +216,7 @@ QtObject {
             title: "Shredder (File Cleanup)",
             subtitle: "Clean caches and stale large user files with configurable age threshold",
             keywords: "shredder cleanup stale old large files cache trash root sudo",
-            icon: "✕"
+            icon: "trash"
         },
 
         // Wi-Fi
@@ -227,7 +227,7 @@ QtObject {
             title: "Wi-Fi",
             subtitle: "Wireless networks, SSIDs and connection status",
             keywords: "wireless internet network ssid wlan",
-            icon: "◈"
+            icon: "wifi"
         },
 
         // VPN & Proxy
@@ -238,7 +238,7 @@ QtObject {
             title: "VPN & Proxy",
             subtitle: "Endpoint server, custom DNS, auto-connect & kill switch",
             keywords: "wireguard wg0 tunnel dns proxy privacy",
-            icon: "⌖"
+            icon: "shield"
         },
         {
             id: "network-discord-rpc",
@@ -247,7 +247,7 @@ QtObject {
             title: "Discord RPC",
             subtitle: "Live Discord Rich Presence, Linux larper presets & custom flex",
             keywords: "discord rpc rich presence larper satire status custom client id",
-            icon: "◈"
+            icon: "message-square"
         },
 
         // Personalization
@@ -258,7 +258,7 @@ QtObject {
             title: "Theme presets",
             subtitle: "Quick desktop theme presets and live preview",
             keywords: "theme palette colors preset dark light",
-            icon: "✎"
+            icon: "palette"
         },
         {
             id: "pers-share-code",
@@ -267,7 +267,7 @@ QtObject {
             title: "Quick Share Code",
             subtitle: "Export or import personalization & .paish profile files",
             keywords: "paish profile export import share theme",
-            icon: "✎"
+            icon: "copy"
         },
         {
             id: "pers-window-blur",
@@ -276,7 +276,7 @@ QtObject {
             title: "Window Blur (Kawase)",
             subtitle: "Frosted translucency behind panels",
             keywords: "glass blur kawase transparency",
-            icon: "✦"
+            icon: "droplet"
         },
         {
             id: "pers-animations",
@@ -285,7 +285,7 @@ QtObject {
             title: "Hyprland Animations",
             subtitle: "Smooth spring window transitions",
             keywords: "motion spring bezier animations",
-            icon: "⚡"
+            icon: "sparkles"
         },
         {
             id: "pers-dynamic-island-autohide",
@@ -294,7 +294,7 @@ QtObject {
             title: "Dynamic Island Auto-Hide",
             subtitle: "Hide status bar when fullscreen or overlapped",
             keywords: "dynamic island notch status bar autohide fullscreen overlap",
-            icon: "⛶"
+            icon: "maximize"
         },
         {
             id: "pers-active-border",
@@ -303,7 +303,7 @@ QtObject {
             title: "Active Border Highlight",
             subtitle: "Crisp outline on focused window",
             keywords: "focus border window outline",
-            icon: "▢"
+            icon: "square-rounded"
         },
 
         // Appearance
@@ -314,7 +314,7 @@ QtObject {
             title: "Global Surface Theme",
             subtitle: "Contrast & backdrop style synced across apps",
             keywords: "dark light surface contrast backdrop",
-            icon: "◐"
+            icon: "contrast"
         },
         {
             id: "app-accent-style",
@@ -323,7 +323,7 @@ QtObject {
             title: "Accent Style",
             subtitle: "Solid monochrome or directional gradient & HSV studio",
             keywords: "accent color hue saturation gradient",
-            icon: "Aa"
+            icon: "palette"
         },
         {
             id: "app-wallpaper",
@@ -332,7 +332,7 @@ QtObject {
             title: "Wallpaper & Transitions",
             subtitle: "Background image preview, Crossfade + Scale, Crossfade & Instant",
             keywords: "wallpaper background image picture transition crossfade",
-            icon: "🖼"
+            icon: "image"
         },
         {
             id: "app-decoration-blur",
@@ -341,7 +341,7 @@ QtObject {
             title: "Decoration, Motion & Blur",
             subtitle: "Corner rounding, drop shadows, inactive opacity, spring & Kawase blur",
             keywords: "rounding radius shadow blur opacity spring stiffness damping",
-            icon: "✦"
+            icon: "sparkles"
         },
 
         // Binding
@@ -352,7 +352,7 @@ QtObject {
             title: "Binding",
             subtitle: "Shortcuts, apps, screenshot & Island IPC",
             keywords: "keybind shortcut hotkey keys super",
-            icon: "⌨"
+            icon: "keyboard"
         },
 
         // Layout
@@ -363,7 +363,7 @@ QtObject {
             title: "Layout & Tiling",
             subtitle: "Dwindle, Master, window gaps & borders",
             keywords: "hyprland tiling dwindle master gaps borders",
-            icon: "◫"
+            icon: "layout"
         },
         {
             id: "layout-dynamic-island",
@@ -372,7 +372,7 @@ QtObject {
             title: "Dynamic Island Bar",
             subtitle: "Control position (top/bottom), auto-hide, corner radius & screen edge offset",
             keywords: "dynamic island status bar position top bottom notch pill corner radius edge offset fullscreen overlap",
-            icon: "◐"
+            icon: "move-vertical"
         },
 
         // Lock Screen
@@ -383,7 +383,7 @@ QtObject {
             title: "Ambient visual effects",
             subtitle: "Snowfall, rain, wind breeze & particle intensity on lock screen",
             keywords: "lock screen snow snowfall rain wind breeze particles weather effect",
-            icon: "❄"
+            icon: "snowflake"
         },
         {
             id: "lockscreen-audio",
@@ -392,7 +392,7 @@ QtObject {
             title: "Ambient sound & Silent mode",
             subtitle: "Gentle wind, soft rain, winter air, silent lock screen & lock SFX",
             keywords: "lock screen sound audio silent mute wind rain snow sfx quiet",
-            icon: "♪"
+            icon: "music"
         },
         {
             id: "lockscreen-notifications",
@@ -401,7 +401,7 @@ QtObject {
             title: "Lock screen notifications",
             subtitle: "Unread bell badge, toast cards & hide sensitive content",
             keywords: "lock screen notifications toast bell privacy hide sensitive content",
-            icon: "🔔"
+            icon: "bell"
         },
         {
             id: "lockscreen-media",
@@ -410,7 +410,7 @@ QtObject {
             title: "Lock screen media player",
             subtitle: "Floating media split-pill with playback controls on lock screen",
             keywords: "lock screen media player music controls mpris",
-            icon: "▶"
+            icon: "play"
         },
         {
             id: "lockscreen-alerts",
@@ -419,7 +419,7 @@ QtObject {
             title: "Lock screen system alerts",
             subtitle: "Low battery, high temperature overheat & charger alerts",
             keywords: "lock screen system alerts low battery high temperature overheat thermal charger",
-            icon: "⚡"
+            icon: "bolt"
         },
 
         // About
@@ -430,7 +430,7 @@ QtObject {
             title: "About",
             subtitle: "Paithosh shell version, OS & hardware info",
             keywords: "version os kernel info about",
-            icon: "ⓘ"
+            icon: "info"
         }
     ]
 

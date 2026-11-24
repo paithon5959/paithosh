@@ -162,11 +162,11 @@ Item {
                         height: 28
                         radius: 8
                         color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
-                        Text {
+                        SvgIcon {
                             anchors.centerIn: parent
-                            text: modelData.icon || "⚙"
+                            sourceName: modelData.icon || "settings"
+                            iconSize: 14
                             color: Theme.accent
-                            font.pixelSize: 13
                         }
                     }
 
