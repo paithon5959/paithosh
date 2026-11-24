@@ -1768,7 +1768,6 @@ Item {
                             sourceComponent: ColumnLayout {
                             id: accessibilityPage
                             spacing: 12
-                            property bool advancedOpen: false
 
                             readonly property string activeRecPreset: root.shellState ? root.shellState.recordPreset : ScreenRecordService.preset
                             readonly property string activeRecRes: root.shellState ? root.shellState.recordResolution : ScreenRecordService.resolution
@@ -1930,7 +1929,7 @@ Item {
                                                 if (modelData.res !== "") root.shellState.recordResolution = modelData.res;
                                                 if (modelData.fps > 0) root.shellState.recordFps = modelData.fps;
                                             }
-                                            if (modelData.key === "custom") accessibilityPage.advancedOpen = true;
+                                            if (modelData.key === "custom") recAdvancedSection.expanded = true;
                                         }
                                     }
                                 }
@@ -1964,17 +1963,12 @@ Item {
                             }
 
                             // 4. Advanced Settings (collapsible card matching Personalization)
-                            SettingGroup {
+                            AdvancedSection {
+                                id: recAdvancedSection
+                                title: "Advanced Settings"
+                                subtitle: "Resolution, frame rate, output & microphone audio"
                                 SettingRow {
                                     showDivider: false
-                                    iconChar: "⚙"; title: "Advanced Settings"; subtitle: "Resolution, frame rate, output & microphone audio"
-                                    PillButton {
-                                        text: accessibilityPage.advancedOpen ? "Hide ▲" : "Show ▼"
-                                        onClicked: accessibilityPage.advancedOpen = !accessibilityPage.advancedOpen
-                                    }
-                                }
-                                SettingRow {
-                                    visible: accessibilityPage.advancedOpen
                                     iconChar: "▭"; title: "Resolution"; subtitle: "Output video scale (Native = monitor resolution)"
                                     CtrlSelect {
                                         options: ["Native", "1080p", "720p", "480p"]
@@ -1991,7 +1985,6 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    visible: accessibilityPage.advancedOpen
                                     iconChar: "⏱"; title: "Frame Rate (FPS)"; subtitle: "Lower FPS reduces CPU usage and file size"
                                     CtrlSelect {
                                         options: ["20 FPS", "30 FPS", "60 FPS"]
@@ -2008,7 +2001,6 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    visible: accessibilityPage.advancedOpen
                                     iconChar: "🔊"; title: "Output Audio (System)"; subtitle: "Capture desktop sound from default speaker monitor"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.recordAudio : ScreenRecordService.recordAudio
@@ -2019,7 +2011,6 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    visible: accessibilityPage.advancedOpen
                                     iconChar: "🎙"; title: "Input Audio (Microphone)"; subtitle: "Capture default microphone (mixed if Output is also on)"
                                     CtrlSwitch {
                                         checked: root.shellState ? root.shellState.recordMic : ScreenRecordService.recordMic
