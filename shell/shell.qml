@@ -74,7 +74,9 @@ ShellRoot {
                     if (typeof obj.gooeyEnabled === "boolean") Theme.gooeyEnabled = obj.gooeyEnabled;
                     if (typeof obj.speedMultiplier === "number" && obj.speedMultiplier >= 0.5 && obj.speedMultiplier <= 2.5) Theme.speedMultiplier = obj.speedMultiplier;
                     if (typeof obj.transitionMode === "string") bgLayer.transitionMode = obj.transitionMode;
-                    if (typeof obj.wallpaperIndex === "number") {
+                    if (typeof obj.wallpaperPath === "string" && obj.wallpaperPath.length > 0) {
+                        bgLayer.applyWallpaperPath(obj.wallpaperPath);
+                    } else if (typeof obj.wallpaperIndex === "number") {
                         bgLayer.applyWallpaperIndex(obj.wallpaperIndex);
                     }
                 }
@@ -212,6 +214,7 @@ ShellRoot {
     Connections {
         target: bgLayer
         function onCurrentIndexChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onCurrentWallpaperPathChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onTransitionModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
 
@@ -333,6 +336,7 @@ ShellRoot {
         property string globalSurfaceTheme: "OLED Pure"
         property bool superPeekBar: false
         property bool superPeekWasHidden: false
+        property double lastSuperComboMs: 0
         property bool settingsLoaded: false
         property bool _applyingExternalState: false
         property string activeProfile: ""
@@ -476,7 +480,8 @@ ShellRoot {
                 gooeyEnabled: Theme.gooeyEnabled,
                 speedMultiplier: Theme.speedMultiplier,
                 transitionMode: bgLayer.transitionMode,
-                wallpaperIndex: bgLayer.currentIndex
+                wallpaperIndex: bgLayer.currentIndex,
+                wallpaperPath: bgLayer.currentWallpaperPath
             };
             settingsWriter.payload = JSON.stringify(data, null, 2);
             settingsWriter.running = false;
@@ -662,15 +667,23 @@ ShellRoot {
         function superPressed() {
             const scr = CompositorService.focusedScreen();
             ensureScreen(scr);
+            if (Date.now() - lastSuperComboMs < 350) {
+                superPeekBar = false;
+                superPeekWasHidden = false;
+                superPeekSafetyTimer.stop();
+                return;
+            }
             const hidden = isBarHiddenOn(scr);
             superPeekWasHidden = hidden;
             if (hidden) {
                 superPeekBar = true;
+                superPeekSafetyTimer.restart();
             }
         }
 
         function superReleased() {
             const scr = CompositorService.focusedScreen();
+            superPeekSafetyTimer.stop();
             if (superPeekWasHidden) {
                 superPeekBar = false;
                 superPeekWasHidden = false;
@@ -680,6 +693,7 @@ ShellRoot {
         }
 
         function clearSuperPeek() {
+            superPeekSafetyTimer.stop();
             superPeekBar = false;
             superPeekWasHidden = false;
         }
@@ -831,14 +845,24 @@ ShellRoot {
         target: Hyprland
         enabled: CompositorService.isHyprland
         function onRawEvent(event) {
-            if (stateObj.superPeekBar && (event.name === "workspacev2" || event.name === "openwindow" || event.name === "closewindow" || event.name === "activewindow" || event.name === "fullscreen" || event.name === "movewindow")) {
-                stateObj.clearSuperPeek();
+            if (event.name === "workspacev2" || event.name === "openwindow" || event.name === "closewindow" || event.name === "activewindow" || event.name === "fullscreen" || event.name === "movewindow" || event.name === "changefloatingmode" || event.name === "togglegroup" || event.name === "moveintogroup" || event.name === "moveoutofgroup" || event.name === "activespecial") {
+                stateObj.lastSuperComboMs = Date.now();
+                if (stateObj.superPeekBar) {
+                    stateObj.clearSuperPeek();
+                }
             }
             if (event.name !== "workspacev2") return;
             if (stateObj.openPopover === "search") stateObj.closePopovers();
             stateObj.wsSlotOpen = true;
             wsHideTimer.restart();
         }
+    }
+
+    Timer {
+        id: superPeekSafetyTimer
+        interval: 2500
+        repeat: false
+        onTriggered: stateObj.clearSuperPeek()
     }
 
     Timer {
