@@ -107,6 +107,8 @@ ipc triggerPackageUpdate 0
 sleep 0.25
 ipc openSettings "appearance"
 sleep 0.35
+ipc openSettings "cursor"
+sleep 0.45
 ipc openSettings "layout"
 sleep 0.35
 ipc openSettings "keybind"

@@ -155,7 +155,7 @@ ColumnLayout {
             "SET_OK=0; [ -f \"$1/settings.json\" ] && SET_OK=1; " +
             "QSB_SIZE=0; [ -f \"$2/shell/assets/shaders/gooey.frag.qsb\" ] && QSB_SIZE=$(wc -c < \"$2/shell/assets/shaders/gooey.frag.qsb\" 2>/dev/null || echo 0); " +
             "MISSING=''; " +
-            "for cmd in hyprctl wl-copy nmcli pw-play grim slurp cliphist wf-recorder python3 unzip xdg-open; do command -v \"$cmd\" >/dev/null 2>&1 || MISSING=\"$MISSING $cmd\"; done; " +
+            "for cmd in hyprctl hyprcursor-util wl-copy nmcli pw-play grim slurp cliphist wf-recorder python3 unzip xdg-open; do command -v \"$cmd\" >/dev/null 2>&1 || MISSING=\"$MISSING $cmd\"; done; " +
             "if ! command -v wpctl >/dev/null 2>&1 && ! command -v pactl >/dev/null 2>&1; then MISSING=\"$MISSING wpctl/pactl\"; fi; " +
             "DISK_LINE=$(df -hP / 2>/dev/null | tail -n1); " +
             "DISK_PCT=$(printf '%s' \"$DISK_LINE\" | awk '{print $5}' | tr -d '%'); " +

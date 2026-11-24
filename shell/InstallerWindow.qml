@@ -1174,7 +1174,7 @@ PanelWindow {
                                             Text {
                                                 id: stTxt
                                                 anchors.centerIn: parent
-                                                text: modelData.installed ? "Installed" : (isChecked ? "Install" : "Skip")
+                                                text: modelData.installed ? "Installed" : (isChecked ? ((modelData.required || modelData.group === "core") ? "Required" : "Install") : ((modelData.required || modelData.group === "core") ? "Required (Skip)" : "Skip"))
                                                 color: modelData.installed ? Theme.ok : (isChecked ? Theme.accent : Theme.textMuted)
                                                 font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
                                             }

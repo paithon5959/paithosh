@@ -100,6 +100,12 @@ ShellRoot {
                     if (typeof obj.lockEffectIntensity === "number") LockService.effectIntensity = Math.max(50, Math.min(150, Math.round(obj.lockEffectIntensity)));
                     if (typeof obj.lockAmbientVolume === "number") LockService.ambientVolume = Math.max(5, Math.min(100, Math.round(obj.lockAmbientVolume)));
                     if (typeof obj.lockDimOpacity === "number") LockService.dimOpacity = Math.max(15, Math.min(75, Math.round(obj.lockDimOpacity)));
+                    if (typeof obj.cursorStyle === "string") CursorService.style = CursorService.normalizeStyle(obj.cursorStyle);
+                    if (typeof obj.cursorSize === "number") CursorService.size = Math.max(16, Math.min(64, Math.round(obj.cursorSize)));
+                    if (typeof obj.cursorColorMode === "string") CursorService.colorMode = CursorService.normalizeColorMode(obj.cursorColorMode);
+                    if (typeof obj.cursorFixedColor === "string") CursorService.fixedColor = CursorService.normalizeHex(obj.cursorFixedColor);
+                    if (typeof obj.cursorMotionBlur === "boolean") CursorService.motionBlur = obj.cursorMotionBlur;
+                    if (typeof obj.cursorMotionBlurStrength === "number") CursorService.motionBlurStrength = Math.max(0.3, Math.min(1.0, obj.cursorMotionBlurStrength));
                 }
             } catch (e) {}
             stateObj._applyingExternalState = false;
@@ -110,6 +116,7 @@ ShellRoot {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
+                CursorService.applyNow(false);
             });
         }
         onLoadFailed: {
@@ -120,6 +127,7 @@ ShellRoot {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
                 stateObj.refreshProfiles();
                 stateObj.loadProfile("default", true);
+                CursorService.applyNow(false);
             });
         }
     }
@@ -373,7 +381,7 @@ ShellRoot {
         }
 
         function exportThemeCode(profileName) {
-            return Theme.encodeState(stateObj, CompositorService, bgLayer, profileName);
+            return Theme.encodeState(stateObj, CompositorService, bgLayer, profileName, CursorService);
         }
 
         function applyDecodedTheme(d, profileName) {
@@ -416,9 +424,16 @@ ShellRoot {
             bgLayer.transitionMode = d.transitionMode;
             bgLayer.applyWallpaperIndex(d.wallpaperIndex);
 
+            if (d.cursorStyle !== null) CursorService.style = CursorService.normalizeStyle(d.cursorStyle);
+            if (d.cursorSize !== null) CursorService.size = Math.max(16, Math.min(64, Math.round(d.cursorSize)));
+            if (d.cursorColorMode !== null) CursorService.colorMode = CursorService.normalizeColorMode(d.cursorColorMode);
+            if (d.cursorFixedColor !== null) CursorService.fixedColor = CursorService.normalizeHex(d.cursorFixedColor);
+            if (d.cursorMotionBlur !== null) CursorService.motionBlur = Boolean(d.cursorMotionBlur);
+
             _applyingExternalState = false;
             themeImportSeq += 1;
             saveSettings();
+            CursorService.applyNow(true);
             return true;
         }
 
@@ -513,7 +528,13 @@ ShellRoot {
                 lockShowSystemAlerts: LockService.showSystemAlerts,
                 lockEffectIntensity: LockService.effectIntensity,
                 lockAmbientVolume: LockService.ambientVolume,
-                lockDimOpacity: LockService.dimOpacity
+                lockDimOpacity: LockService.dimOpacity,
+                cursorStyle: CursorService.style,
+                cursorSize: CursorService.size,
+                cursorColorMode: CursorService.colorMode,
+                cursorFixedColor: CursorService.fixedColor,
+                cursorMotionBlur: CursorService.motionBlur,
+                cursorMotionBlurStrength: CursorService.motionBlurStrength
             };
             settingsWriter.payload = JSON.stringify(data, null, 2);
             settingsWriter.running = false;
@@ -1068,6 +1089,22 @@ ShellRoot {
         function onEffectIntensityChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onAmbientVolumeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onDimOpacityChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+    }
+
+    Connections {
+        target: CursorService
+        function onStyleChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onSizeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onColorModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onFixedColorChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onMotionBlurChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onMotionBlurStrengthChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+    }
+
+    // Experimental Motion Blur Cursor Overlay (lazy-loaded & completely click-through)
+    Loader {
+        active: CursorService.motionBlur && CompositorService.isHyprland && !LockService.locked
+        source: "components/CursorMotionOverlay.qml"
     }
 
     // Native Wayland Session Lock (Minimal Statusbar Lock Screen)

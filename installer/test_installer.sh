@@ -49,7 +49,7 @@ run_self_checks() {
     for sf in "${sh_files[@]}"; do
         bash -n "$sf"
     done
-    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py"
+    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py"
     echo "  PASS: syntax checks clean"
 
     echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
@@ -65,6 +65,8 @@ all_pkg_strs = [p["pkg"] for p in d["packages"]]
 
 assert "wf-recorder" in pkgs, os_name
 assert "pw-play" in pkgs, os_name
+assert "hyprcursor" in pkgs and pkgs["hyprcursor"]["group"] == "core" and pkgs["hyprcursor"].get("required") is True, pkgs.get("hyprcursor")
+assert "cursor-render" in pkgs and pkgs["cursor-render"]["group"] == "core" and pkgs["cursor-render"].get("required") is True, pkgs.get("cursor-render")
 assert pkgs["wg-quick"]["group"] == "system", pkgs["wg-quick"]
 assert "kdeconnectd" not in all_pkg_strs, all_pkg_strs
 assert "policykit-1" not in all_pkg_strs, all_pkg_strs
@@ -73,14 +75,20 @@ if os_name == "fedora":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-qtsvg"
     assert pkgs["kdeconnect-cli"]["pkg"] == "kde-connect"
     assert pkgs["pw-play"]["pkg"] == "pipewire-utils"
+    assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
+    assert pkgs["cursor-render"]["pkg"] == "python3-cairo librsvg2"
 elif os_name == "arch":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg"
+    assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
+    assert pkgs["cursor-render"]["pkg"] == "python-cairo librsvg"
     if d["distro"]["pkgMgr"] == "pacman":
         assert "quickshell-git" not in all_pkg_strs
         assert d["distro"]["aurWarning"]
 elif os_name in ("debian", "ubuntu"):
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg-plugins"
     assert pkgs["pkexec"]["pkg"] == "pkexec"
+    assert pkgs["hyprcursor"]["pkg"] == "hyprcursor-util"
+    assert pkgs["cursor-render"]["pkg"] == "python3-cairo gir1.2-rsvg-2.0"
     assert d["distro"]["unsupportedNote"]
 PY
     done
@@ -148,7 +156,13 @@ PY
         --bar-position top --autostart true --setup-portals true >/dev/null
     compgen -G "$conf_home/.config/hypr.bak.*" >/dev/null
     [[ "$(grep -c "exec-once = qs -p " "$conf_home/.config/hypr/hyprland.conf")" -eq 1 ]]
-    echo "  PASS: Lua & classic .conf apply idempotency + XDG portals verified"
+
+    local pkg_only_home="$TMP_HOME/pkgonly"
+    mkdir -p "$pkg_only_home"
+    HOME="$pkg_only_home" bash "$REPO_ROOT/installer/lib/apply.sh" \
+        --packages-only --dry-run --packages hyprcursor >/dev/null
+    [[ ! -e "$pkg_only_home/.config/paithosh/settings.json" ]]
+    echo "  PASS: Lua & classic .conf apply idempotency + XDG portals + packages-only verified"
 
     echo "[5/7] Checking symlink resolution for xdph-share-picker.sh..."
     local resolved_qml

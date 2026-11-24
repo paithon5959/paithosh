@@ -15,6 +15,9 @@
 # [core] Bat buoc de shell khoi dong va render icon/UI
 quickshell            # hoac `quickshell-git` (AUR qua paru/yay) neu repo extra chua co
 hyprland
+hyprcursor            # Bat buoc cho he thong custom cursor (.hlc)
+python-cairo          # Bat buoc de rasterize vector cursor -> XCursor (GTK/Qt)
+librsvg               # Bat buoc de render SVG cursor & icon
 qt6-svg               # Bat buoc de Qt6 render cac icon .svg trong SvgIcon.qml
 hyprlock
 python
@@ -61,7 +64,7 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo pacman -S --needed --noconfirm \
-  quickshell hyprland qt6-svg hyprlock python git \
+  quickshell hyprland hyprcursor python-cairo librsvg qt6-svg hyprlock python git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python-dbus python-gobject \
   wireplumber pipewire libpulse brightnessctl networkmanager upower power-profiles-daemon \
   polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kdeconnect
@@ -81,6 +84,9 @@ sudo dnf5 copr enable -y lionheartp/Hyprland
 # [core]
 quickshell            # (COPR lionheartp/Hyprland)
 hyprland              # (COPR lionheartp/Hyprland)
+hyprcursor            # (COPR lionheartp/Hyprland) Bat buoc cho custom cursor
+python3-cairo         # Bat buoc de rasterize vector cursor -> XCursor (GTK/Qt)
+librsvg2              # Bat buoc de render SVG cursor & icon
 qt6-qtsvg             # Bat buoc de Qt6 render icon .svg
 hyprlock              # (COPR lionheartp/Hyprland)
 python3
@@ -126,7 +132,7 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo dnf5 install -y \
-  quickshell hyprland qt6-qtsvg hyprlock python3 git \
+  quickshell hyprland hyprcursor python3-cairo librsvg2 qt6-qtsvg hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gobject \
   wireplumber pipewire-utils pulseaudio-utils brightnessctl NetworkManager upower tuned-ppd \
   polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kde-connect
@@ -146,6 +152,9 @@ sudo dnf5 install -y \
 # [core]
 # quickshell          # (Build/cai thu cong tu https://quickshell.org)
 hyprland
+hyprcursor-util       # Bat buoc cho custom cursor (.hlc)
+python3-cairo         # Bat buoc de rasterize vector cursor -> XCursor (GTK/Qt)
+gir1.2-rsvg-2.0       # Bat buoc de render SVG cursor & icon
 qt6-svg-plugins       # Bat buoc de Qt6 render icon .svg
 hyprlock
 python3
@@ -191,7 +200,7 @@ libnotify-bin
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo apt-get update && sudo apt-get install -y \
-  hyprland qt6-svg-plugins hyprlock python3 git \
+  hyprland hyprcursor-util python3-cairo gir1.2-rsvg-2.0 qt6-svg-plugins hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gi \
   wireplumber pipewire-bin pulseaudio-utils brightnessctl network-manager upower power-profiles-daemon \
   pkexec polkit-kde-agent-1 xdg-utils unzip pciutils libglib2.0-bin gsettings-desktop-schemas libgtk-3-bin \

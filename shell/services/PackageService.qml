@@ -48,6 +48,13 @@ Singleton {
     property int hyprModifiedCount: 0
     property int hyprPendingCount: 0
 
+    // Mandatory core dependency audit (hyprcursor, Cairo/Rsvg, etc.)
+    property var missingCoreDeps: []
+    property string missingCorePkgs: ""
+    property bool checkingDeps: false
+    property bool installingDeps: false
+    property string depsError: ""
+
     // Concise status bar event state (never uses notification popup)
     property bool statusEventOpen: false
     property string statusEventText: ""
@@ -58,6 +65,7 @@ Singleton {
         if (cleaningCache) return "Cleaning cache... " + cleanCacheProgress + "%";
         if (shellUpdating) return "Updating shell...";
         if (hyprSyncing) return "Syncing Hyprland...";
+        if (installingDeps) return "Installing required packages...";
         if (StorageService.activeOpText !== "") return StorageService.activeOpText;
         return "";
     }
@@ -804,6 +812,60 @@ Singleton {
         hyprSyncProc.running = true;
     }
 
+    function checkRequiredDeps(onDone) {
+        if (depsAuditProc.running) {
+            if (typeof onDone === "function") depsAuditProc._callbacks.push(onDone);
+            return;
+        }
+        checkingDeps = true;
+        depsError = "";
+        depsAuditProc._callbacks = typeof onDone === "function" ? [onDone] : [];
+        depsAuditProc.outBuf = "";
+        depsAuditProc.errBuf = "";
+        depsAuditProc.running = true;
+    }
+
+    function installMissingCoreDeps(onDone) {
+        const cb = typeof onDone === "function" ? onDone : null;
+        if (installingDeps) {
+            if (cb) cb(false);
+            return;
+        }
+        if (missingCorePkgs === "") {
+            if (cb) cb(true);
+            return;
+        }
+        installingDeps = true;
+        depsError = "";
+        BackupService.runPrivileged(
+            "Install Required Shell Packages",
+            "Install mandatory Paithosh dependencies (" + missingCorePkgs + "), including Hyprcursor.",
+            "Install Required",
+            [
+                "bash", root.shellProjectRoot + "/installer/lib/apply.sh",
+                "--packages-only",
+                "--packages", missingCorePkgs
+            ],
+            (ok, parsed, out, err) => {
+                root.installingDeps = false;
+                if (ok) {
+                    root.depsError = "";
+                    root.checkRequiredDeps(() => {
+                        CursorService.checkDeps(() => {
+                            if (CursorService.depsReady) CursorService.applyNow(true);
+                        });
+                        if (cb) cb(true);
+                    });
+                } else {
+                    const msg = BackupService.cleanErrorMessage(parsed, err, "Authentication cancelled or package install failed");
+                    root.depsError = msg;
+                    root.triggerStatusEvent("Required package install failed", "danger", true);
+                    if (cb) cb(false);
+                }
+            }
+        );
+    }
+
     Timer {
         id: shellReloadTimer
         interval: 400
@@ -856,6 +918,7 @@ Singleton {
                     root.triggerStatusEvent("Paithosh Shell update available (" + root.shellUpdateBehind + ")", "info", true);
                 }
             }
+            root.checkRequiredDeps();
         }
 
         command: [
@@ -915,8 +978,18 @@ Singleton {
                 root.shellCommits = [];
                 root.shellUpdateError = "";
                 root.checkHyprSyncStatus();
-                root.triggerStatusEvent("Paithosh Shell updated — reloading...", "ok", true);
-                shellReloadTimer.restart();
+                root.checkRequiredDeps((hasMissing) => {
+                    if (hasMissing) {
+                        root.triggerStatusEvent("Installing required shell packages...", "info", false);
+                        root.installMissingCoreDeps((ok) => {
+                            root.triggerStatusEvent(ok ? "Paithosh Shell updated — reloading..." : "Updated shell (install missing deps in Updates)", ok ? "ok" : "warn", true);
+                            shellReloadTimer.restart();
+                        });
+                    } else {
+                        root.triggerStatusEvent("Paithosh Shell updated — reloading...", "ok", true);
+                        shellReloadTimer.restart();
+                    }
+                });
             } else {
                 const parsedErr = root.extractShellError(errBuf);
                 root.shellUpdateError = parsedErr !== "" ? parsedErr : "Fast-forward pull failed";
@@ -1073,6 +1146,52 @@ Singleton {
             hyprSyncProc._exitCode = exitCode;
             hyprSyncProc._exited = true;
             hyprSyncProc.tryFinish();
+        }
+    }
+
+    Process {
+        id: depsAuditProc
+        property string outBuf: ""
+        property string errBuf: ""
+        property var _callbacks: []
+        command: ["bash", root.shellProjectRoot + "/installer/lib/audit.sh", "--json"]
+        stdout: StdioCollector {
+            onStreamFinished: depsAuditProc.outBuf = text || ""
+        }
+        stderr: StdioCollector {
+            onStreamFinished: depsAuditProc.errBuf = text || ""
+        }
+        onExited: (code) => {
+            root.checkingDeps = false;
+            const cbs = depsAuditProc._callbacks.slice();
+            depsAuditProc._callbacks = [];
+            let hasMissing = false;
+            if (code === 0) {
+                try {
+                    const data = JSON.parse(depsAuditProc.outBuf.trim());
+                    const pkgs = Array.isArray(data.packages) ? data.packages : [];
+                    const missing = [];
+                    const tokList = [];
+                    for (let i = 0; i < pkgs.length; ++i) {
+                        const p = pkgs[i];
+                        if (!p.installed && (p.required || p.group === "core")) {
+                            missing.push(p);
+                            const toks = String(p.pkg || "").split(/\s+/);
+                            for (let j = 0; j < toks.length; ++j) {
+                                if (toks[j] !== "" && tokList.indexOf(toks[j]) === -1) tokList.push(toks[j]);
+                            }
+                        }
+                    }
+                    root.missingCoreDeps = missing;
+                    root.missingCorePkgs = tokList.join(",");
+                    hasMissing = missing.length > 0 && root.missingCorePkgs !== "";
+                } catch (e) {
+                    root.depsError = "Failed to parse dependency audit";
+                }
+            }
+            for (let k = 0; k < cbs.length; ++k) {
+                cbs[k](hasMissing);
+            }
         }
     }
 }

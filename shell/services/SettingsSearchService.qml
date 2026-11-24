@@ -343,6 +343,42 @@ QtObject {
             keywords: "rounding radius shadow blur opacity spring stiffness damping",
             icon: "sparkles"
         },
+        {
+            id: "cursor-style",
+            page: "cursor",
+            pageLabel: "Appearance › Cursor",
+            title: "Cursor Style",
+            subtitle: "Classic Sharp, Soft Stem & Smooth Wedge Paithosh custom cursors",
+            keywords: "cursor pointer mouse theme shape style sharp soft wedge hyprcursor",
+            icon: "pointer"
+        },
+        {
+            id: "cursor-size",
+            page: "cursor",
+            pageLabel: "Appearance › Cursor",
+            title: "Cursor Size",
+            subtitle: "Scale custom cursor consistently across Hyprland, GTK and Qt",
+            keywords: "cursor size scale px pointer xcursor hyprcursor gtk qt",
+            icon: "maximize"
+        },
+        {
+            id: "cursor-color",
+            page: "cursor",
+            pageLabel: "Appearance › Cursor",
+            title: "Cursor Color & Auto Contrast",
+            subtitle: "Screen-adaptive contrast, follow theme accent or fixed color",
+            keywords: "cursor color auto contrast adaptive theme accent fixed hex",
+            icon: "contrast"
+        },
+        {
+            id: "cursor-motion-blur",
+            page: "cursor",
+            pageLabel: "Appearance › Cursor",
+            title: "Motion Blur Cursor (Experimental)",
+            subtitle: "Velocity-aligned directional ghost trail overlay",
+            keywords: "cursor motion blur trail experimental overlay afterimage",
+            icon: "sparkles"
+        },
 
         // Binding
         {

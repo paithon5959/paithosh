@@ -15,6 +15,7 @@ AUTOSTART="true"
 SETUP_PORTALS="true"
 SUDO_STDIN="false"
 DRY_RUN="false"
+PACKAGES_ONLY="false"
 
 require_arg() {
     if [[ "$1" -lt 2 ]]; then
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
         --setup-portals) require_arg $# "$1"; SETUP_PORTALS="$2"; shift 2 ;;
         --sudo-stdin) SUDO_STDIN="true"; shift ;;
         --dry-run) DRY_RUN="true"; shift ;;
+        --packages-only) PACKAGES_ONLY="true"; shift ;;
         *) echo "[paithosh] Unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -143,30 +145,32 @@ fi
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 # 1. Backup existing ~/.config/hypr if requested
-emit_step "1/6" "Checking Hyprland configuration backup..."
-HYPR_DIR="${CONFIG_HOME}/hypr"
-DID_BACKUP="false"
-HYPR_HAS_CONTENT="false"
-if [[ -L "$HYPR_DIR" ]]; then
-    HYPR_HAS_CONTENT="true"
-elif [[ -d "$HYPR_DIR" ]] && [[ -n "$(find -L "$HYPR_DIR" -maxdepth 3 -type f -print -quit 2>/dev/null)" ]]; then
-    HYPR_HAS_CONTENT="true"
-elif [[ -e "$HYPR_DIR" && ! -d "$HYPR_DIR" ]]; then
-    HYPR_HAS_CONTENT="true"
-fi
+if [[ "$PACKAGES_ONLY" != "true" ]]; then
+    emit_step "1/6" "Checking Hyprland configuration backup..."
+    HYPR_DIR="${CONFIG_HOME}/hypr"
+    DID_BACKUP="false"
+    HYPR_HAS_CONTENT="false"
+    if [[ -L "$HYPR_DIR" ]]; then
+        HYPR_HAS_CONTENT="true"
+    elif [[ -d "$HYPR_DIR" ]] && [[ -n "$(find -L "$HYPR_DIR" -maxdepth 3 -type f -print -quit 2>/dev/null)" ]]; then
+        HYPR_HAS_CONTENT="true"
+    elif [[ -e "$HYPR_DIR" && ! -d "$HYPR_DIR" ]]; then
+        HYPR_HAS_CONTENT="true"
+    fi
 
-if [[ "$BACKUP_HYPR" == "true" && "$HYPR_HAS_CONTENT" == "true" ]]; then
-    TS="$(date +%Y%m%d_%H%M%S)"
-    BACKUP_BASE="${CONFIG_HOME}/hypr.bak.${TS}"
-    BACKUP_PATH="$BACKUP_BASE"
-    BKP_IDX=1
-    while [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; do
-        BACKUP_PATH="${BACKUP_BASE}.${BKP_IDX}"
-        BKP_IDX=$((BKP_IDX + 1))
-    done
-    echo "[paithosh] Backing up $HYPR_DIR -> $BACKUP_PATH"
-    run_cmd cp -a "$HYPR_DIR" "$BACKUP_PATH"
-    DID_BACKUP="true"
+    if [[ "$BACKUP_HYPR" == "true" && "$HYPR_HAS_CONTENT" == "true" ]]; then
+        TS="$(date +%Y%m%d_%H%M%S)"
+        BACKUP_BASE="${CONFIG_HOME}/hypr.bak.${TS}"
+        BACKUP_PATH="$BACKUP_BASE"
+        BKP_IDX=1
+        while [[ -e "$BACKUP_PATH" || -L "$BACKUP_PATH" ]]; do
+            BACKUP_PATH="${BACKUP_BASE}.${BKP_IDX}"
+            BKP_IDX=$((BKP_IDX + 1))
+        done
+        echo "[paithosh] Backing up $HYPR_DIR -> $BACKUP_PATH"
+        run_cmd cp -a "$HYPR_DIR" "$BACKUP_PATH"
+        DID_BACKUP="true"
+    fi
 fi
 
 # 2. Install selected missing packages using distro-appropriate package manager
@@ -176,7 +180,7 @@ if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
     if [[ "$FAMILY" == "fedora" ]]; then
         for pkg in "${PKG_LIST[@]}"; do
             case "$pkg" in
-                quickshell|hyprland|hyprlock|hyprpolkitagent|xdg-desktop-portal-hyprland)
+                quickshell|hyprland|hyprcursor|hyprlock|hyprpolkitagent|xdg-desktop-portal-hyprland)
                     if ! grep -qs "enabled=1" /etc/yum.repos.d/*copr*[Hh]yprland*.repo 2>/dev/null; then
                         echo "[paithosh] Enabling Fedora COPR lionheartp/Hyprland..."
                         run_privileged "$PKG_MGR" copr enable -y lionheartp/Hyprland
@@ -187,7 +191,12 @@ if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
         done
     fi
 
-    case "$PKG_MGR" in
+    INSTALL_MGR="$PKG_MGR"
+    if [[ "$EUID" -eq 0 && ( "$INSTALL_MGR" == "paru" || "$INSTALL_MGR" == "yay" ) ]]; then
+        INSTALL_MGR="pacman"
+    fi
+
+    case "$INSTALL_MGR" in
         pacman)
             if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
                 run_privileged pacman -Sy --needed --noconfirm "${PKG_LIST[@]}"
@@ -221,6 +230,11 @@ if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
     esac
 else
     echo "[paithosh] No packages selected for installation."
+fi
+
+if [[ "$PACKAGES_ONLY" == "true" ]]; then
+    echo "[paithosh] Required packages step complete."
+    exit 0
 fi
 
 # 3. Create Paithosh directories & initial settings
@@ -262,6 +276,9 @@ with open(path, "w", encoding="utf-8") as f:
     f.write("\n")
 print(f"[paithosh] Saved {path}")
 PY
+    if command -v hyprcursor-util >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" ]]; then
+        python3 "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" apply --style sharp --size 24 --color-mode auto --no-live >/dev/null 2>&1 || true
+    fi
 fi
 
 # 4. Sync default Hyprland Lua configuration if requested

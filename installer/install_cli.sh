@@ -110,7 +110,12 @@ python3 - "$AUDIT_JSON" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
 for p in d["packages"]:
-    status = "\033[32m[OK]\033[0m" if p["installed"] else "\033[33m[MISSING]\033[0m"
+    if p["installed"]:
+        status = "\033[32m[OK]\033[0m"
+    elif p.get("required") or p.get("group") == "core":
+        status = "\033[33m[REQUIRED]\033[0m"
+    else:
+        status = "\033[33m[MISSING]\033[0m"
     print(f"  {status} {p['label']:<28} ({p['group']:<8}) -> {p['pkg']}")
 PY
 echo ""

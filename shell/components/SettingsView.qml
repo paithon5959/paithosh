@@ -372,6 +372,8 @@ Item {
             "animations": "appearance",
             "wallpaper": "appearance",
             "themes": "appearance",
+            "cursors": "cursor",
+            "pointer": "cursor",
             "hyprland": "layout",
             "layouts": "layout",
             "island": "layout",
@@ -394,6 +396,11 @@ Item {
         if (resolved === "updates") {
             if (!PackageService.shellCheckedOnce) PackageService.checkShellUpdate();
             PackageService.checkHyprSyncStatus();
+            PackageService.checkRequiredDeps();
+        }
+        if (resolved === "cursor") {
+            CursorService.checkDeps();
+            CursorService.refreshPreviews();
         }
         if (resolved === "backup") BackupService.refreshAll();
         if (resolved === "storage") StorageService.scanIfStale();
@@ -404,7 +411,7 @@ Item {
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
         if (["display", "sound", "power", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
         if (["wifi", "vpn", "discord_rpc"].indexOf(resolved) !== -1) networkOpen = true;
-        if (["appearance", "keybind", "layout", "lockscreen"].indexOf(resolved) !== -1) personalizationOpen = true;
+        if (["appearance", "cursor", "keybind", "layout", "lockscreen"].indexOf(resolved) !== -1) personalizationOpen = true;
         pageFlick.contentY = 0;
         pageInAnim.restart();
     }
@@ -435,11 +442,15 @@ Item {
         if (q === "") return true;
         if (item.label.toLowerCase().indexOf(q.toLowerCase()) !== -1) return true;
         if (SettingsSearchService.pageHasMatch(item.key, q)) return true;
+        if (item.key === "appearance" && SettingsSearchService.pageHasMatch("cursor", q)) return true;
         if (item.hasChildren && item.group !== "") {
             for (let i = 0; i < navItems.length; ++i) {
                 const child = navItems[i];
                 if (child.sub && child.group === item.group) {
                     if (child.label.toLowerCase().indexOf(q.toLowerCase()) !== -1 || SettingsSearchService.pageHasMatch(child.key, q)) {
+                        return true;
+                    }
+                    if (child.key === "appearance" && SettingsSearchService.pageHasMatch("cursor", q)) {
                         return true;
                     }
                 }
@@ -1268,6 +1279,7 @@ Item {
                             return root.isGroupOpen(modelData.group);
                         }
                         readonly property bool isActive: root.currentPage === modelData.key
+                            || (modelData.key === "appearance" && root.currentPage === "cursor")
 
                         width: navList.width
                         height: isVisible ? (modelData.sub ? 32 : 36) : 0
@@ -1380,19 +1392,32 @@ Item {
                         spacing: 12
 
                         // Page Heading
-                        Text {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: {
-                                for (let i = 0; i < root.navItems.length; ++i) {
-                                    if (root.navItems[i].key === root.currentPage) return root.navItems[i].label;
-                                }
-                                return "Settings";
+                            spacing: 10
+                            CtrlBtn {
+                                visible: root.currentPage === "cursor"
+                                iconName: "arrow-left"
+                                text: "Appearance"
+                                ghost: true
+                                onClicked: root.openPage("appearance")
                             }
-                            font.family: Theme.fontSans
-                            font.pixelSize: 20
-                            font.weight: Font.Bold
-                            color: Theme.text
-                            elide: Text.ElideRight
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: {
+                                    if (root.currentPage === "cursor") return "Cursor";
+                                    for (let i = 0; i < root.navItems.length; ++i) {
+                                        if (root.navItems[i].key === root.currentPage) return root.navItems[i].label;
+                                    }
+                                    return "Settings";
+                                }
+                                font.family: Theme.fontSans
+                                font.pixelSize: 20
+                                font.weight: Font.Bold
+                                color: Theme.text
+                                elide: Text.ElideRight
+                            }
                         }
 
                         // ==================== 1. HOME ====================
@@ -2636,6 +2661,23 @@ Item {
                                             enabled: !PackageService.hyprSyncing && !PackageService.shellUpdating
                                             onClicked: root.pendingHyprMode = "replace"
                                         }
+                                    }
+                                }
+                                SettingRow {
+                                    visible: PackageService.missingCoreDeps.length > 0
+                                    showDivider: true
+                                    iconName: "alert-triangle"
+                                    title: "Required Shell Packages Missing"
+                                    subtitle: PackageService.installingDeps
+                                        ? ("Installing: " + PackageService.missingCorePkgs)
+                                        : (PackageService.depsError !== ""
+                                            ? PackageService.depsError
+                                            : ("Mandatory dependencies missing (" + PackageService.missingCorePkgs + ")"))
+                                    searchKeywords: "hyprcursor required dependencies cursor packages install"
+                                    CtrlBtn {
+                                        text: PackageService.installingDeps ? "Installing..." : "Install Required"
+                                        enabled: !PackageService.installingDeps && !PackageService.shellUpdating
+                                        onClicked: PackageService.installMissingCoreDeps()
                                     }
                                 }
                             }
@@ -4296,7 +4338,8 @@ Item {
                                                 Layout.fillWidth: true; spacing: 2
                                                 Text { text: "Export current settings as compact code"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Text {
-                                                    readonly property string previewCode: root.shellState ? root.shellState.exportThemeCode().code : Theme.encodeState(null, CompositorService, bgLayer).code
+                                                    readonly property string _cursorSig: CursorService.style + ":" + CursorService.size + ":" + CursorService.colorMode + ":" + CursorService.fixedColor + ":" + CursorService.motionBlur
+                                                    readonly property string previewCode: (_cursorSig, root.shellState ? root.shellState.exportThemeCode().code : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService).code)
                                                     text: previewCode
                                                     color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10
                                                     elide: Text.ElideMiddle; Layout.fillWidth: true
@@ -4306,7 +4349,7 @@ Item {
                                                 text: "Copy Raw"
                                                 ghost: true
                                                 onClicked: {
-                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer);
+                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService);
                                                     FileService.copyToClipboard(b.raw);
                                                     root.themeExportOk = true;
                                                     root.themeExportStatus = "Copied raw values (" + b.raw.length + " chars)";
@@ -4315,7 +4358,7 @@ Item {
                                             CtrlBtn {
                                                 text: "Copy Code"
                                                 onClicked: {
-                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer);
+                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService);
                                                     FileService.copyToClipboard(b.code);
                                                     root.themeExportOk = true;
                                                     root.themeExportStatus = "Copied share code (" + b.code.length + " chars)";
@@ -4609,6 +4652,16 @@ Item {
                                         }
                                     }
                                 }
+                            }
+
+                            SectionLabel { text: "Pointer & Cursor" }
+                            HubCard {
+                                iconName: "pointer"
+                                title: "Cursor"
+                                subtitle: "3 Paithosh custom cursors, size, adaptive contrast & motion blur"
+                                pillText: CursorService.styleLabel + " • " + CursorService.size + "px • " + CursorService.colorModeLabel
+                                searchKeywords: "cursor pointer mouse hyprcursor xcursor gtk qt auto contrast motion blur"
+                                onTriggered: root.openPage("cursor")
                             }
 
                             SectionLabel { text: "Wallpaper & Transitions" }
@@ -4933,6 +4986,621 @@ Item {
                                 }
                             }
                         }
+                        }
+
+                        // ==================== 11b. CURSOR (Appearance Subpage) ====================
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "cursor"
+                            active: Boolean(root.loadedPages["cursor"])
+                            sourceComponent: ColumnLayout {
+                                id: cursorPageCol
+                                spacing: 12
+
+                                function hueToHex(h) {
+                                    const c = Qt.hsva(Math.max(0, Math.min(1, h)), 0.78, 0.96, 1.0);
+                                    const ch = (v) => {
+                                        const hx = Math.max(0, Math.min(255, Math.round(v * 255))).toString(16);
+                                        return hx.length === 1 ? ("0" + hx) : hx;
+                                    };
+                                    return "#" + ch(c.r) + ch(c.g) + ch(c.b);
+                                }
+
+                                function hexHue(hex) {
+                                    const c = Qt.color(CursorService.normalizeHex(hex));
+                                    return c.hslHue >= 0 ? c.hslHue : 0.0;
+                                }
+
+                                // Missing mandatory dependency banner
+                                Rectangle {
+                                    visible: !CursorService.depsReady || CursorService.lastError !== ""
+                                    Layout.fillWidth: true
+                                    implicitHeight: depWarnRow.implicitHeight + 20
+                                    radius: 12
+                                    clip: true
+                                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                    border.width: 1
+                                    border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42)
+
+                                    RowLayout {
+                                        id: depWarnRow
+                                        anchors.fill: parent
+                                        anchors.margins: 12
+                                        spacing: 10
+                                        SvgIcon { sourceName: "alert-triangle"; iconSize: 16; color: Theme.warn }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            spacing: 2
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: !CursorService.depsReady ? "Required cursor packages missing" : "Cursor sync warning"
+                                                color: Theme.text
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 13
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: !CursorService.depsReady
+                                                    ? "Install hyprcursor and Cairo/Rsvg renderer to build custom cursors."
+                                                    : CursorService.lastError
+                                                color: Theme.textSub
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                        CtrlBtn {
+                                            visible: !CursorService.depsReady
+                                            text: PackageService.installingDeps ? "Installing..." : "Install Required"
+                                            enabled: !PackageService.installingDeps
+                                            onClicked: PackageService.installMissingCoreDeps(() => { CursorService.checkDeps(() => CursorService.applyNow(true)); })
+                                        }
+                                    }
+                                }
+
+                                // Tier 1: 3 Closed Custom Cursor Showcase Cards
+                                SectionLabel { text: "Cursor Style (Paithosh Collection)" }
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 3
+                                    columnSpacing: 10
+                                    rowSpacing: 10
+
+                                    Repeater {
+                                        model: CursorService.styleCatalog
+                                        delegate: Rectangle {
+                                            id: curCard
+                                            required property var modelData
+                                            readonly property bool isSelected: CursorService.style === modelData.id
+                                            readonly property bool spotActive: root.isSpotlightActive()
+                                            readonly property bool spotMatched: !spotActive || root.matchesSpotlight(modelData.name, modelData.subtitle, "cursor style sharp soft wedge")
+
+                                            Layout.fillWidth: true
+                                            implicitHeight: 172
+                                            radius: 12
+                                            clip: true
+                                            opacity: spotMatched ? 1.0 : 0.28
+                                            color: isSelected
+                                                ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
+                                                : (curMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                            border.width: isSelected ? 1.5 : 1
+                                            border.color: isSelected
+                                                ? Theme.accent
+                                                : (curMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
+                                            scale: curMouse.pressed ? 0.96 : 1.0
+
+                                            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                            Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                            ColumnLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 10
+                                                spacing: 8
+
+                                                // Split Dark/Light Preview Stage (concentric radius 8)
+                                                Rectangle {
+                                                    Layout.fillWidth: true
+                                                    Layout.fillHeight: true
+                                                    radius: 8
+                                                    clip: true
+                                                    color: Theme.pillBg
+                                                    border.width: 1
+                                                    border.color: Theme.borderSubtle
+
+                                                    // Right light contrast surface
+                                                    Rectangle {
+                                                        anchors.top: parent.top
+                                                        anchors.bottom: parent.bottom
+                                                        anchors.right: parent.right
+                                                        width: Math.round(parent.width / 2)
+                                                        color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.88)
+                                                    }
+
+                                                    // Live generated cursor vector preview
+                                                    Image {
+                                                        anchors.centerIn: parent
+                                                        width: 48
+                                                        height: 48
+                                                        sourceSize: Qt.size(96, 96)
+                                                        source: CursorService.previewTag !== ""
+                                                            ? ("file://" + CursorService.previewDir + "/preview-" + curCard.modelData.id + "-" + CursorService.previewTag + ".svg")
+                                                            : ""
+                                                        smooth: true
+                                                        asynchronous: true
+                                                        cache: false
+                                                        scale: curMouse.containsMouse ? 1.10 : (curCard.isSelected ? 1.04 : 1.0)
+                                                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                    }
+
+                                                    // Earned Active badge
+                                                    Rectangle {
+                                                        anchors.top: parent.top
+                                                        anchors.right: parent.right
+                                                        anchors.margins: 6
+                                                        height: 18
+                                                        implicitWidth: curActiveLbl.implicitWidth + 12
+                                                        radius: 9
+                                                        clip: true
+                                                        color: Theme.accent
+                                                        opacity: curCard.isSelected ? 1.0 : 0.0
+                                                        scale: curCard.isSelected ? 1.0 : 0.88
+                                                        visible: opacity > 0.01
+                                                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                                        Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutBack } }
+
+                                                        Text {
+                                                            id: curActiveLbl
+                                                            anchors.centerIn: parent
+                                                            text: "Active"
+                                                            color: Theme.accentFg
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 10
+                                                            font.weight: Font.DemiBold
+                                                        }
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    spacing: 2
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: curCard.modelData.name
+                                                        color: Theme.text
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 13
+                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: curCard.modelData.subtitle
+                                                        color: Theme.textSub
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 11
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: curMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    CursorService.setStyle(curCard.modelData.id);
+                                                    root.markAppearanceChanged();
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Tier 2: Core Options
+                                SectionLabel { text: "Scale, Color & Motion" }
+                                SettingGroup {
+                                    SettingRow {
+                                        showDivider: false
+                                        iconName: "maximize"
+                                        title: "Cursor Size"
+                                        subtitle: "Quick scale presets • Synced across Hyprland, GTK & Qt"
+                                        searchKeywords: "cursor size scale px 20 24 32 40"
+
+                                        RowLayout {
+                                            spacing: 6
+                                            Repeater {
+                                                model: [20, 24, 32, 40]
+                                                delegate: Rectangle {
+                                                    id: szChip
+                                                    required property int modelData
+                                                    readonly property bool active: CursorService.size === modelData
+                                                    implicitWidth: szLbl.implicitWidth + 16
+                                                    height: 28
+                                                    radius: 8
+                                                    clip: true
+                                                    color: active
+                                                        ? Theme.accent
+                                                        : (szMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised)
+                                                    border.width: 1
+                                                    border.color: active
+                                                        ? Theme.accent
+                                                        : (szMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle)
+                                                    scale: szMouse.pressed ? 0.94 : 1.0
+                                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+
+                                                    Text {
+                                                        id: szLbl
+                                                        anchors.centerIn: parent
+                                                        text: szChip.modelData + "px"
+                                                        color: szChip.active ? Theme.accentFg : Theme.text
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 11
+                                                        font.weight: Font.DemiBold
+                                                    }
+
+                                                    MouseArea {
+                                                        id: szMouse
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            CursorService.setSize(szChip.modelData);
+                                                            root.markAppearanceChanged();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SettingRow {
+                                        iconName: "contrast"
+                                        title: "Color Mode"
+                                        subtitle: "Auto screen contrast, active theme accent, or fixed color"
+                                        searchKeywords: "cursor color auto contrast theme fixed"
+
+                                        RowLayout {
+                                            spacing: 6
+                                            Repeater {
+                                                model: [
+                                                    { id: "auto", label: "Auto Contrast" },
+                                                    { id: "theme", label: "Theme" },
+                                                    { id: "fixed", label: "Fixed" }
+                                                ]
+                                                delegate: Rectangle {
+                                                    id: cmChip
+                                                    required property var modelData
+                                                    readonly property bool active: CursorService.colorMode === modelData.id
+                                                    implicitWidth: cmLbl.implicitWidth + 18
+                                                    height: 28
+                                                    radius: 8
+                                                    clip: true
+                                                    color: active
+                                                        ? Theme.accent
+                                                        : (cmMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised)
+                                                    border.width: 1
+                                                    border.color: active
+                                                        ? Theme.accent
+                                                        : (cmMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle)
+                                                    scale: cmMouse.pressed ? 0.94 : 1.0
+                                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+
+                                                    Text {
+                                                        id: cmLbl
+                                                        anchors.centerIn: parent
+                                                        text: cmChip.modelData.label
+                                                        color: cmChip.active ? Theme.accentFg : Theme.text
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 11
+                                                        font.weight: Font.DemiBold
+                                                    }
+
+                                                    MouseArea {
+                                                        id: cmMouse
+                                                        anchors.fill: parent
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            CursorService.setColorMode(cmChip.modelData.id);
+                                                            root.markAppearanceChanged();
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Animated Color Mode Detail Drawer (zero 0ms snap, strict clip)
+                                    Item {
+                                        id: colorDrawer
+                                        Layout.fillWidth: true
+                                        implicitHeight: {
+                                            if (CursorService.colorMode === "fixed") return fixedDetailCol.implicitHeight + 24;
+                                            if (CursorService.colorMode === "theme") return themeDetailRow.implicitHeight + 20;
+                                            return autoDetailRow.implicitHeight + 20;
+                                        }
+                                        clip: true
+                                        Behavior on implicitHeight { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+
+                                        Rectangle {
+                                            anchors.top: parent.top
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            height: 1
+                                            color: Theme.borderSubtle
+                                        }
+
+                                        // Auto Contrast Detail
+                                        RowLayout {
+                                            id: autoDetailRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 14
+                                            anchors.topMargin: 10
+                                            spacing: 10
+                                            opacity: CursorService.colorMode === "auto" ? 1.0 : 0.0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: "Samples luminance under the cursor to flip dark/light ink smoothly."
+                                                color: Theme.textSub
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
+                                            Rectangle {
+                                                height: 24
+                                                implicitWidth: autoToneLbl.implicitWidth + 16
+                                                radius: 8
+                                                clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+                                                Text {
+                                                    id: autoToneLbl
+                                                    anchors.centerIn: parent
+                                                    text: CursorService.activeContrastTone === "dark" ? "Screen Light → Dark Ink" : "Screen Dark → Light Ink"
+                                                    color: Theme.text
+                                                    font.family: Theme.fontMono
+                                                    font.pixelSize: 10
+                                                }
+                                            }
+                                        }
+
+                                        // Follow Theme Detail
+                                        RowLayout {
+                                            id: themeDetailRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 14
+                                            anchors.topMargin: 10
+                                            spacing: 10
+                                            opacity: CursorService.colorMode === "theme" ? 1.0 : 0.0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                            Rectangle {
+                                                width: 22
+                                                height: 22
+                                                radius: 11
+                                                color: Theme.accent
+                                                border.width: 2
+                                                border.color: Theme.accentFg
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: "Synced to " + Theme.activePreset + " accent • Contrasting outline computed automatically"
+                                                color: Theme.textSub
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 11
+                                                elide: Text.ElideRight
+                                            }
+                                            Text {
+                                                text: String(Theme.accent).toLowerCase()
+                                                color: Theme.text
+                                                font.family: Theme.fontMono
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        // Fixed Color Detail
+                                        ColumnLayout {
+                                            id: fixedDetailCol
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.top: parent.top
+                                            anchors.margins: 14
+                                            anchors.topMargin: 12
+                                            spacing: 10
+                                            opacity: CursorService.colorMode === "fixed" ? 1.0 : 0.0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                                            RowLayout {
+                                                Layout.fillWidth: true
+                                                spacing: 8
+
+                                                Repeater {
+                                                    model: CursorService.fixedSwatches
+                                                    delegate: Rectangle {
+                                                        id: swDot
+                                                        required property string modelData
+                                                        readonly property bool active: CursorService.fixedColor.toLowerCase() === modelData.toLowerCase()
+                                                        width: 24
+                                                        height: 24
+                                                        radius: 12
+                                                        color: modelData
+                                                        border.width: active ? 2 : 1
+                                                        border.color: active ? Theme.accent : Theme.borderSubtle
+                                                        scale: swDotMouse.pressed ? 0.90 : (swDotMouse.containsMouse ? 1.08 : 1.0)
+                                                        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+
+                                                        MouseArea {
+                                                            id: swDotMouse
+                                                            anchors.fill: parent
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: {
+                                                                CursorService.setFixedColor(swDot.modelData);
+                                                                root.markAppearanceChanged();
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                HueSlider {
+                                                    Layout.fillWidth: true
+                                                    value: cursorPageCol.hexHue(CursorService.fixedColor)
+                                                    onMoved: {
+                                                        CursorService.setFixedColor(cursorPageCol.hueToHex(value));
+                                                        root.markAppearanceChanged();
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    height: 24
+                                                    implicitWidth: hexLbl.implicitWidth + 14
+                                                    radius: 6
+                                                    color: Theme.surfaceRaised
+                                                    border.width: 1
+                                                    border.color: Theme.borderSubtle
+                                                    Text {
+                                                        id: hexLbl
+                                                        anchors.centerIn: parent
+                                                        text: CursorService.fixedColor
+                                                        color: Theme.text
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 10
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SettingRow {
+                                        iconName: "sparkles"
+                                        title: "Motion Blur Cursor"
+                                        subtitle: "Directional afterimage trail behind fast pointer movement"
+                                        searchKeywords: "cursor motion blur experimental trail"
+
+                                        RowLayout {
+                                            spacing: 10
+                                            Rectangle {
+                                                height: 20
+                                                implicitWidth: expLbl.implicitWidth + 12
+                                                radius: 6
+                                                clip: true
+                                                color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                border.width: 1
+                                                border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42)
+                                                Text {
+                                                    id: expLbl
+                                                    anchors.centerIn: parent
+                                                    text: "Experimental"
+                                                    color: Theme.warn
+                                                    font.family: Theme.fontMono
+                                                    font.pixelSize: 10
+                                                    font.weight: Font.DemiBold
+                                                }
+                                            }
+                                            CtrlSwitch {
+                                                checked: CursorService.motionBlur
+                                                onToggled: (v) => {
+                                                    CursorService.setMotionBlur(v);
+                                                    root.markAppearanceChanged();
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    SettingRow {
+                                        iconName: "layers"
+                                        title: "Hyprcursor, GTK & Qt Sync"
+                                        subtitle: CursorService.applying
+                                            ? "Building dual-format Hyprcursor & XCursor assets..."
+                                            : (CursorService.activeThemeId !== ""
+                                                ? ("Active: " + CursorService.activeThemeId + " • GTK3/4 + Qt5/6")
+                                                : "Syncs Hyprcursor, XCursor, gsettings & KDE/Qt")
+                                        searchKeywords: "cursor sync gtk qt hyprcursor xcursor"
+
+                                        CtrlBtn {
+                                            text: CursorService.applying ? "Syncing..." : "Re-sync"
+                                            ghost: true
+                                            enabled: !CursorService.applying && CursorService.depsReady
+                                            onClicked: CursorService.applyNow(true)
+                                        }
+                                    }
+                                }
+
+                                // Tier 3: Collapsed Advanced Section
+                                AdvancedSection {
+                                    expanded: false
+                                    subtitle: "Fine cursor size (16–64px), motion blur strength & reset"
+                                    SettingRow {
+                                        showDivider: false
+                                        iconName: "maximize"
+                                        title: "Fine Cursor Size"
+                                        subtitle: "Exact logical pixel height across all toolkits"
+                                        searchKeywords: "cursor size slider fine px"
+                                        CtrlSlider {
+                                            from: 16; to: 64; stepSize: 1; value: CursorService.size; unit: "px"
+                                            onMoved: (v) => {
+                                                CursorService.setSize(v);
+                                                root.markAppearanceChanged();
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "sparkles"
+                                        title: "Motion Blur Intensity"
+                                        subtitle: "Trail opacity & velocity stretch"
+                                        searchKeywords: "cursor motion blur intensity strength"
+                                        CtrlSlider {
+                                            from: 30; to: 100; stepSize: 5; value: Math.round(CursorService.motionBlurStrength * 100); unit: "%"
+                                            enabled: CursorService.motionBlur
+                                            onMoved: (v) => {
+                                                CursorService.setMotionBlurStrength(v / 100.0);
+                                            }
+                                        }
+                                    }
+                                    SettingRow {
+                                        iconName: "refresh"
+                                        title: "Reset Cursor Defaults"
+                                        subtitle: "Classic Sharp • 24px • Auto Contrast • Motion Blur Off"
+                                        searchKeywords: "cursor reset default"
+                                        CtrlBtn {
+                                            text: "Reset"
+                                            ghost: true
+                                            onClicked: {
+                                                CursorService.resetDefaults();
+                                                root.markAppearanceChanged();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // ==================== 12. LAYOUT ====================

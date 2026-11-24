@@ -61,6 +61,8 @@ Singleton {
     readonly property var presetNames: ["OLED Pure", "Mica Dark", "Adaptive", "Nord Frost", "Mica Monochrome", "Catppuccin Mocha"]
     readonly property var surfaceThemeNames: ["OLED Pure", "Mica Dark", "Adaptive"]
     readonly property var transitionModes: ["crossfade-scale", "crossfade", "instant"]
+    readonly property var cursorStyles: ["sharp", "soft", "wedge"]
+    readonly property var cursorColorModes: ["auto", "theme", "fixed"]
 
     readonly property var presetCatalog: [
         {
@@ -283,7 +285,7 @@ Singleton {
         return out;
     }
 
-    function encodeState(stateObj, compositor, bgLayer, profileName) {
+    function encodeState(stateObj, compositor, bgLayer, profileName, cursorSvc) {
         const presetIdx = Math.max(0, presetNames.indexOf(root.activePreset));
         const surfaceIdx = Math.max(0, surfaceThemeNames.indexOf(stateObj ? stateObj.globalSurfaceTheme : "OLED Pure"));
         const islandRadStr = stateObj ? stateObj.islandCornerRadius : "26px (Default)";
@@ -291,6 +293,12 @@ Singleton {
         const transIdx = Math.max(0, transitionModes.indexOf(bgLayer ? bgLayer.transitionMode : "crossfade-scale"));
         const rawName = String(profileName || (stateObj && stateObj.activeProfile) || root.activePreset || "custom").trim();
         const cleanName = rawName.replace(/[^a-zA-Z0-9._-]/g, "_") || "custom";
+        const cStyleIdx = Math.max(0, cursorStyles.indexOf(cursorSvc ? cursorSvc.style : "sharp"));
+        const cSize = cursorSvc ? Math.max(16, Math.min(64, Math.round(cursorSvc.size))) : 24;
+        const cModeIdx = Math.max(0, cursorColorModes.indexOf(cursorSvc ? cursorSvc.colorMode : "auto"));
+        const rawFix = cursorSvc ? String(cursorSvc.fixedColor || "ffffff").replace(/[^0-9a-fA-F]/g, "").toLowerCase() : "ffffff";
+        const cFixHex = /^[0-9a-f]{6}$/.test(rawFix) ? rawFix : "ffffff";
+        const cBlur = (cursorSvc && cursorSvc.motionBlur) ? 1 : 0;
 
         const vals = [
             1, // 0: schema version
@@ -328,7 +336,12 @@ Singleton {
             root.customAccentActive ? 1 : 0, // 32: customAccentActive
             root.gooeyEnabled ? 1 : 0, // 33: gooeyEnabled
             _fmtNum(root.speedMultiplier), // 34: speedMultiplier
-            cleanName // 35: embedded profile name
+            cleanName, // 35: embedded profile name
+            cStyleIdx, // 36: cursorStyle
+            cSize, // 37: cursorSize
+            cModeIdx, // 38: cursorColorMode
+            cFixHex, // 39: cursorFixedColor (6 hex chars)
+            cBlur // 40: cursorMotionBlur
         ];
 
         const raw = vals.join(";");
@@ -360,6 +373,12 @@ Singleton {
         const sat = clamp(n[10], 0, 1);
         const val = clamp(n[11], 0, 1);
         const hasExplicitCustom = n.length >= 33;
+        const hasCursor = parts.length >= 41;
+        const cStyleN = hasCursor ? Number(parts[36]) : NaN;
+        const cSizeN = hasCursor ? Number(parts[37]) : NaN;
+        const cModeN = hasCursor ? Number(parts[38]) : NaN;
+        const cHexRaw = hasCursor ? String(parts[39] || "").trim().toLowerCase() : "";
+        const cBlurN = hasCursor ? Number(parts[40]) : NaN;
 
         return {
             presetName: presetNames[clamp(Math.round(n[1]), 0, presetNames.length - 1)],
@@ -396,7 +415,12 @@ Singleton {
             customAccentActive: hasExplicitCustom ? (n[32] >= 0.5) : (sat > 0.001 || Math.abs(val - 0.92) > 0.01),
             gooeyEnabled: n.length >= 34 ? (n[33] >= 0.5) : null,
             speedMultiplier: n.length >= 35 ? clamp(n[34], 0.5, 2.5) : null,
-            profileName: (parts.length >= 36 && parts[35].trim() !== "") ? parts[35].trim().replace(/[^a-zA-Z0-9._-]/g, "_") : ""
+            profileName: (parts.length >= 36 && parts[35].trim() !== "") ? parts[35].trim().replace(/[^a-zA-Z0-9._-]/g, "_") : "",
+            cursorStyle: (!isNaN(cStyleN) && isFinite(cStyleN)) ? cursorStyles[clamp(Math.round(cStyleN), 0, cursorStyles.length - 1)] : null,
+            cursorSize: (!isNaN(cSizeN) && isFinite(cSizeN)) ? clamp(Math.round(cSizeN), 16, 64) : null,
+            cursorColorMode: (!isNaN(cModeN) && isFinite(cModeN)) ? cursorColorModes[clamp(Math.round(cModeN), 0, cursorColorModes.length - 1)] : null,
+            cursorFixedColor: /^[0-9a-f]{6}$/.test(cHexRaw) ? ("#" + cHexRaw) : null,
+            cursorMotionBlur: (!isNaN(cBlurN) && isFinite(cBlurN)) ? (cBlurN >= 0.5) : null
         };
     }
 

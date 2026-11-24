@@ -103,6 +103,8 @@ audit_json() {
     local -a specs=(
         "core|qs|bin:qs|Quickshell"
         "core|hyprctl|bin:hyprctl|Hyprland"
+        "core|hyprcursor|bin:hyprcursor-util|Hyprcursor (Custom Cursors)"
+        "core|cursor-render|py:cairo_rsvg|Cursor Renderer (Cairo/Rsvg)"
         "core|qt6-svg|glob:/usr/lib*/qt6/plugins/imageformats/libqsvg.so;/usr/lib/*/qt6/plugins/imageformats/libqsvg.so|Qt6 SVG Plugin (Icons)"
         "core|hyprlock|bin:hyprlock|Hyprlock"
         "core|python3|bin:python3|Python 3"
@@ -154,6 +156,8 @@ def pkg_name(fam, mgr, item_id):
         return {"fedora": "quickshell"}.get(fam, "")
     m = {
         "hyprctl": {"arch": "hyprland", "fedora": "hyprland", "debian": "hyprland"},
+        "hyprcursor": {"arch": "hyprcursor", "fedora": "hyprcursor", "debian": "hyprcursor-util"},
+        "cursor-render": {"arch": "python-cairo librsvg", "fedora": "python3-cairo librsvg2", "debian": "python3-cairo gir1.2-rsvg-2.0"},
         "qt6-svg": {"arch": "qt6-svg", "fedora": "qt6-qtsvg", "debian": "qt6-svg-plugins"},
         "hyprlock": {"arch": "hyprlock", "fedora": "hyprlock", "debian": "hyprlock"},
         "python3": {"arch": "python", "fedora": "python3", "debian": "python3"},
@@ -235,6 +239,20 @@ def has_dbus_gi():
             _dbus_gi_ok = False
     return _dbus_gi_ok
 
+_cairo_rsvg_ok = None
+def has_cairo_rsvg():
+    global _cairo_rsvg_ok
+    if _cairo_rsvg_ok is None:
+        try:
+            import cairo  # noqa: F401
+            import gi
+            gi.require_version("Rsvg", "2.0")
+            from gi.repository import Rsvg  # noqa: F401
+            _cairo_rsvg_ok = True
+        except Exception:
+            _cairo_rsvg_ok = False
+    return _cairo_rsvg_ok
+
 def check_installed(probe):
     kind, arg = probe.split(":", 1)
     if kind == "bin":
@@ -243,6 +261,8 @@ def check_installed(probe):
         return any(glob.glob(pat) for pat in arg.split(";"))
     if kind == "py" and arg == "dbus_gi":
         return has_dbus_gi()
+    if kind == "py" and arg == "cairo_rsvg":
+        return has_cairo_rsvg()
     if kind == "gsettings":
         return has_gsettings_schema(arg)
     if kind == "font":
@@ -258,6 +278,7 @@ for s in specs:
     packages.append({
         "id": item_id,
         "group": group,
+        "required": (group == "core"),
         "bin": item_id,
         "pkg": pkg,
         "label": label,
@@ -275,7 +296,7 @@ if family == "fedora":
         except OSError:
             pass
 
-copr_pkgs = {"quickshell", "hyprland", "hyprlock", "hyprpolkitagent", "xdg-desktop-portal-hyprland"}
+copr_pkgs = {"quickshell", "hyprland", "hyprcursor", "hyprlock", "hyprpolkitagent", "xdg-desktop-portal-hyprland"}
 copr_needed = (family == "fedora") and (not copr_enabled) and any(
     (not p["installed"]) and (p["pkg"] in copr_pkgs) for p in packages
 )
