@@ -299,6 +299,7 @@ Item {
         { key: "power", label: "Power & Battery", icon: "", group: "system", sub: true },
         { key: "updates", label: "Updates", icon: "", group: "system", sub: true },
         { key: "backup", label: "Backup & Restore", icon: "", group: "system", sub: true },
+        { key: "storage", label: "Storage", icon: "", group: "system", sub: true },
         { key: "accessibility", label: "Accessibility", icon: "", group: "system", sub: true },
         { key: "network", label: "Network & internet", icon: "◈", group: "network", sub: false, hasChildren: true },
         { key: "wifi", label: "Wi-Fi", icon: "", group: "network", sub: true },
@@ -337,12 +338,13 @@ Item {
         };
         const resolved = legacyMap[pageKey] || pageKey;
         if (resolved === "backup") BackupService.refreshAll();
+        if (resolved === "storage") StorageService.scanIfStale();
         if (resolved === "keybind") KeybindService.refresh();
         else if (keybindEditorModal.open) keybindEditorModal.close();
         if (currentPage === resolved) return;
         currentPage = resolved;
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
-        if (["display", "sound", "power", "updates", "backup"].indexOf(resolved) !== -1) systemOpen = true;
+        if (["display", "sound", "power", "updates", "backup", "storage"].indexOf(resolved) !== -1) systemOpen = true;
         if (["wifi", "vpn"].indexOf(resolved) !== -1) networkOpen = true;
         if (["appearance", "keybind", "layout"].indexOf(resolved) !== -1) personalizationOpen = true;
         pageInAnim.restart();
@@ -1662,6 +1664,17 @@ Item {
                                             ? (BackupService.totalBackupsCount + " Saved")
                                             : (BackupService.isBtrfsRoot ? "Btrfs Ready" : "Ready")))
                                 onTriggered: root.openPage("backup")
+                            }
+                            HubCard {
+                                iconChar: "⛁"
+                                title: "Storage"
+                                subtitle: "File sight breakdown & Shredder cleanup"
+                                pillText: StorageService.scanning
+                                    ? "Scanning..."
+                                    : (StorageService.hasScanned
+                                        ? (StorageService.formatBytes(StorageService.usedBytes) + " / " + StorageService.formatBytes(StorageService.totalBytes))
+                                        : "Inspect")
+                                onTriggered: root.openPage("storage")
                             }
                             HubCard {
                                 iconChar: "♿"; title: "Accessibility"; subtitle: "Screen recording presets, resolution, fps & audio"
@@ -4531,6 +4544,14 @@ Item {
                             }
                         }
 
+                        // ==================== 17b. STORAGE ====================
+                        StorageSettingsPage {
+                            Layout.fillWidth: true
+                            visible: root.currentPage === "storage"
+                            shellState: root.shellState
+                            onConfirmActionRequested: (payload) => storageConfirmOverlay.openWith(payload)
+                        }
+
                         // ==================== 18. ABOUT ====================
                         AboutSettingsPage {
                             Layout.fillWidth: true
@@ -4543,21 +4564,216 @@ Item {
         }
     }
 
-    // Shared Sudo Password Dialog (Package Cache Cleaning + Btrfs / Update Elevation)
+    // Hoisted Storage & Shredder Confirmation Modal (z: 215)
+    Rectangle {
+        id: storageConfirmOverlay
+        property bool open: false
+        property var payload: ({})
+        property bool permanentDelete: false
+
+        function openWith(data) {
+            payload = data || ({});
+            permanentDelete = false;
+            open = true;
+            confirmFocusScope.forceActiveFocus();
+        }
+        function close() {
+            open = false;
+            root.forceActiveFocus();
+        }
+        function execute() {
+            const p = payload || ({});
+            const perm = permanentDelete;
+            open = false;
+            if (p.kind === "user-cache") StorageService.cleanCache("user");
+            else if (p.kind === "system-cache") StorageService.cleanCache("system");
+            else if (p.kind === "shred-files") StorageService.shredFiles(p.paths || [], perm);
+        }
+
+        anchors.fill: parent
+        z: 215
+        color: Qt.rgba(0, 0, 0, 0.58)
+        visible: open || opacity > 0.01
+        opacity: open ? 1.0 : 0.0
+        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: storageConfirmOverlay.open
+            onClicked: storageConfirmOverlay.close()
+        }
+
+        FocusScope {
+            id: confirmFocusScope
+            anchors.fill: parent
+            focus: storageConfirmOverlay.open
+            Keys.onEscapePressed: (event) => {
+                if (storageConfirmOverlay.open) {
+                    storageConfirmOverlay.close();
+                    event.accepted = true;
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 40, 440)
+            implicitHeight: confirmCol.implicitHeight + 36
+            radius: 14
+            clip: true
+            color: Theme.surfaceBg
+            border.width: 1
+            border.color: Theme.borderSubtle
+            scale: storageConfirmOverlay.open ? 1.0 : 0.94
+            Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+            MouseArea { anchors.fill: parent }
+
+            ColumnLayout {
+                id: confirmCol
+                anchors.fill: parent
+                anchors.margins: 18
+                spacing: 12
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Rectangle {
+                        width: 32; height: 32; radius: 8
+                        color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.14)
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            sourceName: (storageConfirmOverlay.payload.needsRoot || storageConfirmOverlay.permanentDelete) ? "trash" : "info"
+                            iconSize: 15
+                            color: (storageConfirmOverlay.payload.needsRoot || storageConfirmOverlay.permanentDelete) ? Theme.dangerText : Theme.warn
+                        }
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 2
+                        Text {
+                            Layout.fillWidth: true
+                            text: storageConfirmOverlay.payload.title || "Confirm Cleanup"
+                            color: Theme.text
+                            font.family: Theme.fontSans
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "Reclaimable: " + StorageService.formatBytes(storageConfirmOverlay.payload.bytes || 0)
+                                + (storageConfirmOverlay.payload.needsRoot ? " • Root authentication required" : "")
+                            color: Theme.textSub
+                            font.family: Theme.fontMono
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: storageConfirmOverlay.payload.desc || ""
+                    color: Theme.textSub
+                    font.family: Theme.fontSans
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    visible: (storageConfirmOverlay.payload.preview || []).length > 0
+                    implicitHeight: previewCol.implicitHeight + 16
+                    radius: 9
+                    clip: true
+                    color: Theme.pillBg
+                    border.width: 1
+                    border.color: Theme.borderSubtle
+
+                    ColumnLayout {
+                        id: previewCol
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        spacing: 4
+                        Repeater {
+                            model: storageConfirmOverlay.payload.preview || []
+                            delegate: Text {
+                                Layout.fillWidth: true
+                                text: modelData
+                                color: Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                elide: Text.ElideMiddle
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: !!storageConfirmOverlay.payload.allowPermanentToggle
+                    spacing: 8
+
+                    CtrlTickBox {
+                        checked: storageConfirmOverlay.permanentDelete
+                        onToggled: (v) => storageConfirmOverlay.permanentDelete = v
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Permanently delete (skip Trash — cannot be undone)"
+                        color: storageConfirmOverlay.permanentDelete ? Theme.dangerText : Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: storageConfirmOverlay.permanentDelete = !storageConfirmOverlay.permanentDelete
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Item { Layout.fillWidth: true }
+                    CtrlBtn {
+                        text: "Cancel"
+                        ghost: true
+                        onClicked: storageConfirmOverlay.close()
+                    }
+                    CtrlBtn {
+                        text: storageConfirmOverlay.payload.needsRoot
+                            ? "Continue (Root)"
+                            : (storageConfirmOverlay.permanentDelete ? "Delete Permanently" : (storageConfirmOverlay.payload.kind === "shred-files" ? "Move to Trash" : "Clean Cache"))
+                        danger: !!storageConfirmOverlay.payload.needsRoot || storageConfirmOverlay.permanentDelete
+                        onClicked: storageConfirmOverlay.execute()
+                    }
+                }
+            }
+        }
+    }
+
+    // Shared Sudo Password Dialog (Package Cache Cleaning + Btrfs / Storage Elevation)
     Rectangle {
         id: sudoAuthOverlay
-        readonly property bool activeOpen: PackageService.sudoPromptOpen || BackupService.authPromptOpen
+        readonly property bool activeOpen: PackageService.sudoPromptOpen || BackupService.authPromptOpen || StorageService.authPromptOpen
         readonly property bool isBackupAuth: BackupService.authPromptOpen
-        readonly property string errText: isBackupAuth ? BackupService.authPromptError : PackageService.sudoPromptError
+        readonly property bool isStorageAuth: StorageService.authPromptOpen
+        readonly property string errText: isBackupAuth ? BackupService.authPromptError : (isStorageAuth ? StorageService.authPromptError : PackageService.sudoPromptError)
 
         function cancelActive() {
             if (isBackupAuth) BackupService.cancelAuthPrompt();
+            else if (isStorageAuth) StorageService.cancelAuthPrompt();
             else PackageService.cancelSudoPrompt();
         }
         function submitActive() {
             const pwd = sudoPasswordField.text;
             sudoPasswordField.text = "";
             if (isBackupAuth) BackupService.submitAuthPassword(pwd);
+            else if (isStorageAuth) StorageService.submitAuthPassword(pwd);
             else PackageService.submitSudoPassword(pwd);
         }
 
@@ -4594,6 +4810,16 @@ Item {
             }
         }
 
+        Connections {
+            target: StorageService
+            function onAuthPromptOpenChanged() {
+                if (StorageService.authPromptOpen) {
+                    sudoPasswordField.text = "";
+                    sudoPasswordField.forceActiveFocus();
+                }
+            }
+        }
+
         Rectangle {
             anchors.centerIn: parent
             width: Math.min(parent.width - 48, 396)
@@ -4616,7 +4842,9 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sudoAuthOverlay.isBackupAuth ? BackupService.authPromptTitle : "Sudo Password Required"
+                    text: sudoAuthOverlay.isBackupAuth
+                        ? BackupService.authPromptTitle
+                        : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptTitle : "Sudo Password Required")
                     color: Theme.text
                     font.family: Theme.fontSans
                     font.pixelSize: 15
@@ -4626,7 +4854,9 @@ Item {
 
                 Text {
                     Layout.fillWidth: true
-                    text: sudoAuthOverlay.isBackupAuth ? BackupService.authPromptDesc : "Enter your sudo password to clean package manager cache."
+                    text: sudoAuthOverlay.isBackupAuth
+                        ? BackupService.authPromptDesc
+                        : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptDesc : "Enter your sudo password to clean package manager cache.")
                     color: Theme.textSub
                     font.family: Theme.fontSans
                     font.pixelSize: 12
@@ -4678,7 +4908,9 @@ Item {
                         onClicked: sudoAuthOverlay.cancelActive()
                     }
                     CtrlBtn {
-                        text: sudoAuthOverlay.isBackupAuth ? BackupService.authPromptActionLabel : "Clean Cache"
+                        text: sudoAuthOverlay.isBackupAuth
+                            ? BackupService.authPromptActionLabel
+                            : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptActionLabel : "Clean Cache")
                         onClicked: sudoAuthOverlay.submitActive()
                     }
                 }

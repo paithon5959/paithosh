@@ -15,6 +15,7 @@ Singleton {
     property var clipboardPaths: []
     property string clipboardMode: "" // "" | "copy" | "cut"
     property string lastPath: homeDir
+    property string pendingSelectPath: ""
     property bool prefListView: false
     property bool prefShowHidden: false
     property string prefSortBy: "name" // "name" | "mtime" | "size" | "type"

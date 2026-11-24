@@ -190,6 +190,26 @@ QtObject {
             icon: "⛁"
         },
 
+        // Storage
+        {
+            id: "storage-overview",
+            page: "storage",
+            pageLabel: "Storage",
+            title: "Storage & File Sight",
+            subtitle: "Disk breakdown across apps, OS, shell, tmp/cache and user documents",
+            keywords: "storage disk space gb usage apps os shell cache documents folders",
+            icon: "⛁"
+        },
+        {
+            id: "storage-shredder",
+            page: "storage",
+            pageLabel: "Storage",
+            title: "Shredder (File Cleanup)",
+            subtitle: "Clean caches and stale large user files with configurable age threshold",
+            keywords: "shredder cleanup stale old large files cache trash root sudo",
+            icon: "✕"
+        },
+
         // Wi-Fi
         {
             id: "wifi-network",

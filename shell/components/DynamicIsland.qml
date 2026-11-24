@@ -752,7 +752,7 @@ PanelWindow {
 
                         SvgIcon {
                             anchors.verticalCenter: parent.verticalCenter
-                            sourceName: "package-update"
+                            sourceName: StorageService.activeOpText !== "" ? "hard-drive" : "package-update"
                             iconSize: 16
                             color: slotPkgUpdate.pkgTint
                         }

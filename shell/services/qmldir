@@ -18,3 +18,4 @@ singleton ClipboardService 1.0 ClipboardService.qml
 singleton VpnProxyService 1.0 VpnProxyService.qml
 singleton ScreenRecordService 1.0 ScreenRecordService.qml
 singleton SoundService 1.0 SoundService.qml
+singleton StorageService 1.0 StorageService.qml

@@ -58,6 +58,7 @@ Singleton {
         if (cleaningCache) return "Cleaning cache... " + cleanCacheProgress + "%";
         if (shellUpdating) return "Updating shell...";
         if (hyprSyncing) return "Syncing Hyprland...";
+        if (StorageService.activeOpText !== "") return StorageService.activeOpText;
         return "";
     }
 
@@ -98,6 +99,13 @@ Singleton {
 
     Connections {
         target: BackupService
+        function onStatusEventRequested(msg, kind, autoHide) {
+            root.triggerStatusEvent(msg, kind, autoHide);
+        }
+    }
+
+    Connections {
+        target: StorageService
         function onStatusEventRequested(msg, kind, autoHide) {
             root.triggerStatusEvent(msg, kind, autoHide);
         }

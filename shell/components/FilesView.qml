@@ -416,6 +416,17 @@ FocusScope {
             root.loadError = "";
             root.currentItems = items;
             root.statusMessage = items.length + (items.length === 1 ? " item" : " items");
+            if (!root.isPicker && FileService.pendingSelectPath !== "") {
+                const want = FileService.pendingSelectPath;
+                FileService.pendingSelectPath = "";
+                for (let i = 0; i < items.length; ++i) {
+                    if (items[i].path === want) {
+                        root.selectedPaths = [want];
+                        root.lastSelectedIdx = i;
+                        break;
+                    }
+                }
+            }
             if (!root.isPicker) {
                 FileService.getDiskUsage(target, (info) => {
                     if (root && seq === root._navSeq) root.diskInfo = info;

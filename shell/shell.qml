@@ -597,8 +597,9 @@ ShellRoot {
             BackupService.inspectPak(pakPath);
         }
 
-        function openFilesAt(dirPath) {
+        function openFilesAt(dirPath, selectPath) {
             const target = (dirPath && dirPath !== "") ? dirPath : FileService.homeDir;
+            FileService.pendingSelectPath = (selectPath && selectPath !== "") ? selectPath : "";
             FileService.runCmd(["mkdir", "-p", target], () => {
                 FileService.lastPath = target;
                 showIslandApp("files", null);
