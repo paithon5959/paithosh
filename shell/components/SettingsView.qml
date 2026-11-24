@@ -1735,8 +1735,23 @@ Item {
                                         text: "Reload"
                                         ghost: true
                                         onClicked: Quickshell.execDetached([
-                                            "sh", "-c",
-                                            "pkill -x qs 2>/dev/null || true; sleep 0.25; hyprctl reload >/dev/null 2>&1; exec quickshell -p /home/paithon/Projects/paithosh/shell >/dev/null 2>&1"
+                                            "setsid", "-f", "sh", "-c",
+                                            "shell_dir=\"$1\"; " +
+                                            "pkill -x qs 2>/dev/null || true; " +
+                                            "pkill -x quickshell 2>/dev/null || true; " +
+                                            "i=0; while [ $i -lt 30 ] && (pgrep -x qs >/dev/null 2>&1 || pgrep -x quickshell >/dev/null 2>&1); do " +
+                                            "  sleep 0.1; i=$((i + 1)); " +
+                                            "done; " +
+                                            "pkill -9 -x qs 2>/dev/null || true; " +
+                                            "pkill -9 -x quickshell 2>/dev/null || true; " +
+                                            "hyprctl reload >/dev/null 2>&1 || true; " +
+                                            "if command -v qs >/dev/null 2>&1; then " +
+                                            "  exec qs -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                                            "else " +
+                                            "  exec quickshell -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                                            "fi",
+                                            "_",
+                                            Quickshell.shellDir
                                         ])
                                     }
                                 }
