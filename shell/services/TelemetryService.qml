@@ -6,9 +6,12 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    property int cpuPct: 18
-    property int ramPct: 40
-    property int cpuTempC: 49
+    property int cpuPct: 0
+    property int ramPct: 0
+    property int cpuTempC: 0
+    property int cpuThreadCount: 1
+    property bool cpuHistorySeeded: false
+    property bool ramHistorySeeded: false
     readonly property bool overheatAlert: cpuTempC >= 90
 
     property string memSummary: "Mem: -- / -- GB"
@@ -30,8 +33,8 @@ Singleton {
     property string storageTotal: "-- GB"
     property string storageDetail: ""
 
-    property var cpuHistory: [12, 16, 14, 22, 18, 25, 19, 24, 18]
-    property var ramHistory: [36, 37, 38, 37, 40, 39, 41, 40, 40]
+    property var cpuHistory: [0, 0]
+    property var ramHistory: [0, 0]
     property var processList: []
     property var appList: []
     property var pidStatsMap: ({})
@@ -65,8 +68,9 @@ Singleton {
                 }
             }
         }
+        const normCpu = Math.min(100.0, totalCpu / Math.max(1, root.cpuThreadCount));
         return {
-            cpu: totalCpu.toFixed(1),
+            cpu: normCpu.toFixed(1),
             memText: formatMemKb(totalRssKb)
         };
     }
@@ -94,7 +98,34 @@ Singleton {
         id: statsProc
         command: [
             "sh", "-c",
-            "head -n1 /proc/stat; grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree' /proc/meminfo; cat /proc/uptime; for z in /sys/class/thermal/thermal_zone*/temp; do cat \"$z\" 2>/dev/null; break; done"
+            "head -n1 /proc/stat; " +
+            "grep -E 'MemTotal|MemAvailable|SwapTotal|SwapFree' /proc/meminfo; " +
+            "cat /proc/uptime; " +
+            "printf 'NPROC=%s\\n' \"$(nproc 2>/dev/null || echo 1)\"; " +
+            "t=''; " +
+            "for h in /sys/class/hwmon/hwmon*; do " +
+            "  n=$(cat \"$h/name\" 2>/dev/null); " +
+            "  case \"$n\" in coretemp|k10temp|zenpower|cpu_thermal|soc_thermal) " +
+            "    v=$(cat \"$h/temp1_input\" 2>/dev/null); " +
+            "    if [ -n \"$v\" ] && [ \"$v\" -gt 0 ] 2>/dev/null; then t=\"$v\"; break; fi ;; " +
+            "  esac; " +
+            "done; " +
+            "if [ -z \"$t\" ]; then " +
+            "  for z in /sys/class/thermal/thermal_zone*; do " +
+            "    ty=$(cat \"$z/type\" 2>/dev/null); " +
+            "    case \"$ty\" in x86_pkg_temp|Tctl|Tdie|*cpu*|*CPU*|*soc*|*core*) " +
+            "      v=$(cat \"$z/temp\" 2>/dev/null); " +
+            "      if [ -n \"$v\" ] && [ \"$v\" -gt 0 ] 2>/dev/null; then t=\"$v\"; break; fi ;; " +
+            "    esac; " +
+            "  done; " +
+            "fi; " +
+            "if [ -z \"$t\" ]; then " +
+            "  for z in /sys/class/thermal/thermal_zone*; do " +
+            "    v=$(cat \"$z/temp\" 2>/dev/null); " +
+            "    if [ -n \"$v\" ] && [ \"$v\" -gt 0 ] 2>/dev/null; then t=\"$v\"; break; fi; " +
+            "  done; " +
+            "fi; " +
+            "[ -n \"$t\" ] && printf 'TEMP=%s\\n' \"$t\""
         ]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -112,7 +143,12 @@ Singleton {
                             const dIdle = idle - root.lastIdle;
                             const pct = Math.max(0, Math.min(100, Math.round(((dTotal - dIdle) / dTotal) * 100)));
                             root.cpuPct = pct;
-                            root.cpuHistory = root.pushPoint(root.cpuHistory, pct);
+                            if (!root.cpuHistorySeeded) {
+                                root.cpuHistory = [pct, pct];
+                                root.cpuHistorySeeded = true;
+                            } else {
+                                root.cpuHistory = root.pushPoint(root.cpuHistory, pct);
+                            }
                         }
                         root.lastIdle = idle;
                         root.lastTotal = total;
@@ -124,22 +160,33 @@ Singleton {
                         swapTotal = parseInt(line.split(/\s+/)[1], 10) || 0;
                     } else if (line.startsWith("SwapFree:")) {
                         swapFree = parseInt(line.split(/\s+/)[1], 10) || 0;
+                    } else if (line.startsWith("NPROC=")) {
+                        const np = parseInt(line.slice(6), 10);
+                        if (np > 0) root.cpuThreadCount = np;
+                    } else if (line.startsWith("TEMP=")) {
+                        const rawT = parseInt(line.slice(5), 10);
+                        if (!isNaN(rawT) && rawT > 0) {
+                            root.cpuTempC = rawT > 1000 ? Math.round(rawT / 1000) : rawT;
+                        }
                     } else if (/^\d+\.\d+\s+\d+\.\d+$/.test(line)) {
                         const secs = Math.floor(parseFloat(line.split(/\s+/)[0]));
-                        const h = Math.floor(secs / 3600);
+                        const d = Math.floor(secs / 86400);
+                        const h = Math.floor((secs % 86400) / 3600);
                         const m = Math.floor((secs % 3600) / 60);
-                        root.uptimeText = "Up: " + h + "h " + m + "m";
-                    } else if (/^\d+$/.test(line)) {
-                        const rawT = parseInt(line, 10);
-                        root.cpuTempC = rawT > 1000 ? Math.round(rawT / 1000) : rawT;
+                        root.uptimeText = d > 0 ? ("Up: " + d + "d " + h + "h") : ("Up: " + h + "h " + m + "m");
                     }
                 }
                 if (memTotal > 0) {
                     const usedGb = (memTotal - memAvail) / (1024 * 1024);
                     const totGb = memTotal / (1024 * 1024);
-                    const pct = Math.round(((memTotal - memAvail) / memTotal) * 100);
+                    const pct = Math.max(0, Math.min(100, Math.round(((memTotal - memAvail) / memTotal) * 100)));
                     root.ramPct = pct;
-                    root.ramHistory = root.pushPoint(root.ramHistory, pct);
+                    if (!root.ramHistorySeeded) {
+                        root.ramHistory = [pct, pct];
+                        root.ramHistorySeeded = true;
+                    } else {
+                        root.ramHistory = root.pushPoint(root.ramHistory, pct);
+                    }
                     root.ramTotalGb = totGb.toFixed(0) + " GB RAM";
                     root.memDetail = usedGb.toFixed(1) + " / " + totGb.toFixed(0) + " GB";
                     root.memSummary = "Mem: " + root.memDetail;
@@ -169,11 +216,13 @@ Singleton {
                     if (!m) continue;
                     const pid = parseInt(m[1], 10);
                     const ppid = parseInt(m[2], 10);
-                    const cpu = m[3];
+                    const rawCpu = parseFloat(m[3]) || 0;
+                    const normCpu = Math.min(100.0, rawCpu / Math.max(1, root.cpuThreadCount));
+                    const cpu = normCpu.toFixed(1);
                     const rssKb = parseInt(m[4], 10);
                     const name = m[5].trim();
                     const memStr = root.formatMemKb(rssKb);
-                    pmap[pid] = { cpuVal: parseFloat(cpu) || 0, rssKb: rssKb, memText: memStr };
+                    pmap[pid] = { cpuVal: rawCpu, rssKb: rssKb, memText: memStr };
                     if (!cmap[ppid]) cmap[ppid] = [];
                     cmap[ppid].push(pid);
                     if (out.length < 25) {

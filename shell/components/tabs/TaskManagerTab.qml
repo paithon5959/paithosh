@@ -43,22 +43,43 @@ Item {
         ramSpark.animateDraw();
     }
 
+    onActiveSectionChanged: listSwitchAnim.restart()
+
+    SequentialAnimation {
+        id: listSwitchAnim
+        ParallelAnimation {
+            NumberAnimation { target: listContainer; property: "opacity"; from: 0.35; to: 1.0; duration: 200; easing.type: Easing.OutCubic }
+            NumberAnimation { target: listContainer; property: "y"; from: 6; to: 0; duration: 220; easing.type: Easing.OutCubic }
+        }
+    }
+
     ColumnLayout {
         id: col
         width: parent.width
         spacing: 10
 
+        // CPU & RAM Sparkline Cards
         RowLayout {
             Layout.fillWidth: true
             spacing: 10
 
             // CPU Sparkline Card
             Rectangle {
+                readonly property bool isHigh: TelemetryService.cpuPct >= 85
+                readonly property bool isCrit: TelemetryService.cpuPct >= 95
+                readonly property color metricColor: isCrit ? Theme.danger : (isHigh ? Theme.warn : Theme.accent)
+
                 Layout.fillWidth: true
                 height: 92
-                radius: 16
+                radius: 14
                 color: Theme.cardBg
+                border.width: 1
+                border.color: isCrit
+                    ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
+                    : (isHigh ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40) : Theme.borderSubtle)
                 clip: true
+
+                Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -67,19 +88,31 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        spacing: 6
+
+                        SvgIcon {
+                            sourceName: "cpu"
+                            iconSize: 14
+                            color: Theme.textSub
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                         Text {
                             text: "CPU"
                             color: Theme.textSub
                             font.family: Theme.fontSans
                             font.pixelSize: 12
+                            font.weight: Font.DemiBold
                         }
                         Item { Layout.fillWidth: true }
                         Text {
                             text: TelemetryService.cpuPct + "%"
-                            color: Theme.text
+                            color: parent.parent.parent.isCrit
+                                ? Theme.dangerText
+                                : (parent.parent.parent.isHigh ? Theme.warn : Theme.text)
                             font.family: Theme.fontMono
                             font.pixelSize: 16
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Bold
+                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                         }
                     }
 
@@ -88,18 +121,28 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         points: TelemetryService.cpuHistory
-                        lineColor: Theme.accent
+                        lineColor: parent.parent.metricColor
                     }
                 }
             }
 
             // RAM Sparkline Card
             Rectangle {
+                readonly property bool isHigh: TelemetryService.ramPct >= 85
+                readonly property bool isCrit: TelemetryService.ramPct >= 95
+                readonly property color metricColor: isCrit ? Theme.danger : (isHigh ? Theme.warn : Theme.accent)
+
                 Layout.fillWidth: true
                 height: 92
-                radius: 16
+                radius: 14
                 color: Theme.cardBg
+                border.width: 1
+                border.color: isCrit
+                    ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
+                    : (isHigh ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40) : Theme.borderSubtle)
                 clip: true
+
+                Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -108,19 +151,31 @@ Item {
 
                     RowLayout {
                         Layout.fillWidth: true
+                        spacing: 6
+
+                        SvgIcon {
+                            sourceName: "activity"
+                            iconSize: 14
+                            color: Theme.textSub
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                         Text {
                             text: "RAM"
                             color: Theme.textSub
                             font.family: Theme.fontSans
                             font.pixelSize: 12
+                            font.weight: Font.DemiBold
                         }
                         Item { Layout.fillWidth: true }
                         Text {
                             text: TelemetryService.ramPct + "%"
-                            color: Theme.text
+                            color: parent.parent.parent.isCrit
+                                ? Theme.dangerText
+                                : (parent.parent.parent.isHigh ? Theme.warn : Theme.text)
                             font.family: Theme.fontMono
                             font.pixelSize: 16
-                            font.weight: Font.DemiBold
+                            font.weight: Font.Bold
+                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                         }
                     }
 
@@ -129,7 +184,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         points: TelemetryService.ramHistory
-                        lineColor: Theme.accent
+                        lineColor: parent.parent.metricColor
                     }
                 }
             }
@@ -137,10 +192,20 @@ Item {
 
         // System Meta Strip
         Rectangle {
+            readonly property bool tempWarn: TelemetryService.cpuTempC >= 75
+            readonly property bool tempCrit: TelemetryService.cpuTempC >= 90
+
             Layout.fillWidth: true
-            height: 32
+            height: 34
             radius: 12
-            color: Qt.rgba(1, 1, 1, 0.05)
+            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.04)
+            border.width: 1
+            border.color: tempCrit
+                ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.40)
+                : Theme.borderSubtle
+            clip: true
+
+            Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
             RowLayout {
                 anchors.fill: parent
@@ -148,32 +213,60 @@ Item {
                 anchors.rightMargin: 12
                 spacing: 8
 
-                Text {
-                    text: "Temp: " + TelemetryService.cpuTempC + "℃"
-                    color: Theme.textSub
-                    font.family: Theme.fontMono
-                    font.pixelSize: 11
+                RowLayout {
+                    spacing: 4
+                    Layout.minimumWidth: 0
+
+                    SvgIcon {
+                        sourceName: "thermometer"
+                        iconSize: 12
+                        color: parent.parent.parent.tempCrit
+                            ? Theme.dangerText
+                            : (parent.parent.parent.tempWarn ? Theme.warn : Theme.textSub)
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                        text: TelemetryService.cpuTempC > 0 ? (TelemetryService.cpuTempC + "°C") : "--°C"
+                        color: parent.parent.parent.tempCrit
+                            ? Theme.dangerText
+                            : (parent.parent.parent.tempWarn ? Theme.warn : Theme.textSub)
+                        font.family: Theme.fontMono
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
                 }
+
                 Item { Layout.fillWidth: true }
+
                 Text {
                     text: TelemetryService.memSummary
                     color: Theme.textSub
                     font.family: Theme.fontMono
                     font.pixelSize: 11
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
                 }
+
                 Item { Layout.fillWidth: true }
+
                 Text {
                     text: TelemetryService.swapSummary
                     color: Theme.textSub
                     font.family: Theme.fontMono
                     font.pixelSize: 11
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
                 }
+
                 Item { Layout.fillWidth: true }
+
                 Text {
                     text: TelemetryService.uptimeText
                     color: Theme.textSub
                     font.family: Theme.fontMono
                     font.pixelSize: 11
+                    Layout.minimumWidth: 0
+                    elide: Text.ElideRight
                 }
             }
         }
@@ -181,58 +274,139 @@ Item {
         // Section Switcher: Applications | Processes
         Rectangle {
             Layout.fillWidth: true
-            height: 32
-            radius: 10
-            color: Qt.rgba(1, 1, 1, 0.05)
+            height: 34
+            radius: 12
+            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.05)
+            border.width: 1
+            border.color: Theme.borderSubtle
+            clip: true
 
             RowLayout {
                 anchors.fill: parent
                 anchors.margins: 3
                 spacing: 4
 
+                // Applications Tab
                 Rectangle {
+                    readonly property bool selected: root.activeSection === "apps"
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    radius: 8
-                    color: root.activeSection === "apps" ? Theme.cardHover : "transparent"
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Layout.minimumWidth: 0
+                    radius: 9
+                    clip: true
+                    color: selected
+                        ? Theme.accent
+                        : (appsTabMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent")
+                    scale: appsTabMouse.pressed ? 0.96 : 1.0
 
-                    Text {
+                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                    RowLayout {
                         anchors.centerIn: parent
-                        text: "Applications (" + (TelemetryService.appList ? TelemetryService.appList.length : 0) + ")"
-                        color: root.activeSection === "apps" ? Theme.text : Theme.textSub
-                        font.family: Theme.fontSans
-                        font.pixelSize: 12
-                        font.weight: root.activeSection === "apps" ? Font.DemiBold : Font.Normal
-                        elide: Text.ElideRight
+                        width: Math.min(implicitWidth, Math.max(0, parent.width - 12))
+                        spacing: 6
+
+                        Text {
+                            text: "Applications"
+                            color: parent.parent.selected ? Theme.accentFg : (appsTabMouse.containsMouse ? Theme.text : Theme.textSub)
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            Layout.minimumWidth: 0
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        }
+
+                        Rectangle {
+                            height: 16
+                            width: Math.max(20, appCountText.implicitWidth + 10)
+                            radius: 5
+                            color: parent.parent.selected
+                                ? Qt.rgba(Theme.accentFg.r, Theme.accentFg.g, Theme.accentFg.b, 0.16)
+                                : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08)
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                            Text {
+                                id: appCountText
+                                anchors.centerIn: parent
+                                text: String(TelemetryService.appList ? TelemetryService.appList.length : 0)
+                                color: parent.parent.parent.selected ? Theme.accentFg : Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                            }
+                        }
                     }
 
                     MouseArea {
+                        id: appsTabMouse
                         anchors.fill: parent
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.activeSection = "apps"
                     }
                 }
 
+                // Processes Tab
                 Rectangle {
+                    readonly property bool selected: root.activeSection === "procs"
+
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    radius: 8
-                    color: root.activeSection === "procs" ? Theme.cardHover : "transparent"
-                    Behavior on color { ColorAnimation { duration: 150 } }
+                    Layout.minimumWidth: 0
+                    radius: 9
+                    clip: true
+                    color: selected
+                        ? Theme.accent
+                        : (procsTabMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent")
+                    scale: procsTabMouse.pressed ? 0.96 : 1.0
 
-                    Text {
+                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                    RowLayout {
                         anchors.centerIn: parent
-                        text: "Processes (" + (TelemetryService.processList ? TelemetryService.processList.length : 0) + ")"
-                        color: root.activeSection === "procs" ? Theme.text : Theme.textSub
-                        font.family: Theme.fontSans
-                        font.pixelSize: 12
-                        font.weight: root.activeSection === "procs" ? Font.DemiBold : Font.Normal
-                        elide: Text.ElideRight
+                        width: Math.min(implicitWidth, Math.max(0, parent.width - 12))
+                        spacing: 6
+
+                        Text {
+                            text: "Processes"
+                            color: parent.parent.selected ? Theme.accentFg : (procsTabMouse.containsMouse ? Theme.text : Theme.textSub)
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            Layout.minimumWidth: 0
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                        }
+
+                        Rectangle {
+                            height: 16
+                            width: Math.max(20, procCountText.implicitWidth + 10)
+                            radius: 5
+                            color: parent.parent.selected
+                                ? Qt.rgba(Theme.accentFg.r, Theme.accentFg.g, Theme.accentFg.b, 0.16)
+                                : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08)
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                            Text {
+                                id: procCountText
+                                anchors.centerIn: parent
+                                text: String(TelemetryService.processList ? TelemetryService.processList.length : 0)
+                                color: parent.parent.parent.selected ? Theme.accentFg : Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                            }
+                        }
                     }
 
                     MouseArea {
+                        id: procsTabMouse
                         anchors.fill: parent
+                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.activeSection = "procs"
                     }
@@ -243,40 +417,94 @@ Item {
         // Process / Application Search Input
         Rectangle {
             Layout.fillWidth: true
-            height: 34
-            radius: 10
-            color: Qt.rgba(1, 1, 1, procInput.activeFocus ? 0.11 : 0.07)
+            height: 36
+            radius: 12
+            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, procInput.activeFocus ? 0.11 : 0.07)
             border.width: 1
-            border.color: Qt.rgba(1, 1, 1, procInput.activeFocus ? 0.40 : 0.12)
+            border.color: procInput.activeFocus
+                ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.40)
+                : Theme.borderSubtle
             clip: true
 
-            Behavior on color { ColorAnimation { duration: 160 } }
-            Behavior on border.color { ColorAnimation { duration: 160 } }
+            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-            AnimatedTextInput {
-                id: procInput
+            RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                verticalAlignment: TextInput.AlignVCenter
-                textColor: Theme.text
-                font.family: Theme.fontSans
-                font.pixelSize: 12
-                clip: true
-                selectByMouse: true
-                onTextChanged: root.procFilter = text
+                anchors.rightMargin: 10
+                spacing: 8
 
-                Text {
-                    anchors.fill: parent
-                    verticalAlignment: Text.AlignVCenter
-                    text: root.activeSection === "apps"
-                        ? "Filter applications (firefox, kitty, code...)"
-                        : "Filter processes (kitty, firefox, code, pipewire...)"
-                    color: Theme.textMuted
+                SvgIcon {
+                    sourceName: "search"
+                    iconSize: 15
+                    color: procInput.activeFocus ? Theme.text : Theme.textSub
+                    Layout.alignment: Qt.AlignVCenter
+                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                }
+
+                AnimatedTextInput {
+                    id: procInput
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    Layout.minimumWidth: 0
+                    verticalAlignment: TextInput.AlignVCenter
+                    textColor: Theme.text
                     font.family: Theme.fontSans
                     font.pixelSize: 12
-                    visible: procInput.text === ""
-                    elide: Text.ElideRight
+                    clip: true
+                    selectByMouse: true
+                    onTextChanged: root.procFilter = text
+                    Keys.onEscapePressed: {
+                        if (text.length > 0) {
+                            text = "";
+                        } else {
+                            focus = false;
+                        }
+                    }
+
+                    Text {
+                        anchors.fill: parent
+                        verticalAlignment: Text.AlignVCenter
+                        text: root.activeSection === "apps"
+                            ? "Filter applications (firefox, kitty, code...)"
+                            : "Filter processes (kitty, firefox, code, pipewire...)"
+                        color: Theme.textMuted
+                        font.family: Theme.fontSans
+                        font.pixelSize: 12
+                        visible: procInput.text === ""
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Rectangle {
+                    width: 22
+                    height: 22
+                    radius: 7
+                    color: clearMouse.containsMouse ? Theme.cardHover : "transparent"
+                    opacity: procInput.text.length > 0 ? 1.0 : 0.0
+                    visible: opacity > 0.01
+                    scale: clearMouse.pressed ? 0.90 : 1.0
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        sourceName: "close"
+                        iconSize: 12
+                        color: Theme.textSub
+                    }
+
+                    MouseArea {
+                        id: clearMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: procInput.text = ""
+                    }
                 }
             }
         }
@@ -289,121 +517,141 @@ Item {
 
             readonly property var activeModel: root.activeSection === "apps" ? root.filteredApps : root.filteredProcs
 
-            Text {
-                anchors.centerIn: parent
-                visible: parent.activeModel.length === 0
-                text: root.activeSection === "apps" ? "No matching applications" : "No matching processes"
-                color: Theme.textMuted
-                font.family: Theme.fontSans
-                font.pixelSize: 12
-            }
+            Item {
+                id: listContainer
+                width: parent.width
+                height: parent.height
+                y: 0
 
-            ListView {
-                id: procListView
-                anchors.fill: parent
-                visible: parent.activeModel.length > 0
-                clip: true
-                spacing: 6
-                boundsBehavior: Flickable.StopAtBounds
-                model: parent.activeModel
+                Text {
+                    anchors.centerIn: parent
+                    visible: parent.parent.activeModel.length === 0
+                    text: root.activeSection === "apps" ? "No matching applications" : "No matching processes"
+                    color: Theme.textMuted
+                    font.family: Theme.fontSans
+                    font.pixelSize: 12
+                }
 
-                delegate: Item {
-                    id: procWrap
-                    required property var modelData
-                    property bool removing: false
-
-                    width: procListView.width
-                    height: removing ? 0 : 42
-                    opacity: removing ? 0.0 : 1.0
+                ListView {
+                    id: procListView
+                    anchors.fill: parent
+                    visible: parent.parent.activeModel.length > 0
                     clip: true
+                    spacing: 6
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: parent.parent.activeModel
 
-                    Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    delegate: Item {
+                        id: procWrap
+                        required property var modelData
+                        property bool removing: false
 
-                    Timer {
-                        id: killDelay
-                        interval: 220
-                        repeat: false
-                        onTriggered: {
-                            if (root.activeSection === "apps") {
-                                TelemetryService.closeApp(procWrap.modelData.address, procWrap.modelData.pid);
-                            } else {
-                                TelemetryService.killProcess(procWrap.modelData.pid);
-                            }
-                        }
-                    }
-
-                    Rectangle {
-                        width: parent.width
-                        height: 42
-                        x: procWrap.removing ? 18 : 0
-                        radius: 14
-                        color: pMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                        width: procListView.width
+                        height: removing ? 0 : 44
+                        opacity: removing ? 0.0 : 1.0
                         clip: true
 
-                        Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                        Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
-                        MouseArea {
-                            id: pMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: root.activeSection === "apps" ? Qt.PointingHandCursor : Qt.ArrowCursor
-                            onClicked: {
-                                if (root.activeSection === "apps" && procWrap.modelData.address) {
-                                    TelemetryService.focusApp(procWrap.modelData.address);
+                        Timer {
+                            id: killDelay
+                            interval: 220
+                            repeat: false
+                            onTriggered: {
+                                if (root.activeSection === "apps") {
+                                    TelemetryService.closeApp(procWrap.modelData.address, procWrap.modelData.pid);
+                                } else {
+                                    TelemetryService.killProcess(procWrap.modelData.pid);
                                 }
                             }
                         }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 14
-                            anchors.rightMargin: 10
-                            spacing: 8
+                        Rectangle {
+                            width: parent.width
+                            height: 44
+                            x: procWrap.removing ? 18 : 0
+                            radius: 14
+                            color: pMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                            border.width: 1
+                            border.color: pMouse.containsMouse
+                                ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22)
+                                : Theme.borderSubtle
+                            scale: (root.activeSection === "apps" && pMouse.pressed) ? 0.985 : 1.0
+                            clip: true
 
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                Layout.minimumWidth: 0
-                                spacing: 1
+                            Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: procWrap.modelData.name
-                                    color: Theme.text
-                                    font.family: Theme.fontSans
-                                    font.pixelSize: 13
-                                    elide: Text.ElideRight
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    visible: root.activeSection === "apps" && (procWrap.modelData.title || "") !== ""
-                                    text: procWrap.modelData.title || ""
-                                    color: Theme.textMuted
-                                    font.family: Theme.fontSans
-                                    font.pixelSize: 10
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            Text {
-                                text: "CPU " + procWrap.modelData.cpu + "% • " + procWrap.modelData.memText
-                                color: Theme.textSub
-                                font.family: Theme.fontMono
-                                font.pixelSize: 11
-                            }
-
-                            PillButton {
-                                text: root.activeSection === "apps" ? "Close" : "Kill"
-                                fontSize: 11
-                                horizontalPadding: 10
-                                verticalPadding: 4
-                                radius: 8
+                            MouseArea {
+                                id: pMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: root.activeSection === "apps" ? Qt.PointingHandCursor : Qt.ArrowCursor
                                 onClicked: {
-                                    if (!procWrap.removing) {
-                                        procWrap.removing = true;
-                                        killDelay.restart();
+                                    if (root.activeSection === "apps" && procWrap.modelData.address) {
+                                        TelemetryService.focusApp(procWrap.modelData.address);
+                                    }
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 10
+                                spacing: 8
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    spacing: 1
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        text: procWrap.modelData.name
+                                        color: Theme.text
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 13
+                                        font.weight: Font.Medium
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        visible: root.activeSection === "apps" && (procWrap.modelData.title || "") !== ""
+                                        text: procWrap.modelData.title || ""
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 10
+                                        elide: Text.ElideRight
+                                    }
+                                }
+
+                                Text {
+                                    text: "CPU " + procWrap.modelData.cpu + "% • " + procWrap.modelData.memText
+                                    color: Theme.textSub
+                                    font.family: Theme.fontMono
+                                    font.pixelSize: 11
+                                    Layout.alignment: Qt.AlignVCenter
+                                }
+
+                                PillButton {
+                                    text: root.activeSection === "apps" ? "Close" : "Kill"
+                                    textColorOverride: Theme.accent
+                                    fontSize: 11
+                                    horizontalPadding: 10
+                                    verticalPadding: 4
+                                    radius: 9
+                                    Layout.alignment: Qt.AlignVCenter
+                                    onClicked: {
+                                        if (!procWrap.removing) {
+                                            procWrap.removing = true;
+                                            killDelay.restart();
+                                        }
                                     }
                                 }
                             }
