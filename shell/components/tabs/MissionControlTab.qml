@@ -325,11 +325,14 @@ Item {
 
                 Repeater {
                     model: [
-                        { label: "Volume", val: AudioService.volumePct, minV: 0, setter: function(v) { AudioService.setVolume(v, false); } },
-                        { label: "Brightness", val: BrightnessService.brightnessPct, minV: 10, setter: function(v) { BrightnessService.setBrightness(v, false); } }
+                        { key: "volume", label: "Volume", minV: 0 },
+                        { key: "brightness", label: "Brightness", minV: 10 }
                     ]
                     delegate: RowLayout {
                         required property var modelData
+                        readonly property int currentVal: modelData.key === "volume"
+                            ? AudioService.volumePct
+                            : BrightnessService.brightnessPct
                         Layout.fillWidth: true
                         spacing: 12
 
@@ -360,7 +363,7 @@ Item {
                                     anchors.bottom: parent.bottom
                                     radius: 3
                                     color: Theme.text
-                                    width: Math.max(0, Math.min(parent.width, parent.width * (modelData.val / 100.0)))
+                                    width: Math.max(0, Math.min(parent.width, parent.width * (currentVal / 100.0)))
                                 }
                             }
 
@@ -370,7 +373,7 @@ Item {
                                 height: 14
                                 radius: 7
                                 color: Theme.text
-                                x: Math.max(0, Math.min(parent.width - width, parent.width * (modelData.val / 100.0) - width / 2))
+                                x: Math.max(0, Math.min(parent.width - width, parent.width * (currentVal / 100.0) - width / 2))
                                 scale: slMouse.pressed ? 1.15 : 1.0
                                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
                             }
@@ -378,11 +381,16 @@ Item {
                             MouseArea {
                                 id: slMouse
                                 anchors.fill: parent
+                                preventStealing: true
                                 cursorShape: Qt.PointingHandCursor
                                 function applyX(mx) {
                                     const ratio = Math.max(0, Math.min(1, mx / Math.max(1, width)));
                                     const pct = Math.max(modelData.minV, Math.min(100, Math.round(ratio * 100)));
-                                    modelData.setter(pct);
+                                    if (modelData.key === "volume") {
+                                        AudioService.setVolume(pct, false);
+                                    } else {
+                                        BrightnessService.setBrightness(pct, false);
+                                    }
                                 }
                                 onPressed: function(mouse) { applyX(mouse.x); }
                                 onPositionChanged: function(mouse) { if (pressed) applyX(mouse.x); }
@@ -392,7 +400,7 @@ Item {
                         Text {
                             Layout.preferredWidth: 34
                             horizontalAlignment: Text.AlignRight
-                            text: modelData.val + "%"
+                            text: currentVal + "%"
                             color: Theme.textSub
                             font.family: Theme.fontMono
                             font.pixelSize: 11

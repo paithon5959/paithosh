@@ -31,9 +31,12 @@ Item {
     property string activeMonitorName: "eDP-1"
     property string displayScale: "100%"
     property string displayRes: "1920 × 1080"
+    property string displayRefreshRate: "60 Hz"
     property string displayOrient: "Landscape"
     property bool rotationLock: true
     property var displayResOptions: ["1920 × 1080"]
+    property var displayRefreshOptions: ["60 Hz"]
+    property var displayRatesByRes: ({})
     property var displayModeMap: ({})
     property int maxDisplayWidth: 1920
     property int maxDisplayHeight: 1080
@@ -136,6 +139,7 @@ Item {
 
         const opts = [];
         const modeMap = {};
+        const ratesByRes = {};
         const modes = mon.availableModes || [];
         let maxW = Number(mon.width || 0);
         let maxH = Number(mon.height || 0);
@@ -150,8 +154,10 @@ Item {
                 maxH = h;
             }
             const label = m[1] + " × " + m[2];
+            const hz = Math.round(parseFloat(m[3]));
+            if (!ratesByRes[label]) ratesByRes[label] = [];
+            if (ratesByRes[label].indexOf(hz) === -1) ratesByRes[label].push(hz);
             if (!modeMap[label]) {
-                const hz = Math.round(parseFloat(m[3]));
                 modeMap[label] = m[1] + "x" + m[2] + "@" + hz;
                 opts.push(label);
             }
@@ -179,15 +185,19 @@ Item {
             if (opts.indexOf(label) === -1) {
                 opts.push(label);
                 modeMap[label] = label.replace(" × ", "x") + "@60";
+                ratesByRes[label] = [60];
             }
         }
         displayResOptions = opts;
         displayModeMap = modeMap;
+        displayRatesByRes = ratesByRes;
         if (mon.width && mon.height) {
             const curLabel = mon.width + " × " + mon.height;
             if (opts.indexOf(curLabel) === -1) opts.unshift(curLabel);
             displayRes = curLabel;
         }
+        const curHz = mon.refreshRate ? Math.round(Number(mon.refreshRate)) : 60;
+        updateRefreshOptionsForRes(displayRes, curHz);
         const s = Number(mon.scale || 1);
         if (Math.abs(s - 1.0) < 0.05) displayScale = "100%";
         else if (Math.abs(s - 1.25) < 0.05) displayScale = "125% (Recommended)";
@@ -197,6 +207,25 @@ Item {
 
         const tr = Number(mon.transform || 0);
         displayOrient = (tr === 1 || tr === 3) ? "Portrait" : "Landscape";
+    }
+
+    function updateRefreshOptionsForRes(resLabel, preferredHz) {
+        const rawRates = displayRatesByRes[resLabel];
+        const rates = rawRates && rawRates.length > 0 ? rawRates.slice() : [60];
+        if (preferredHz > 0 && rates.indexOf(preferredHz) === -1) {
+            rates.push(preferredHz);
+        }
+        rates.sort((a, b) => b - a);
+        const formatted = [];
+        for (let i = 0; i < rates.length; ++i) {
+            formatted.push(rates[i] + " Hz");
+        }
+        displayRefreshOptions = formatted;
+        if (preferredHz > 0) {
+            displayRefreshRate = preferredHz + " Hz";
+        } else if (formatted.indexOf(displayRefreshRate) === -1 && formatted.length > 0) {
+            displayRefreshRate = formatted[0];
+        }
     }
 
     function focusedMonitorSummary() {
@@ -237,7 +266,8 @@ Item {
         if (maxDisplayWidth > 0 && maxDisplayHeight > 0 && (reqW > maxDisplayWidth || reqH > maxDisplayHeight)) {
             displayRes = maxDisplayRes;
         }
-        const mode = displayModeMap[displayRes] || (displayRes.replace(" × ", "x") + "@60");
+        const hzNum = parseInt(displayRefreshRate, 10) || 60;
+        const mode = displayRes.replace(" × ", "x") + "@" + hzNum;
         const scaleNum = parseFloat(displayScale) / 100.0;
         const scale = isNaN(scaleNum) ? 1 : scaleNum;
         const transform = (displayOrient === "Portrait") ? 1 : 0;
@@ -2211,6 +2241,22 @@ Item {
                                 }
                             }
 
+                            SectionLabel { text: "Brightness" }
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconChar: "☀"
+                                    title: "Display brightness"
+                                    subtitle: "Adjust built-in display backlight level"
+                                    CtrlSlider {
+                                        from: 10; to: 100
+                                        value: BrightnessService.brightnessPct
+                                        unit: "%"
+                                        onMoved: (v) => BrightnessService.setBrightness(v, false)
+                                    }
+                                }
+                            }
+
                             SectionLabel { text: "Scale & layout" }
                             SettingGroup {
                                 SettingRow {
@@ -2219,7 +2265,11 @@ Item {
                                 }
                                 SettingRow {
                                     iconChar: "▭"; title: "Display resolution"; subtitle: "Adjust the resolution to fit your connected display (Max: " + root.maxDisplayRes + ")"
-                                    CtrlSelect { options: root.displayResOptions; currentText: root.displayRes; onSelected: (v) => { root.displayRes = v; root.applyDisplayChange(); } }
+                                    CtrlSelect { options: root.displayResOptions; currentText: root.displayRes; onSelected: (v) => { root.displayRes = v; root.updateRefreshOptionsForRes(v, 0); root.applyDisplayChange(); } }
+                                }
+                                SettingRow {
+                                    iconChar: "⚡"; title: "Refresh rate"; subtitle: "Choose a higher refresh rate for smoother motion"
+                                    CtrlSelect { options: root.displayRefreshOptions; currentText: root.displayRefreshRate; onSelected: (v) => { root.displayRefreshRate = v; root.applyDisplayChange(); } }
                                 }
                                 SettingRow {
                                     iconChar: "↻"; title: "Display orientation"; subtitle: "Rotate screen layout for Wayland output"
