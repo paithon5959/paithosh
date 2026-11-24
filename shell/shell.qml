@@ -543,6 +543,7 @@ ShellRoot {
         }
 
         function togglePopover(kind, scr) {
+            if (LockService.locked) return;
             clearSuperPeek();
             ensureScreen(scr);
             if (islandApp === "picker" && detachedApp !== "picker") {
@@ -664,6 +665,7 @@ ShellRoot {
         }
 
         function openIslandApp(appKind, scr) {
+            if (LockService.locked) return;
             clearSuperPeek();
             ensureScreen(scr);
             openPopover = "";
@@ -801,6 +803,7 @@ ShellRoot {
         property string portalInitialTab: "display"
 
         function openModal(kind) {
+            if (LockService.locked) return;
             closePopovers();
             portalInitialTab = "display";
             modalKind = kind;
@@ -1013,9 +1016,30 @@ ShellRoot {
         shellState: stateObj
     }
 
+    Connections {
+        target: LockService
+        function onLockedChanged() {
+            if (LockService.locked) {
+                stateObj.closePopovers();
+                stateObj.collapseIslandApp();
+                stateObj.closeModal();
+            }
+        }
+    }
+
+    // Native Wayland Session Lock (Minimal Statusbar Lock Screen)
+    LockScreen {
+        shellState: stateObj
+        wallpaperPath: bgLayer.currentWallpaperPath
+    }
+
     // IPC API for Hyprland keybindings & KDE preview verification
     IpcHandler {
         target: "paithosh"
+
+        function lock(): void {
+            LockService.lock();
+        }
 
         function toggleLauncher(): void {
             stateObj.togglePopover("launcher", null);

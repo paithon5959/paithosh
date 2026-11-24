@@ -74,7 +74,7 @@ Singleton {
 
     function executeAction(action) {
         if (action === "Lock") {
-            Quickshell.execDetached(["sh", "-c", "command -v hyprlock >/dev/null && hyprlock || loginctl lock-session"]);
+            LockService.lock();
         } else if (action === "Logout") {
             Quickshell.execDetached(["sh", "-c", "command -v hyprctl >/dev/null && hyprctl dispatch exit || loginctl terminate-user \"$USER\""]);
         } else if (action === "Reboot") {

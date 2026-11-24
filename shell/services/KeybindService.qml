@@ -45,6 +45,7 @@ Singleton {
         { id: "dashTasks",         label: "Dashboard: Task Manager",    desc: "Open Task Manager tab in Island",         lua: 'hl.dsp.exec_cmd(qsIpc .. "toggleDashboard tasks")',   opts: "" },
         { id: "dashKde",           label: "Dashboard: KDE Connect",     desc: "Open KDE Connect tab in Island",          lua: 'hl.dsp.exec_cmd(qsIpc .. "toggleDashboard kde")',     opts: "" },
         { id: "dashPower",         label: "Dashboard: Power Station",   desc: "Open Power Station tab in Island",        lua: 'hl.dsp.exec_cmd(qsIpc .. "toggleDashboard power")',   opts: "" },
+        { id: "lockScreen",        label: "Lock Screen",                desc: "Lock session with Paithosh Statusbar Lock", lua: 'hl.dsp.exec_cmd(qsIpc .. "lock")',                    opts: "" },
         { id: "toggleHideBar",     label: "Toggle Hide Bar",            desc: "Show or hide the Dynamic Island bar",     lua: 'hl.dsp.exec_cmd(qsIpc .. "toggleHideBar")',           opts: "" },
         { id: "toggleBarPosition", label: "Swap Bar Position",          desc: "Toggle Dynamic Island top / bottom",      lua: 'hl.dsp.exec_cmd(qsIpc .. "toggleBarPosition")',       opts: "" },
         { id: "nextWallpaper",     label: "Next Wallpaper",             desc: "Cycle to the next desktop wallpaper",     lua: 'hl.dsp.exec_cmd(qsIpc .. "nextWallpaper")',           opts: "" },
@@ -710,6 +711,7 @@ def classify(action_lua, cmd):
             n = int(m_bri.group(1))
             return ("island", f"Brightness {'Up' if n >= 0 else 'Down'} ({'+' if n >= 0 else ''}{n}%)", "")
         if "cycleAlert" in c: return ("island", "Cycle Island Alert", "")
+        if re.search(r'\\block\\b', c): return ("island", "Lock Screen", "")
         short_c = c.split("ipc call paithosh", 1)[-1].strip() if "ipc call paithosh" in c else c
         return ("island", "Island: " + short_c, "")
     if "programs.terminal" in al: return ("apps", "Terminal", programs["terminal"])
