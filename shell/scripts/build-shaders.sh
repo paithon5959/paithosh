@@ -18,4 +18,8 @@ fi
     -o "$SHADER_DIR/gooey.frag.qsb" \
     "$SHADER_DIR/gooey.frag"
 
-echo "Compiled $SHADER_DIR/gooey.frag.qsb"
+"$QSB_BIN" --qt6 \
+    -o "$SHADER_DIR/cursor_blur.frag.qsb" \
+    "$SHADER_DIR/cursor_blur.frag"
+
+echo "Compiled $SHADER_DIR/gooey.frag.qsb & $SHADER_DIR/cursor_blur.frag.qsb"

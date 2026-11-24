@@ -5502,8 +5502,10 @@ Item {
                                     SettingRow {
                                         iconName: "sparkles"
                                         title: "Motion Blur Cursor"
-                                        subtitle: "Directional afterimage trail behind fast pointer movement"
-                                        searchKeywords: "cursor motion blur experimental trail"
+                                        subtitle: CursorService.motionBlur
+                                            ? ("32-tap GPU shutter blur • Synced to " + Math.round(CursorService.cursorRefreshHz) + " Hz display")
+                                            : "Continuous directional GPU blur synced to display refresh rate"
+                                        searchKeywords: "cursor motion blur experimental trail refresh rate hz"
 
                                         RowLayout {
                                             spacing: 10
@@ -5530,6 +5532,35 @@ Item {
                                                 onToggled: (v) => {
                                                     CursorService.setMotionBlur(v);
                                                     root.markAppearanceChanged();
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: CursorService.motionBlur ? blurThreshRow.implicitHeight : 0
+                                        clip: true
+                                        visible: Layout.preferredHeight > 0.5
+                                        Behavior on Layout.preferredHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                        SettingRow {
+                                            id: blurThreshRow
+                                            width: parent.width
+                                            iconName: "zap"
+                                            title: "Activation Speed"
+                                            subtitle: CursorService.motionBlurThreshold <= 0
+                                                ? "Always active • Blurs even during slow pointer movement"
+                                                : ("No shadow on slow moves • Triggers above " + CursorService.motionBlurThreshold + " px/s")
+                                            searchKeywords: "cursor motion blur activation speed threshold acceleration trigger"
+                                            opacity: CursorService.motionBlur ? 1.0 : 0.0
+                                            Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                            CtrlSlider {
+                                                from: 0; to: 2400; stepSize: 100; value: CursorService.motionBlurThreshold; unit: "px/s"
+                                                enabled: CursorService.motionBlur
+                                                onMoved: (v) => {
+                                                    CursorService.setMotionBlurThreshold(v);
                                                 }
                                             }
                                         }

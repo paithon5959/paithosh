@@ -106,6 +106,7 @@ ShellRoot {
                     if (typeof obj.cursorFixedColor === "string") CursorService.fixedColor = CursorService.normalizeHex(obj.cursorFixedColor);
                     if (typeof obj.cursorMotionBlur === "boolean") CursorService.motionBlur = obj.cursorMotionBlur;
                     if (typeof obj.cursorMotionBlurStrength === "number") CursorService.motionBlurStrength = Math.max(0.3, Math.min(1.0, obj.cursorMotionBlurStrength));
+                    if (typeof obj.cursorMotionBlurThreshold === "number") CursorService.motionBlurThreshold = Math.max(0, Math.min(2400, Math.round(obj.cursorMotionBlurThreshold)));
                 }
             } catch (e) {}
             stateObj._applyingExternalState = false;
@@ -534,7 +535,8 @@ ShellRoot {
                 cursorColorMode: CursorService.colorMode,
                 cursorFixedColor: CursorService.fixedColor,
                 cursorMotionBlur: CursorService.motionBlur,
-                cursorMotionBlurStrength: CursorService.motionBlurStrength
+                cursorMotionBlurStrength: CursorService.motionBlurStrength,
+                cursorMotionBlurThreshold: CursorService.motionBlurThreshold
             };
             settingsWriter.payload = JSON.stringify(data, null, 2);
             settingsWriter.running = false;
@@ -1099,6 +1101,7 @@ ShellRoot {
         function onFixedColorChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onMotionBlurChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onMotionBlurStrengthChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onMotionBlurThresholdChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
 
     // Experimental Motion Blur Cursor Overlay (lazy-loaded & completely click-through)

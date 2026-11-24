@@ -1008,6 +1008,32 @@ def _hypr_query(sock_path: str, cmd: bytes) -> Optional[str]:
         return None
 
 
+def _monitor_refresh_at(x: float, y: float, monitors: List[dict]) -> float:
+    """Return active monitor refresh rate in Hz at logical coordinates (x, y)."""
+    for m in monitors:
+        bx, by = float(m.get("x", 0)), float(m.get("y", 0))
+        bw, bh = float(m.get("width", 1920)), float(m.get("height", 1080))
+        scale = float(m.get("scale", 1.0) or 1.0)
+        lw, lh = max(1.0, bw / scale), max(1.0, bh / scale)
+        if bx <= x < bx + lw and by <= y < by + lh:
+            hz = float(m.get("refreshRate", 60.0) or 60.0)
+            return max(30.0, min(360.0, hz))
+    if monitors:
+        hz = float(monitors[0].get("refreshRate", 60.0) or 60.0)
+        return max(30.0, min(360.0, hz))
+    return 60.0
+
+
+def frame_velocity(dx: float, dy: float, dt: float, refresh_hz: float) -> Tuple[float, float]:
+    """Convert raw displacement over elapsed dt into exact 1-display-frame displacement (px/frame)."""
+    safe_dt = max(0.002, min(0.05, dt))
+    frame_dt = 1.0 / max(30.0, min(360.0, refresh_hz))
+    scale = frame_dt / safe_dt
+    vx = max(-110.0, min(110.0, dx * scale))
+    vy = max(-110.0, min(110.0, dy * scale))
+    return vx, vy
+
+
 def cmd_daemon(args: argparse.Namespace) -> int:
     auto_contrast = bool(args.auto_contrast)
     motion_blur = bool(args.motion_blur)
@@ -1050,7 +1076,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
 
     last_x: Optional[float] = None
     last_y: Optional[float] = None
-    last_move_ts = time.monotonic()
+    last_poll_ts = time.monotonic()
+    last_move_ts = last_poll_ts
     last_sample_x: Optional[float] = None
     last_sample_y: Optional[float] = None
     last_sample_ts = 0.0
@@ -1058,12 +1085,16 @@ def cmd_daemon(args: argparse.Namespace) -> int:
     is_moving = False
     vx = 0.0
     vy = 0.0
-    mon_refresh_ts = time.monotonic()
+    prev_vx = 0.0
+    prev_vy = 0.0
+    refresh_hz = _monitor_refresh_at(0.0, 0.0, monitors)
+    mon_refresh_ts = last_poll_ts
+    next_tick = last_poll_ts
 
     try:
         while True:
             now = time.monotonic()
-            if auto_contrast and (now - mon_refresh_ts) > 5.0:
+            if (now - mon_refresh_ts) > 5.0:
                 mon_refresh_ts = now
                 mr = _hypr_query(sock1, b"j/monitors")
                 if mr:
@@ -1084,6 +1115,8 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                             ev_sock = None
                         elif ("activewindow>>" in ev_data or "workspacev2>>" in ev_data or "focusedmon>>" in ev_data):
                             pending_contrast = True
+                            if "focusedmon>>" in ev_data:
+                                mon_refresh_ts = 0.0
                 except Exception:
                     pass
 
@@ -1095,40 +1128,51 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                 except Exception:
                     cx, cy = last_x or 0.0, last_y or 0.0
             else:
-                time.sleep(0.08)
+                time.sleep(0.05)
+                next_tick = time.monotonic()
                 continue
 
             if last_x is None or last_y is None:
                 last_x, last_y = cx, cy
                 last_sample_x, last_sample_y = cx, cy
+                last_poll_ts = now
+
+            refresh_hz = _monitor_refresh_at(cx, cy, monitors)
+            frame_dt = 1.0 / refresh_hz
+            dt = now - last_poll_ts
+            last_poll_ts = now
 
             dx = cx - last_x
             dy = cy - last_y
             dist = math.hypot(dx, dy)
 
-            if dist >= 1.0:
-                inst_vx = max(-140.0, min(140.0, dx))
-                inst_vy = max(-140.0, min(140.0, dy))
-                vx = vx * 0.45 + inst_vx * 0.55
-                vy = vy * 0.45 + inst_vy * 0.55
+            if dist >= 0.75:
+                inst_vx, inst_vy = frame_velocity(dx, dy, dt, refresh_hz)
+                prev_vx, prev_vy = vx, vy
+                # Light smoothing (0.25/0.75) suppresses 1-sample noise without adding curve lag
+                vx = vx * 0.25 + inst_vx * 0.75
+                vy = vy * 0.25 + inst_vy * 0.75
                 speed = math.hypot(vx, vy)
                 last_x, last_y = cx, cy
                 last_move_ts = now
                 is_moving = True
                 if motion_blur:
-                    sys.stdout.write(f"POS {cx:.1f} {cy:.1f} {vx:.2f} {vy:.2f} {speed:.2f}\n")
+                    sys.stdout.write(
+                        f"POS {cx:.1f} {cy:.1f} {vx:.2f} {vy:.2f} {prev_vx:.2f} {prev_vy:.2f} {speed:.2f} {refresh_hz:.1f}\n"
+                    )
                     sys.stdout.flush()
                 if auto_contrast and (
                     last_sample_x is None or math.hypot(cx - last_sample_x, cy - last_sample_y) >= 24.0
                 ):
                     pending_contrast = True
             else:
-                if is_moving and (now - last_move_ts) >= 0.08:
+                idle_for = now - last_move_ts
+                if is_moving and idle_for >= max(0.018, frame_dt * 1.4):
                     is_moving = False
-                    vx = 0.0
-                    vy = 0.0
+                    prev_vx, prev_vy = 0.0, 0.0
+                    vx, vy = 0.0, 0.0
                     if motion_blur:
-                        sys.stdout.write("IDLE\n")
+                        sys.stdout.write(f"IDLE {cx:.1f} {cy:.1f} {refresh_hz:.1f}\n")
                         sys.stdout.flush()
 
             if auto_contrast and light_theme and dark_theme:
@@ -1159,8 +1203,25 @@ def cmd_daemon(args: argparse.Namespace) -> int:
                             sys.stdout.write(f"CONTRAST {tone} {lum:.3f} {n_tag}\n")
                             sys.stdout.flush()
 
-            sleep_s = 0.013 if (motion_blur and is_moving) else 0.065
-            time.sleep(sleep_s)
+            # Refresh-rate-locked monotonic pacing with tiered idle backoff (zero wake-up lag on back-and-forth swipes)
+            idle_for = now - last_move_ts
+            if motion_blur:
+                if is_moving or idle_for < 0.35:
+                    target_dt = frame_dt
+                elif idle_for < 2.0:
+                    target_dt = 1.0 / 60.0
+                else:
+                    target_dt = 0.050
+            else:
+                target_dt = 0.065
+
+            next_tick += target_dt
+            after = time.monotonic()
+            if next_tick < after - target_dt * 1.5:
+                next_tick = after + target_dt
+            sleep_s = next_tick - after
+            if sleep_s > 0.0005:
+                time.sleep(sleep_s)
     except KeyboardInterrupt:
         return 0
     finally:
@@ -1181,6 +1242,15 @@ def run_self_test() -> int:
     assert contrast_step("dark", 0.50) == "dark"  # hysteresis hold
     assert contrast_step("light", 0.50) == "light"  # hysteresis hold
     assert contrast_step("dark", 0.25) == "light"
+    mock_mons = [
+        {"x": 0, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "refreshRate": 60.05},
+        {"x": 1920, "y": 0, "width": 2560, "height": 1440, "scale": 1.0, "refreshRate": 144.0},
+    ]
+    assert abs(_monitor_refresh_at(500, 500, mock_mons) - 60.05) < 0.1
+    assert abs(_monitor_refresh_at(2200, 500, mock_mons) - 144.0) < 0.1
+    vx60, _ = frame_velocity(30.0, 0.0, 1.0 / 60.0, 60.0)
+    vx144, _ = frame_velocity(30.0, 0.0, 1.0 / 60.0, 144.0)
+    assert abs(vx60 - 30.0) < 0.1 and abs(vx144 - 12.5) < 0.2, (vx60, vx144)
 
     with tempfile.TemporaryDirectory(prefix="paithosh-cursor-test-") as td:
         icons_dir = os.path.join(td, "icons")

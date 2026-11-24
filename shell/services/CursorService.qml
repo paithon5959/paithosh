@@ -26,6 +26,7 @@ Singleton {
     property string fixedColor: "#ffffff"
     property bool motionBlur: false
     property real motionBlurStrength: 0.65
+    property int motionBlurThreshold: 600 // px/s activation speed (0 = always, higher = faster flicks only)
 
     // Runtime & live daemon state
     property bool depsReady: true
@@ -49,7 +50,11 @@ Singleton {
     property real cursorY: 0
     property real cursorVx: 0
     property real cursorVy: 0
+    property real cursorPrevVx: 0
+    property real cursorPrevVy: 0
     property real cursorSpeed: 0
+    property real cursorRefreshHz: 60.0
+    property int cursorSampleSeq: 0
     property bool cursorMoving: false
 
     readonly property string styleLabel: {
@@ -139,6 +144,8 @@ Singleton {
             cursorMoving = false;
             cursorVx = 0;
             cursorVy = 0;
+            cursorPrevVx = 0;
+            cursorPrevVy = 0;
             cursorSpeed = 0;
         }
         _syncDaemon();
@@ -150,6 +157,13 @@ Singleton {
         motionBlurStrength = next;
     }
 
+    function setMotionBlurThreshold(val) {
+        const raw = Number(val);
+        const next = Math.max(0, Math.min(2400, Math.round((isNaN(raw) ? 600 : raw) / 50) * 50));
+        if (motionBlurThreshold === next) return;
+        motionBlurThreshold = next;
+    }
+
     function resetDefaults() {
         style = "sharp";
         size = 24;
@@ -157,6 +171,7 @@ Singleton {
         fixedColor = "#ffffff";
         motionBlur = false;
         motionBlurStrength = 0.65;
+        motionBlurThreshold = 600;
         cursorMoving = false;
         _scheduleApply(40);
     }
@@ -346,18 +361,32 @@ Singleton {
                 if (!s) return;
                 if (s.startsWith("POS ")) {
                     const parts = s.split(" ");
-                    if (parts.length >= 6) {
+                    if (parts.length >= 9) {
                         root.cursorX = parseFloat(parts[1]) || 0;
                         root.cursorY = parseFloat(parts[2]) || 0;
                         root.cursorVx = parseFloat(parts[3]) || 0;
                         root.cursorVy = parseFloat(parts[4]) || 0;
-                        root.cursorSpeed = parseFloat(parts[5]) || 0;
+                        root.cursorPrevVx = parseFloat(parts[5]) || 0;
+                        root.cursorPrevVy = parseFloat(parts[6]) || 0;
+                        root.cursorSpeed = parseFloat(parts[7]) || 0;
+                        const hz = parseFloat(parts[8]) || 60.0;
+                        root.cursorRefreshHz = Math.max(30.0, Math.min(360.0, hz));
                         root.cursorMoving = true;
+                        root.cursorSampleSeq += 1;
                     }
-                } else if (s === "IDLE") {
+                } else if (s.startsWith("IDLE")) {
+                    const parts = s.split(" ");
+                    if (parts.length >= 4) {
+                        root.cursorX = parseFloat(parts[1]) || root.cursorX;
+                        root.cursorY = parseFloat(parts[2]) || root.cursorY;
+                        const hz = parseFloat(parts[3]) || root.cursorRefreshHz;
+                        root.cursorRefreshHz = Math.max(30.0, Math.min(360.0, hz));
+                    }
                     root.cursorMoving = false;
                     root.cursorVx = 0;
                     root.cursorVy = 0;
+                    root.cursorPrevVx = 0;
+                    root.cursorPrevVy = 0;
                     root.cursorSpeed = 0;
                 } else if (s.startsWith("CONTRAST ")) {
                     const parts = s.split(" ");
