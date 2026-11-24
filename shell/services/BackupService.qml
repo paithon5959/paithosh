@@ -309,9 +309,9 @@ Singleton {
         return parent === normStore;
     }
 
-    // Unified Privileged Execution: pkexec if Polkit agent active, else shared sudo stdin modal
-    function runPrivileged(title, desc, actionLabel, argv, onDone, onLine) {
-        if (btrfsInfo && btrfsInfo.polkitAgentActive) {
+    // Unified Privileged Execution: pkexec if Polkit agent active (unless forceSudo), else shared sudo stdin modal
+    function runPrivileged(title, desc, actionLabel, argv, onDone, onLine, forceSudo) {
+        if (!forceSudo && btrfsInfo && btrfsInfo.polkitAgentActive) {
             runCmd(["pkexec"].concat(argv), (ok, out, err, code) => {
                 const parsed = extractResultJson(out);
                 if (onDone) onDone(ok, parsed, out, err, code);

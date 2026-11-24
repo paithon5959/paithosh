@@ -416,6 +416,71 @@ PanelWindow {
                         }
                     }
 
+                    // 1b. VPN Status Slot (inside main statusbar)
+                    IslandSlot {
+                        id: slotVpn
+                        open: (VpnProxyService.activeTunnel !== "" || VpnProxyService.busy) && !root.anyTransientSlot
+                        maxSlotWidth: 190
+
+                        Item {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: vpnInlineRow.implicitWidth + 16
+                            height: 30
+                            scale: vpnInlineMouse.pressed ? 0.94 : 1.0
+                            Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                            Row {
+                                id: vpnInlineRow
+                                anchors.centerIn: parent
+                                spacing: 6
+
+                                Rectangle {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 7
+                                    height: 7
+                                    radius: 3.5
+                                    color: VpnProxyService.busy
+                                           ? Theme.warn
+                                           : (VpnProxyService.activeTunnel !== "" ? Theme.ok : Theme.textMuted)
+                                    Behavior on color { ColorAnimation { duration: 200 } }
+                                }
+
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: VpnProxyService.busy
+                                          ? (VpnProxyService.busyTunnel !== "" ? VpnProxyService.busyTunnel + "…" : "VPN…")
+                                          : (VpnProxyService.activeTunnel !== "" ? VpnProxyService.activeTunnel : "VPN Off")
+                                    color: VpnProxyService.activeTunnel !== ""
+                                           ? Theme.text
+                                           : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.78)
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: 14
+                                    font.weight: Font.Medium
+                                    elide: Text.ElideRight
+                                    width: Math.min(implicitWidth, 140)
+                                }
+                            }
+
+                            MouseArea {
+                                id: vpnInlineMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onEntered: root.hovered = true
+                                onExited: root.hovered = false
+                                onClicked: {
+                                    if (VpnProxyService.activeTunnel !== "") {
+                                        VpnProxyService.toggleTunnel(VpnProxyService.activeTunnel);
+                                    } else if (root.shellState) {
+                                        root.shellState.settingsPage = "vpn";
+                                        root.shellState.islandApp = "settings";
+                                        root.shellState.islandExpanded = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // 2. Inline Global Search Slot
                     IslandSlot {
                         id: slotSearch

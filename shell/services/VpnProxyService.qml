@@ -85,14 +85,49 @@ Singleton {
         busy = true;
         busyTunnel = name;
         const action = target.active ? "down" : "up";
-        wgActionProc.command = ["pkexec", "wg-quick", action, target.path];
-        wgActionProc.running = true;
+        const title = target.active ? "Disconnect WireGuard" : "Connect WireGuard";
+        const desc = (target.active ? "Disconnect" : "Connect") + " tunnel \"" + name + "\" using wg-quick.";
+        BackupService.runPrivileged(
+            title,
+            desc,
+            target.active ? "Disconnect" : "Connect",
+            ["wg-quick", action, target.path],
+            (ok, parsed, out, err, code) => {
+                root.busy = false;
+                root.busyTunnel = "";
+                if (!ok) {
+                    const errText = (err || "").trim();
+                    if (errText) {
+                        root.lastError = errText.split("\n").slice(-2).join(" ");
+                    } else if (!root.lastError) {
+                        root.lastError = "wg-quick failed (exit " + code + ")";
+                    }
+                }
+                root.refresh();
+            },
+            null,
+            true
+        );
     }
 
     function importConfigFile() {
         if (busy) return;
         lastError = "";
         filePickerProc.running = true;
+    }
+
+    function normalizeConfig(content) {
+        let out = content.split("\n").map(line => {
+            const m = line.match(/^(\s*(?:Address|DNS|AllowedIPs)\s*=\s*)(.+)$/i);
+            if (!m) return line;
+            const parts = m[2].split(",").map(s => s.trim()).filter(Boolean);
+            const v4 = parts.filter(p => p.indexOf(":") === -1);
+            return v4.length > 0 ? (m[1] + v4.join(", ")) : line;
+        }).join("\n");
+        if (!/^\s*MTU\s*=/im.test(out)) {
+            out = out.replace(/(\[Interface\][^\n]*\n?)/i, "$1MTU = 1280\n");
+        }
+        return out;
     }
 
     function saveConfigText(rawName, content) {
@@ -106,7 +141,7 @@ Singleton {
             return false;
         }
         lastError = "";
-        const b64 = Qt.btoa(content);
+        const b64 = Qt.btoa(normalizeConfig(content));
         const dest = userWgDir + "/" + name + ".conf";
         saveConfigProc.command = [
             "bash", "-c",
@@ -263,26 +298,6 @@ Singleton {
     }
 
     Process {
-        id: wgActionProc
-        stderr: StdioCollector {
-            onStreamFinished: {
-                const err = text.trim();
-                if (err && wgActionProc.exitCode !== 0) {
-                    root.lastError = err.split("\n").slice(-2).join(" ");
-                }
-            }
-        }
-        onExited: (exitCode, exitStatus) => {
-            root.busy = false;
-            root.busyTunnel = "";
-            if (exitCode !== 0 && !root.lastError) {
-                root.lastError = "wg-quick failed (exit " + exitCode + ")";
-            }
-            root.refresh();
-        }
-    }
-
-    Process {
         id: filePickerProc
         command: [
             "zenity", "--file-selection",
@@ -301,9 +316,9 @@ Singleton {
                 const clean = root.sanitizeName(base) || "wg0";
                 const dest = root.userWgDir + "/" + clean + ".conf";
                 copyImportProc.command = [
-                    "bash", "-c",
-                    "mkdir -p \"$1\" && cp \"$2\" \"$3\" && chmod 600 \"$3\"",
-                    "sh", root.userWgDir, picked, dest
+                    "python3", "-c",
+                    "import os, re, sys\ndir_, src, dst = sys.argv[1:4]\nos.makedirs(dir_, exist_ok=True)\nwith open(src, 'r', encoding='utf-8', errors='replace') as f: txt = f.read()\nlines = []\nfor line in txt.splitlines():\n    m = re.match(r'^(\\s*(?:Address|DNS|AllowedIPs)\\s*=\\s*)(.+)$', line, re.I)\n    if m:\n        v4 = [p.strip() for p in m.group(2).split(',') if p.strip() and ':' not in p]\n        if v4: line = m.group(1) + ', '.join(v4)\n    lines.append(line)\nout = '\\n'.join(lines) + '\\n'\nif not re.search(r'^\\s*MTU\\s*=', out, re.I | re.M):\n    out = re.sub(r'(\\[Interface\\][^\\n]*\\n?)', r'\\1MTU = 1280\\n', out, count=1, flags=re.I)\nwith open(dst, 'w', encoding='utf-8') as f: f.write(out)\nos.chmod(dst, 0o600)\n",
+                    root.userWgDir, picked, dest
                 ];
                 copyImportProc.running = true;
             }
