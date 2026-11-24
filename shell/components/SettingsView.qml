@@ -308,6 +308,7 @@ Item {
         { key: "network", label: "Network & internet", icon: "◈", group: "network", sub: false, hasChildren: true },
         { key: "wifi", label: "Wi-Fi", icon: "", group: "network", sub: true },
         { key: "vpn", label: "VPN & Proxy", icon: "", group: "network", sub: true },
+        { key: "discord_rpc", label: "Discord RPC", icon: "", group: "network", sub: true },
         { key: "personalization", label: "Personalization", icon: "✎", group: "personalization", sub: false, hasChildren: true },
         { key: "appearance", label: "Appearance", icon: "", group: "personalization", sub: true },
         { key: "keybind", label: "Binding", icon: "", group: "personalization", sub: true },
@@ -363,7 +364,7 @@ Item {
         currentPage = resolved;
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
         if (["display", "sound", "power", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
-        if (["wifi", "vpn"].indexOf(resolved) !== -1) networkOpen = true;
+        if (["wifi", "vpn", "discord_rpc"].indexOf(resolved) !== -1) networkOpen = true;
         if (["appearance", "keybind", "layout"].indexOf(resolved) !== -1) personalizationOpen = true;
         pageFlick.contentY = 0;
         pageInAnim.restart();
@@ -3182,6 +3183,13 @@ Item {
                             SectionLabel { text: "Network options" }
                             HubCard { iconChar: "◈"; title: "Wi-Fi"; subtitle: "Wireless networks, SSID & signal"; pillText: NetworkService.wifiEnabled ? NetworkService.activeSsid : "Off"; onTriggered: { root.openPage("wifi"); NetworkService.refreshNetworks(true); } }
                             HubCard { iconChar: "🛡"; title: "VPN & Proxy"; subtitle: "WireGuard tunnels & HTTP proxy"; pillText: VpnProxyService.vpnActive ? ("WireGuard • " + VpnProxyService.activeTunnel) : "WireGuard • Standby"; onTriggered: root.openPage("vpn") }
+                            HubCard {
+                                iconChar: "◈"
+                                title: "Discord RPC"
+                                subtitle: "Live presence & Linux larper persona"
+                                pillText: !DiscordRpcService.enabled ? "Off" : (DiscordRpcService.connected ? "Connected" : "Discord Offline")
+                                onTriggered: root.openPage("discord_rpc")
+                            }
                             HubCard { iconChar: "◉"; title: "DNS & Routing"; subtitle: "Encrypted DoH & split-horizon"; pillText: "1.1.1.1 • DoH Active"; onTriggered: {} }
                             HubCard { iconChar: "📱"; title: "KDE Connect & Share"; subtitle: "Local LAN pairing & file drop"; pillText: "Pixel 8 Pro • Paired"; onTriggered: {} }
 
@@ -3615,6 +3623,376 @@ Item {
                                 }
                             }
                         }
+                        }
+
+                        // ==================== 9b. DISCORD RPC ====================
+                        Loader {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: item ? item.implicitHeight : 0
+                            visible: root.currentPage === "discord_rpc"
+                            active: Boolean(root.loadedPages["discord_rpc"])
+                            sourceComponent: ColumnLayout {
+                                id: rpcPage
+                                spacing: 12
+
+                                // Live Presence Preview Card (concentric r:12, semantic status border)
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    implicitHeight: rpcPreviewCol.implicitHeight + 28
+                                    radius: 12
+                                    clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1
+                                    border.color: !DiscordRpcService.enabled
+                                        ? Theme.borderSubtle
+                                        : (DiscordRpcService.connected
+                                            ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.42)
+                                            : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42))
+                                    Behavior on border.color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                                    ColumnLayout {
+                                        id: rpcPreviewCol
+                                        anchors.fill: parent
+                                        anchors.margins: 14
+                                        spacing: 10
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 10
+
+                                            Rectangle {
+                                                Layout.alignment: Qt.AlignVCenter
+                                                width: 34; height: 34; radius: 10; clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+                                                SvgIcon {
+                                                    anchors.centerIn: parent
+                                                    sourceName: "terminal"
+                                                    iconSize: 16
+                                                    color: DiscordRpcService.connected ? Theme.ok : (DiscordRpcService.enabled ? Theme.warn : Theme.textMuted)
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                Layout.alignment: Qt.AlignVCenter
+                                                spacing: 2
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: "Live Discord Presence"
+                                                    color: Theme.text
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 14
+                                                    font.weight: Font.DemiBold
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: DiscordRpcService.connected
+                                                        ? ((DiscordRpcService.currentDetails || "Paithosh Shell") + " • " + (DiscordRpcService.currentState || "Wayland"))
+                                                        : (!DiscordRpcService.enabled
+                                                            ? "Presence paused — toggle below to broadcast again"
+                                                            : "Waiting for Discord IPC socket (auto-connects when Discord opens)")
+                                                    color: Theme.textSub
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 12
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                readonly property bool showStatusPill: !DiscordRpcService.connected
+                                                Layout.alignment: Qt.AlignVCenter
+                                                Layout.preferredWidth: showStatusPill ? (statusPillLbl.implicitWidth + 14) : 0
+                                                height: 22
+                                                radius: 11
+                                                clip: true
+                                                opacity: showStatusPill ? 1.0 : 0.0
+                                                color: !DiscordRpcService.enabled
+                                                    ? Theme.surfaceRaised
+                                                    : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                border.width: showStatusPill ? 1 : 0
+                                                border.color: !DiscordRpcService.enabled
+                                                    ? Theme.borderSubtle
+                                                    : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.38)
+                                                Behavior on Layout.preferredWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                Text {
+                                                    id: statusPillLbl
+                                                    anchors.centerIn: parent
+                                                    text: !DiscordRpcService.enabled ? "DISABLED" : "DISCORD OFFLINE"
+                                                    color: !DiscordRpcService.enabled ? Theme.textMuted : Theme.warn
+                                                    font.family: Theme.fontMono
+                                                    font.pixelSize: 10
+                                                    font.weight: Font.DemiBold
+                                                }
+                                            }
+
+                                            CtrlBtn {
+                                                Layout.alignment: Qt.AlignVCenter
+                                                text: "Reroll"
+                                                enabled: DiscordRpcService.enabled && DiscordRpcService.connected && DiscordRpcService.preset !== "custom"
+                                                opacity: enabled ? 1.0 : 0.45
+                                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                onClicked: DiscordRpcService.reroll()
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Presets-First Progressive Disclosure
+                                SectionLabel { text: "Larper Persona Presets" }
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    columnSpacing: 10
+                                    rowSpacing: 10
+
+                                    PresetCard {
+                                        title: "Time-of-Day Vibe"
+                                        subtitle: "Rotates chill status lines from morning coffee to 3AM debugging"
+                                        badge: "Auto"
+                                        searchKeywords: "discord rpc auto time morning night"
+                                        active: DiscordRpcService.preset === "auto"
+                                        onTriggered: DiscordRpcService.preset = "auto"
+                                    }
+                                    PresetCard {
+                                        title: "Elite Linux Larper"
+                                        subtitle: "Compiling kernels with -O3 & benchmarking 0.2ms bar latency"
+                                        badge: "Flex"
+                                        searchKeywords: "discord rpc larper linux rice hyprland kernel"
+                                        active: DiscordRpcService.preset === "larper"
+                                        onTriggered: DiscordRpcService.preset = "larper"
+                                    }
+                                    PresetCard {
+                                        title: "Honest Paithosh"
+                                        subtitle: "Entirely vibecoded satire — actually daily-driving KDE on Fedora"
+                                        badge: "README"
+                                        searchKeywords: "discord rpc satire honest readme kde fedora vibecoded"
+                                        active: DiscordRpcService.preset === "satire"
+                                        onTriggered: DiscordRpcService.preset = "satire"
+                                    }
+                                    PresetCard {
+                                        title: "Stealth Minimal"
+                                        subtitle: "Clean, understated Paithosh Shell • Wayland status"
+                                        badge: "Clean"
+                                        searchKeywords: "discord rpc minimal clean stealth"
+                                        active: DiscordRpcService.preset === "minimal"
+                                        onTriggered: DiscordRpcService.preset = "minimal"
+                                    }
+                                    PresetCard {
+                                        Layout.columnSpan: 2
+                                        title: "Custom Flex"
+                                        subtitle: "Write your own two-line Discord presence with instant live sync"
+                                        badge: "Custom"
+                                        searchKeywords: "discord rpc custom text details state"
+                                        active: DiscordRpcService.preset === "custom"
+                                        onTriggered: DiscordRpcService.preset = "custom"
+                                    }
+                                }
+
+                                // Smoothly animated Custom Flex inputs (zero dead snap)
+                                Item {
+                                    id: customFlexWrap
+                                    Layout.fillWidth: true
+                                    readonly property bool shown: DiscordRpcService.preset === "custom"
+                                    Layout.preferredHeight: shown ? customFlexGroup.implicitHeight : 0
+                                    opacity: shown ? 1.0 : 0.0
+                                    clip: true
+                                    Behavior on Layout.preferredHeight { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                                    Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+
+                                    SettingGroup {
+                                        id: customFlexGroup
+                                        width: parent.width
+
+                                        SettingRow {
+                                            showDivider: false
+                                            title: "Details (Line 1)"
+                                            subtitle: "Primary activity line shown under app name"
+                                            searchKeywords: "discord rpc custom details line 1"
+                                            Rectangle {
+                                                width: 240; height: 32; radius: 8; clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: customDetailsInput.activeFocus ? Theme.accent : Theme.borderSubtle
+                                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                AnimatedTextInput {
+                                                    id: customDetailsInput
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10; anchors.rightMargin: 10
+                                                    verticalAlignment: TextInput.AlignVCenter
+                                                    textColor: Theme.text
+                                                    font.family: Theme.fontSans; font.pixelSize: 12; clip: true
+                                                    text: DiscordRpcService.customDetails
+                                                    onTextEdited: DiscordRpcService.customDetails = text
+                                                    Text {
+                                                        anchors.fill: parent; verticalAlignment: Text.AlignVCenter
+                                                        text: "Compiling kernel with -O3..."
+                                                        color: Theme.textMuted; font: customDetailsInput.font
+                                                        visible: customDetailsInput.text.length === 0; elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        SettingRow {
+                                            title: "State (Line 2)"
+                                            subtitle: "Secondary flex line shown below details"
+                                            searchKeywords: "discord rpc custom state line 2"
+                                            Rectangle {
+                                                width: 240; height: 32; radius: 8; clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: customStateInput.activeFocus ? Theme.accent : Theme.borderSubtle
+                                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                AnimatedTextInput {
+                                                    id: customStateInput
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10; anchors.rightMargin: 10
+                                                    verticalAlignment: TextInput.AlignVCenter
+                                                    textColor: Theme.text
+                                                    font.family: Theme.fontSans; font.pixelSize: 12; clip: true
+                                                    text: DiscordRpcService.customState
+                                                    onTextEdited: DiscordRpcService.customState = text
+                                                    Text {
+                                                        anchors.fill: parent; verticalAlignment: Text.AlignVCenter
+                                                        text: "I use Fedora btw..."
+                                                        color: Theme.textMuted; font: customStateInput.font
+                                                        visible: customStateInput.text.length === 0; elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        SettingRow {
+                                            title: "Dynamic Flex Tokens"
+                                            subtitle: "Click to insert live desktop values into your custom text"
+                                            searchKeywords: "discord rpc custom token window uptime theme time"
+                                            RowLayout {
+                                                spacing: 6
+                                                Repeater {
+                                                    model: ["{window}", "{uptime}", "{theme}", "{time}"]
+                                                    CtrlBtn {
+                                                        required property string modelData
+                                                        text: "+ " + modelData
+                                                        onClicked: {
+                                                            const tok = modelData;
+                                                            if (customDetailsInput.activeFocus) {
+                                                                const cur = DiscordRpcService.customDetails.trim();
+                                                                DiscordRpcService.customDetails = cur !== "" ? (cur + " • " + tok) : tok;
+                                                            } else {
+                                                                const cur = DiscordRpcService.customState.trim();
+                                                                DiscordRpcService.customState = cur !== "" ? (cur + " • " + tok) : tok;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Core Presence Settings
+                                SectionLabel { text: "Presence Behavior" }
+                                SettingGroup {
+                                    SettingRow {
+                                        showDivider: false
+                                        title: "Enable Discord RPC"
+                                        subtitle: "Automatically detect Discord IPC and broadcast shell presence"
+                                        searchKeywords: "discord rpc enable toggle broadcast"
+                                        CtrlSwitch {
+                                            checked: DiscordRpcService.enabled
+                                            onToggled: (v) => DiscordRpcService.enabled = v
+                                        }
+                                    }
+                                    SettingRow {
+                                        title: "Show Active Theme Preset"
+                                        subtitle: "Append current Paithosh theme (" + Theme.activePreset + ") to status line"
+                                        searchKeywords: "discord rpc theme preset show"
+                                        CtrlSwitch {
+                                            checked: DiscordRpcService.showTheme
+                                            onToggled: (v) => DiscordRpcService.showTheme = v
+                                        }
+                                    }
+                                    SettingRow {
+                                        title: "Show Session Elapsed Timer"
+                                        subtitle: "Display live uptime counter on your Discord profile"
+                                        searchKeywords: "discord rpc elapsed timer uptime"
+                                        CtrlSwitch {
+                                            checked: DiscordRpcService.showElapsed
+                                            onToggled: (v) => DiscordRpcService.showElapsed = v
+                                        }
+                                    }
+                                }
+
+                                // Advanced tuning collapsed by default
+                                AdvancedSection {
+                                    expanded: false
+                                    title: "Advanced RPC Settings"
+                                    subtitle: "Rotation cadence & custom Discord Application ID"
+
+                                    SettingRow {
+                                        showDivider: false
+                                        title: "Rotation Interval"
+                                        subtitle: "How often preset lines cycle while connected"
+                                        searchKeywords: "discord rpc interval rotation seconds"
+                                        CtrlSlider {
+                                            from: 15; to: 300; stepSize: 15
+                                            unit: "s"
+                                            value: DiscordRpcService.updateInterval
+                                            onMoved: (v) => DiscordRpcService.updateInterval = Math.round(v)
+                                        }
+                                    }
+
+                                    SettingRow {
+                                        title: "Discord Application ID"
+                                        subtitle: "Custom Developer Portal client ID (reconnects automatically)"
+                                        searchKeywords: "discord rpc client id application developer"
+                                        RowLayout {
+                                            spacing: 8
+                                            Rectangle {
+                                                width: 190; height: 30; radius: 8; clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: clientIdInput.activeFocus ? Theme.accent : Theme.borderSubtle
+                                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                AnimatedTextInput {
+                                                    id: clientIdInput
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10; anchors.rightMargin: 10
+                                                    verticalAlignment: TextInput.AlignVCenter
+                                                    textColor: Theme.text
+                                                    font.family: Theme.fontMono; font.pixelSize: 11; clip: true
+                                                    text: DiscordRpcService.clientId
+                                                    onEditingFinished: DiscordRpcService.clientId = text.trim()
+                                                    Text {
+                                                        anchors.fill: parent; verticalAlignment: Text.AlignVCenter
+                                                        text: DiscordRpcService.defaultClientId
+                                                        color: Theme.textMuted; font: clientIdInput.font
+                                                        visible: clientIdInput.text.length === 0; elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+                                            CtrlBtn {
+                                                text: "Reset"
+                                                onClicked: {
+                                                    DiscordRpcService.resetClientId();
+                                                    clientIdInput.text = DiscordRpcService.defaultClientId;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // ==================== 10. PERSONALIZATION (MAINPAGE) ====================

@@ -12,6 +12,12 @@ ShellRoot {
         id: bgLayer
     }
 
+    Binding {
+        target: DiscordRpcService
+        property: "themeName"
+        value: Theme.activePreset
+    }
+
     property string profileDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh"
     property string settingsPath: profileDir + "/settings.json"
 

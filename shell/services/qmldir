@@ -20,3 +20,4 @@ singleton ScreenRecordService 1.0 ScreenRecordService.qml
 singleton SoundService 1.0 SoundService.qml
 singleton StorageService 1.0 StorageService.qml
 singleton LockService 1.0 LockService.qml
+singleton DiscordRpcService 1.0 DiscordRpcService.qml

@@ -240,6 +240,15 @@ QtObject {
             keywords: "wireguard wg0 tunnel dns proxy privacy",
             icon: "⌖"
         },
+        {
+            id: "network-discord-rpc",
+            page: "discord_rpc",
+            pageLabel: "Discord RPC",
+            title: "Discord RPC",
+            subtitle: "Live Discord Rich Presence, Linux larper presets & custom flex",
+            keywords: "discord rpc rich presence larper satire status custom client id",
+            icon: "◈"
+        },
 
         // Personalization
         {
