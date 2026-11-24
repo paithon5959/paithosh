@@ -2631,7 +2631,9 @@ Item {
                                     Layout.topMargin: 8
                                     Layout.bottomMargin: 10
                                     spacing: 5
-                                    visible: PackageService.shellUpdateBehind > 0 && PackageService.shellCommits.length > 0
+                                    visible: PackageService.shellUpdateStream !== "release"
+                                        && PackageService.shellUpdateBehind > 0
+                                        && PackageService.shellCommits.length > 0
                                     Repeater {
                                         model: PackageService.shellCommits
                                         RowLayout {
@@ -2660,6 +2662,34 @@ Item {
                                         color: Theme.textMuted
                                         font.family: Theme.fontMono
                                         font.pixelSize: 11
+                                    }
+                                }
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 14
+                                    Layout.rightMargin: 14
+                                    Layout.topMargin: 8
+                                    Layout.bottomMargin: 10
+                                    spacing: 4
+                                    visible: PackageService.shellUpdateStream === "release"
+                                        && (PackageService.shellUpdateBehind > 0 || PackageService.shellUpdateAhead > 0)
+                                        && PackageService.shellReleaseChangelog !== ""
+                                    Text {
+                                        text: "CHANGELOG"
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontMono
+                                        font.pixelSize: 10
+                                        font.weight: Font.DemiBold
+                                        font.letterSpacing: 0.6
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        text: PackageService.shellReleaseChangelog
+                                        color: Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 12
+                                        wrapMode: Text.Wrap
                                     }
                                 }
                                 SettingRow {

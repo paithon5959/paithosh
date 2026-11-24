@@ -41,6 +41,7 @@ Singleton {
     property string shellCurrentTag: ""
     property string shellTargetVersion: ""
     property string shellLatestSummary: ""
+    property string shellReleaseChangelog: ""
     property var shellCommits: []
     property string shellUpdateError: ""
 
@@ -197,6 +198,7 @@ Singleton {
         shellUpdateAhead = 0;
         shellTargetVersion = "";
         shellLatestSummary = "";
+        shellReleaseChangelog = "";
         shellCommits = [];
         shellUpdateError = "";
         saveSettings();
@@ -914,11 +916,13 @@ Singleton {
             const lines = (outBuf || "").trim().split("\n");
             let err = "";
             const commits = [];
+            const changelogLines = [];
             for (let i = 0; i < lines.length; ++i) {
                 const eq = lines[i].indexOf("=");
                 if (eq === -1) continue;
                 const k = lines[i].slice(0, eq);
-                const v = lines[i].slice(eq + 1).trim();
+                const rawV = lines[i].slice(eq + 1).replace(/\r$/, "");
+                const v = rawV.trim();
                 if (k === "ERR") err = v;
                 else if (k === "BRANCH") root.shellBranch = v;
                 else if (k === "LOCAL") root.shellCommit = v;
@@ -927,13 +931,17 @@ Singleton {
                 else if (k === "BEHIND") root.shellUpdateBehind = parseInt(v, 10) || 0;
                 else if (k === "AHEAD") root.shellUpdateAhead = parseInt(v, 10) || 0;
                 else if (k === "SUMMARY") root.shellLatestSummary = v;
+                else if (k === "CHANGELOG") changelogLines.push(rawV);
                 else if (k === "COMMIT" && v !== "") {
                     const sp = v.indexOf(" ");
                     if (sp !== -1) commits.push({ hash: v.slice(0, sp), subject: v.slice(sp + 1).trim() });
                     else commits.push({ hash: v, subject: "" });
                 }
             }
-            root.shellCommits = (_exitCode === 0 && root.shellUpdateBehind > 0) ? commits : [];
+            root.shellCommits = (_exitCode === 0 && root.shellUpdateStream !== "release" && root.shellUpdateBehind > 0) ? commits : [];
+            root.shellReleaseChangelog = (_exitCode === 0 && root.shellUpdateStream === "release" && (root.shellUpdateBehind > 0 || root.shellUpdateAhead > 0))
+                ? changelogLines.join("\n").trim()
+                : "";
             if (_exitCode !== 0) {
                 const fallbackErr = root.extractShellError(errBuf);
                 root.shellUpdateError = err !== "" ? err : (fallbackErr !== "" ? fallbackErr : "Failed to check shell updates");
@@ -970,7 +978,7 @@ Singleton {
                 "ahead=$(git -C \"$dir\" rev-list --count \"${latest_tag}..HEAD\" 2>/dev/null || echo 0); fi; " +
                 "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$latest_tag\" 2>/dev/null || echo ''); " +
                 "printf 'BRANCH=%s\\nLOCAL=%s\\nCUR_TAG=%s\\nTARGET=%s\\nBEHIND=%s\\nAHEAD=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$cur_tag\" \"$latest_tag\" \"$behind\" \"$ahead\" \"$summary\"; " +
-                "[ \"$behind\" -gt 0 ] 2>/dev/null && git -C \"$dir\" log --pretty=format:'COMMIT=%h %s' -n 30 \"HEAD..${latest_tag}\" 2>/dev/null || true; " +
+                "([ \"$behind\" -gt 0 ] || [ \"$ahead\" -gt 0 ]) 2>/dev/null && git -C \"$dir\" tag -l --format='%(contents)' \"$latest_tag\" 2>/dev/null | sed 's/^/CHANGELOG=/' || true; " +
             "else " +
                 "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
                 "if git -C \"$dir\" rev-parse --verify \"${remote}/main\" >/dev/null 2>&1; then target=\"${remote}/main\"; " +
@@ -1023,6 +1031,7 @@ Singleton {
                 root.shellUpdateBehind = 0;
                 root.shellUpdateAhead = 0;
                 root.shellLatestSummary = "";
+                root.shellReleaseChangelog = "";
                 root.shellCommits = [];
                 root.shellUpdateError = "";
                 root.checkHyprSyncStatus();
