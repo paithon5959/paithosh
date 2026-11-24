@@ -85,13 +85,147 @@ Singleton {
     property bool _ambientActive: false
     property bool _ambientPreview: false
     property string _ambientPreset: "wind"
-    readonly property bool previewAmbientPlaying: _ambientPreview && ambientLoopProc.running
+    property real _ambientGain: 0.0
+    property real _ambientTargetGain: 0.0
+    property int _ambientPendingFadeMs: 0
+    readonly property bool _mediaPlaying: MediaService.isPlaying
+    readonly property bool previewAmbientPlaying: _ambientPreview && _ambientTargetGain > 0.01
     readonly property real _effectiveAmbientVol: Math.max(0.0, Math.min(1.0, root.volume * (LockService.ambientVolume / 100.0) * 0.45))
+
+    function _findAmbientNode() {
+        const streams = AudioService.playbackStreams;
+        for (let i = 0; i < streams.length; i++) {
+            const n = streams[i];
+            if (!n || !n.audio || !n.properties) continue;
+            if (n.properties["application.name"] === "paithosh-lock-ambient") return n;
+        }
+        return null;
+    }
+
+    function _applyAmbientVolume() {
+        const n = _findAmbientNode();
+        if (n && n.audio) {
+            const targetLinear = Math.max(0.0, Math.min(1.0, _effectiveAmbientVol));
+            const targetPerceptual = targetLinear > 0.0001 ? Math.pow(targetLinear, 1.0 / 3.0) : 0.0;
+            n.audio.volume = Math.max(0.0, Math.min(1.0, targetPerceptual * _ambientGain));
+        }
+    }
+
+    function _beginAmbientFade(toGain, durationMs) {
+        ambientFadeAnim.stop();
+        _ambientTargetGain = toGain;
+        const dist = Math.abs(toGain - _ambientGain);
+        if (dist < 0.005) {
+            _ambientGain = toGain;
+            _applyAmbientVolume();
+            if (toGain <= 0.001 && ambientLoopProc.running) {
+                ambientLoopProc.running = false;
+            }
+            return;
+        }
+        ambientFadeAnim.from = _ambientGain;
+        ambientFadeAnim.to = toGain;
+        ambientFadeAnim.duration = Math.max(160, Math.round(durationMs * dist));
+        ambientFadeAnim.start();
+    }
+
+    function _fadeInAmbient(durationMs) {
+        const file = _ambientFiles[_ambientPreset];
+        if (!file || !enabled || LockService.silentMode) return;
+        _ambientTargetGain = 1.0;
+        if (!ambientLoopProc.running) {
+            _ambientGain = 0.0;
+            _ambientPendingFadeMs = durationMs;
+            ambientLoopProc.command = _ambientCmd(file, 1.0);
+            ambientLoopProc.running = true;
+            ambientAttachTimer.restart();
+        } else {
+            _ambientPendingFadeMs = 0;
+            ambientAttachTimer.stop();
+            _beginAmbientFade(1.0, durationMs);
+        }
+    }
+
+    function _fadeOutAmbient(durationMs) {
+        _ambientTargetGain = 0.0;
+        _ambientPendingFadeMs = 0;
+        ambientAttachTimer.stop();
+        if (!ambientLoopProc.running) {
+            _ambientGain = 0.0;
+            return;
+        }
+        if (_findAmbientNode()) {
+            _beginAmbientFade(0.0, durationMs);
+        } else {
+            ambientFadeAnim.stop();
+            _ambientGain = 0.0;
+            ambientLoopProc.running = false;
+        }
+    }
+
+    function _syncLockAmbientState() {
+        const shouldPlay = _ambientActive && enabled && !LockService.silentMode && !_mediaPlaying && Boolean(_ambientFiles[_ambientPreset]);
+        if (shouldPlay) {
+            _fadeInAmbient(1400);
+        } else {
+            _fadeOutAmbient(700);
+        }
+    }
+
+    on_AmbientGainChanged: _applyAmbientVolume()
+    on_EffectiveAmbientVolChanged: _applyAmbientVolume()
+    on_MediaPlayingChanged: {
+        if (_ambientActive && !_ambientPreview) {
+            _syncLockAmbientState();
+        }
+    }
+
+    Connections {
+        target: AudioService
+        function onPlaybackStreamsChanged() {
+            if (!ambientLoopProc.running) return;
+            const n = root._findAmbientNode();
+            if (!n) return;
+            root._applyAmbientVolume();
+            if (root._ambientPendingFadeMs > 0 && root._ambientTargetGain > 0.01) {
+                const dur = root._ambientPendingFadeMs;
+                root._ambientPendingFadeMs = 0;
+                ambientAttachTimer.stop();
+                root._beginAmbientFade(1.0, dur);
+            }
+        }
+    }
+
+    NumberAnimation {
+        id: ambientFadeAnim
+        target: root
+        property: "_ambientGain"
+        easing.type: Easing.InOutSine
+        onStopped: {
+            if (root._ambientTargetGain <= 0.001 && root._ambientGain <= 0.005) {
+                ambientLoopProc.running = false;
+            }
+        }
+    }
+
+    Timer {
+        id: ambientAttachTimer
+        interval: 160
+        repeat: false
+        onTriggered: {
+            if (root._ambientPendingFadeMs > 0 && root._ambientTargetGain > 0.01 && ambientLoopProc.running) {
+                const dur = root._ambientPendingFadeMs;
+                root._ambientPendingFadeMs = 0;
+                root._applyAmbientVolume();
+                root._beginAmbientFade(1.0, dur);
+            }
+        }
+    }
 
     function _ambientCmd(file, vol) {
         return [
             "bash", "-c",
-            "exec pw-cat -p --raw --rate=48000 --channels=1 --format=s16 --volume=\"$2\" - < <(while tail -c +45 \"$1\"; do :; done)",
+            "exec pw-cat -p --raw --rate=48000 --channels=1 --format=s16 --volume=\"$2\" -P application.name=paithosh-lock-ambient - < <(while tail -c +45 \"$1\"; do :; done)",
             "_",
             _soundPath(file),
             vol.toFixed(2)
@@ -106,12 +240,17 @@ Singleton {
             if (root._ambientPreview && root.enabled && !LockService.silentMode) {
                 const file = root._ambientFiles[root._ambientPreset];
                 if (file) {
+                    ambientFadeAnim.stop();
                     ambientLoopProc.running = false;
-                    ambientLoopProc.command = root._ambientCmd(file, root._effectiveAmbientVol);
+                    root._ambientGain = 0.0;
+                    root._ambientTargetGain = 1.0;
+                    root._ambientPendingFadeMs = 520;
+                    ambientLoopProc.command = root._ambientCmd(file, 1.0);
                     ambientLoopProc.running = true;
+                    ambientAttachTimer.restart();
                 } else {
                     root._ambientPreview = false;
-                    ambientLoopProc.running = false;
+                    root._fadeOutAmbient(320);
                 }
             }
         }
@@ -120,7 +259,7 @@ Singleton {
     Process {
         id: ambientLoopProc
         running: false
-        command: root._ambientCmd("lock-wind.wav", 0.16)
+        command: root._ambientCmd("lock-wind.wav", 0.0)
     }
 
     function _soundPath(file) {
@@ -137,7 +276,7 @@ Singleton {
             const n = streams[i];
             if (!n || !n.audio) continue;
             const appName = n.properties ? n.properties["application.name"] : "";
-            if (n.name === "pw-play" || appName === "pw-play") continue;
+            if (n.name === "pw-play" || appName === "pw-play" || appName === "paithosh-lock-ambient") continue;
             const key = String(n.id);
             if (_savedStreams[key] !== undefined) continue;
             const v = n.audio.volume;
@@ -222,20 +361,24 @@ Singleton {
         const file = _ambientFiles[preset];
         if (!enabled || LockService.silentMode || !file) {
             _ambientActive = false;
-            ambientLoopProc.running = false;
+            _fadeOutAmbient(360);
             return;
         }
+        const presetChanged = (_ambientPreset !== preset);
         _ambientPreset = preset;
         _ambientActive = true;
-        ambientLoopProc.running = false;
-        ambientLoopProc.command = _ambientCmd(file, _effectiveAmbientVol);
-        ambientLoopProc.running = true;
+        if (presetChanged && ambientLoopProc.running) {
+            ambientFadeAnim.stop();
+            ambientLoopProc.running = false;
+            _ambientGain = 0.0;
+        }
+        _syncLockAmbientState();
     }
 
     function stopLockAmbient() {
         _ambientActive = false;
-        if (!_ambientPreview && ambientLoopProc.running) {
-            ambientLoopProc.running = false;
+        if (!_ambientPreview) {
+            _fadeOutAmbient(380);
         }
     }
 
@@ -260,20 +403,29 @@ Singleton {
     }
 
     function refreshPreviewAmbient(preset) {
-        if (preset !== undefined) _ambientPreset = preset;
+        if (preset !== undefined && preset !== _ambientPreset) {
+            _ambientPreset = preset;
+            if (!_ambientPreview) return;
+            if (LockService.silentMode || !_ambientFiles[_ambientPreset]) {
+                stopPreviewAmbient();
+            } else {
+                previewRestartTimer.restart();
+            }
+            return;
+        }
         if (!_ambientPreview) return;
         if (LockService.silentMode || !_ambientFiles[_ambientPreset]) {
             stopPreviewAmbient();
         } else {
-            previewRestartTimer.restart();
+            _applyAmbientVolume();
         }
     }
 
     function stopPreviewAmbient() {
         previewRestartTimer.stop();
         _ambientPreview = false;
-        if (!_ambientActive && ambientLoopProc.running) {
-            ambientLoopProc.running = false;
+        if (!_ambientActive) {
+            _fadeOutAmbient(380);
         }
     }
     function playAudioMuted() { play("audio-muted.wav", 0.85, true); }

@@ -76,7 +76,7 @@ Singleton {
         for (let i = 0; i < playbackStreams.length; i++) {
             const n = playbackStreams[i];
             const appName = n.properties ? (n.properties["application.name"] || "") : "";
-            if (n.name === "pw-play" || appName === "pw-play") continue;
+            if (n.name === "pw-play" || appName === "pw-play" || appName === "paithosh-lock-ambient") continue;
             list.push(n);
         }
         return list;
