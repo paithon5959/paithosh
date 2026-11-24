@@ -559,7 +559,8 @@ print(json.dumps(res))
 import fcntl, json, os, re, sys
 
 cfg = json.loads(sys.argv[1])
-lock_path = "/tmp/paithosh-hypr-cfg.lock"
+lock_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+lock_path = os.path.join(lock_dir, f"paithosh-hypr-cfg-{os.getuid()}.lock")
 with open(lock_path, "w") as lf:
     fcntl.flock(lf, fcntl.LOCK_EX)
 

@@ -69,7 +69,7 @@ stop_orphaned_recorders() {
     local p
     while IFS= read -r p; do
         [[ -n "$p" ]] && pids+=("$p")
-    done < <(pgrep -f '(^|/)wf-recorder .*/tmp/paithosh-rec-' 2>/dev/null || true)
+    done < <(pgrep -u "$(id -u)" -f '(^|/)wf-recorder .*paithosh-rec-' 2>/dev/null || true)
 
     if [[ "${#pids[@]}" -eq 0 ]]; then
         return 0

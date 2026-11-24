@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-LOG_FILE="/tmp/paithosh-xdph-debug.log"
-echo "=== $(date) PID=$$ ARGS=$* ===" >> "${LOG_FILE}"
+LOG_FILE="${XDG_RUNTIME_DIR:-/tmp}/paithosh-xdph-debug-$(id -u).log"
+echo "=== $(date) PID=$$ ARGS=$* ===" >> "${LOG_FILE}" 2>/dev/null || true
 
 SCRIPT_REAL="$(readlink -f "${BASH_SOURCE[0]}")"
 SHELL_QML="$(cd "$(dirname "$SCRIPT_REAL")/.." && pwd)/shell.qml"

@@ -84,8 +84,9 @@ Singleton {
             return;
         }
         videoThumbs[path] = "";
-        const thumb = "/tmp/paithosh-thumbs/" + Qt.md5(path) + ".jpg";
-        runCmd(["sh", "-c", "mkdir -p /tmp/paithosh-thumbs && [ -s \"$2\" ] || ffmpeg -y -loglevel error -i \"$1\" -frames:v 1 -vf \"scale=320:-1\" -q:v 5 \"$2\"", "sh", path, thumb], (ok) => {
+        const thumbDir = (Quickshell.env("XDG_RUNTIME_DIR") || ("/tmp/paithosh-" + (Quickshell.env("USER") || "user"))) + "/paithosh-thumbs";
+        const thumb = thumbDir + "/" + Qt.md5(path) + ".jpg";
+        runCmd(["sh", "-c", "mkdir -p \"$3\" && [ -s \"$2\" ] || ffmpeg -y -loglevel error -i \"$1\" -frames:v 1 -vf \"scale=320:-1\" -q:v 5 \"$2\"", "sh", path, thumb, thumbDir], (ok) => {
             if (ok) {
                 const url = "file://" + thumb;
                 videoThumbs[path] = url;

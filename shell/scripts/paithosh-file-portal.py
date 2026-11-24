@@ -20,7 +20,7 @@ FILE_CHOOSER_IFACE = "org.freedesktop.impl.portal.FileChooser"
 REQUEST_IFACE = "org.freedesktop.impl.portal.Request"
 PROPS_IFACE = "org.freedesktop.DBus.Properties"
 SHELL_QML = str(Path(__file__).resolve().parent.parent / "shell.qml")
-LOG_FILE = "/tmp/paithosh-file-portal.log"
+LOG_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", f"paithosh-file-portal-{os.getuid()}.log")
 
 PORTAL_VERSION = dbus.UInt32(4)
 

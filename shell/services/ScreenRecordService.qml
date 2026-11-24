@@ -48,7 +48,8 @@ Singleton {
         if (phase !== "idle" || recordProc.running || finishProc.running) return;
         _sessionSeq += 1;
         const stamp = Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss-zzz");
-        currentTempPath = "/tmp/paithosh-rec-" + stamp + "-" + _sessionSeq + ".mp4";
+        const recDir = Quickshell.env("XDG_RUNTIME_DIR") || "/tmp";
+        currentTempPath = recDir + "/paithosh-rec-" + stamp + "-" + _sessionSeq + ".mp4";
         elapsedSeconds = 0;
         _lastError = "";
         _stopRequested = false;

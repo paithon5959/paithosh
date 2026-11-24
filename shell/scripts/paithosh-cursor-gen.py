@@ -692,7 +692,8 @@ def update_ini_section(path: str, section: str, updates: Dict[str, str], create_
 
 
 def _sync_hypr_lua_files(theme_id: str, size: int) -> None:
-    lock_path = "/tmp/paithosh-hypr-cfg.lock"
+    lock_dir = os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+    lock_path = os.path.join(lock_dir, f"paithosh-hypr-cfg-{os.getuid()}.lock")
     with open(lock_path, "w", encoding="utf-8") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
 
