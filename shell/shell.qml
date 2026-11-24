@@ -611,6 +611,30 @@ ShellRoot {
             });
         }
 
+        function openWallpaperPicker() {
+            openFilePicker({
+                title: "Add Wallpaper",
+                acceptLabel: "Add & Apply",
+                sourceLabel: "Appearance",
+                initialFolder: FileService.homeDir + "/Pictures",
+                returnSettingsPage: "appearance",
+                filters: [{
+                    label: "Images (*.png, *.jpg, *.jpeg, *.webp)",
+                    patterns: [
+                        { kind: 0, pattern: "*.png" },
+                        { kind: 0, pattern: "*.jpg" },
+                        { kind: 0, pattern: "*.jpeg" },
+                        { kind: 0, pattern: "*.webp" }
+                    ]
+                }],
+                onSelected: function(path) {
+                    if (path && path !== "") {
+                        bgLayer.addAndApplyWallpaper(path);
+                    }
+                }
+            });
+        }
+
         function openScreenRecordDirPicker() {
             openFolderPicker({
                 title: "Select Save Location",

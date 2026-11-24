@@ -4170,7 +4170,83 @@ Item {
                                     onTriggered: { bgLayer.transitionMode = "instant"; root.markAppearanceChanged(); }
                                 }
                             }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                SvgIcon {
+                                    sourceName: "image"
+                                    iconSize: 15
+                                    color: Theme.textSub
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    text: bgLayer.wallpapers.length + " / " + bgLayer.maxWallpapers + " • ~/.config/paithosh/wallpapers"
+                                    color: Theme.textMuted
+                                    font.family: Theme.fontMono
+                                    font.pixelSize: 11
+                                    elide: Text.ElideMiddle
+                                }
+                                CtrlBtn {
+                                    text: "Open Folder"
+                                    ghost: true
+                                    onClicked: {
+                                        if (root.shellState) root.shellState.openFilesAt(bgLayer.wallpaperDir, "");
+                                    }
+                                }
+                                CtrlBtn {
+                                    text: bgLayer.importing ? "Adding..." : "Add Wallpaper"
+                                    enabled: !bgLayer.importing
+                                    onClicked: {
+                                        if (root.shellState) root.shellState.openWallpaperPicker();
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                visible: bgLayer.wallpapers.length === 0
+                                Layout.fillWidth: true
+                                implicitHeight: 112
+                                radius: 12
+                                clip: true
+                                color: Theme.cardBg
+                                border.width: 1
+                                border.color: Theme.borderSubtle
+
+                                ColumnLayout {
+                                    anchors.centerIn: parent
+                                    width: Math.min(parent.width - 32, 360)
+                                    spacing: 8
+
+                                    RowLayout {
+                                        Layout.alignment: Qt.AlignHCenter
+                                        spacing: 8
+                                        SvgIcon {
+                                            sourceName: "image"
+                                            iconSize: 18
+                                            color: Theme.textSub
+                                        }
+                                        Text {
+                                            text: "No wallpapers in Paithosh yet"
+                                            color: Theme.text
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 13
+                                            font.weight: Font.DemiBold
+                                        }
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        horizontalAlignment: Text.AlignHCenter
+                                        text: "Add an image to copy it into ~/.config/paithosh/wallpapers and apply it immediately."
+                                        color: Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+                            }
                             GridLayout {
+                                visible: bgLayer.wallpapers.length > 0
                                 Layout.fillWidth: true
                                 columns: 2
                                 columnSpacing: 10
@@ -4232,10 +4308,10 @@ Item {
                                                     implicitWidth: wpBadgeLbl.implicitWidth + 14
                                                     radius: 10
                                                     clip: true
-                                                    color: wpCard.isActive ? Theme.accent : Qt.rgba(0, 0, 0, 0.58)
+                                                    color: wpCard.isActive ? Theme.accent : Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.78)
                                                     border.width: wpCard.isActive ? 0 : 1
-                                                    border.color: wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Qt.rgba(1, 1, 1, 0.16)
-                                                    opacity: wpCard.isActive ? 1.0 : (wpMouse.containsMouse ? 1.0 : 0.78)
+                                                    border.color: wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle
+                                                    opacity: wpCard.isActive ? 1.0 : (wpMouse.containsMouse ? 1.0 : 0.82)
 
                                                     Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                                     Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -4245,7 +4321,7 @@ Item {
                                                         id: wpBadgeLbl
                                                         anchors.centerIn: parent
                                                         text: wpCard.isActive ? "Active" : "Apply"
-                                                        color: wpCard.isActive ? Theme.accentFg : "#FFFFFF"
+                                                        color: wpCard.isActive ? Theme.accentFg : Theme.text
                                                         font.family: Theme.fontMono
                                                         font.pixelSize: 10
                                                         font.weight: Font.DemiBold
@@ -4255,9 +4331,11 @@ Item {
 
                                             ColumnLayout {
                                                 Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
                                                 spacing: 2
                                                 Text {
                                                     Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
                                                     text: wpCard.modelData.split("/").pop()
                                                     color: Theme.text
                                                     font.family: Theme.fontSans
@@ -4267,9 +4345,10 @@ Item {
                                                 }
                                                 Text {
                                                     Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
                                                     text: wpCard.modelData.replace("file://", "")
                                                     color: Theme.textSub
-                                                    font.family: Theme.fontSans
+                                                    font.family: Theme.fontMono
                                                     font.pixelSize: 10
                                                     elide: Text.ElideMiddle
                                                 }
@@ -4282,8 +4361,7 @@ Item {
                                             hoverEnabled: true
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: {
-                                                bgLayer.currentIndex = wpCard.index;
-                                                bgLayer.setWallpaper(wpCard.modelData);
+                                                bgLayer.selectWallpaper(wpCard.modelData);
                                                 root.markAppearanceChanged();
                                             }
                                         }
