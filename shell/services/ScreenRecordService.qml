@@ -6,8 +6,9 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    property bool recording: false
-    property bool stopping: false
+    property string phase: "idle"           // "idle" | "recording" | "stopping" | "finishing"
+    readonly property bool recording: phase === "recording"
+    readonly property bool stopping: phase === "stopping"
     property int elapsedSeconds: 0
     property string currentTempPath: ""
     property string lastOutputPath: ""
@@ -17,6 +18,10 @@ Singleton {
     property string resolution: "native"    // "native" | "1080p" | "720p" | "480p"
     property int fps: 30
     property string saveDir: ""
+
+    property int _sessionSeq: 0
+    property string _lastError: ""
+    property bool _stopRequested: false
 
     readonly property string formattedTime: {
         const mins = Math.floor(elapsedSeconds / 60);
@@ -32,20 +37,22 @@ Singleton {
     readonly property string _scriptPath: decodeURIComponent(Qt.resolvedUrl("../scripts/screen-record.sh").toString().replace(/^file:\/\//, ""))
 
     function toggle() {
-        if (recording) {
+        if (phase === "recording") {
             stop();
-        } else if (!stopping && !recordProc.running) {
+        } else if (phase === "idle" && !recordProc.running && !finishProc.running) {
             start();
         }
     }
 
     function start() {
-        if (recording || recordProc.running) return;
-        const stamp = Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss");
-        currentTempPath = "/tmp/paithosh-rec-" + stamp + ".mp4";
+        if (phase !== "idle" || recordProc.running || finishProc.running) return;
+        _sessionSeq += 1;
+        const stamp = Qt.formatDateTime(new Date(), "yyyyMMdd-HHmmss-zzz");
+        currentTempPath = "/tmp/paithosh-rec-" + stamp + "-" + _sessionSeq + ".mp4";
         elapsedSeconds = 0;
-        stopping = false;
-        recording = true;
+        _lastError = "";
+        _stopRequested = false;
+        phase = "recording";
         elapsedTimer.restart();
         recordProc.command = [
             _scriptPath, "start", currentTempPath,
@@ -60,14 +67,16 @@ Singleton {
     }
 
     function stop() {
-        if (!recording && !recordProc.running) return;
-        stopping = true;
-        recording = false;
+        if (phase !== "recording") return;
+        _stopRequested = true;
+        phase = "stopping";
         elapsedTimer.stop();
+        stopWatchdog.restart();
         SoundService.playRecordStop();
         if (currentTempPath !== "") {
-            stopProc.command = ["pkill", "-INT", "-f", "wf-recorder.*" + currentTempPath];
-            stopProc.running = true;
+            Quickshell.execDetached([_scriptPath, "stop", currentTempPath]);
+        } else if (recordProc.running) {
+            recordProc.running = false;
         }
     }
 
@@ -82,23 +91,61 @@ Singleton {
         }
     }
 
-    Process {
-        id: recordProc
-        onExited: (code, status) => {
-            root.recording = false;
-            root.stopping = false;
-            elapsedTimer.stop();
-
-            if (root.currentTempPath !== "") {
-                finishProc.buffer = "";
-                finishProc.command = [root._scriptPath, "finish", root.currentTempPath, root.saveDir];
-                finishProc.running = true;
+    Timer {
+        id: stopWatchdog
+        interval: 5500
+        repeat: false
+        onTriggered: {
+            if (root.phase !== "stopping") return;
+            if (recordProc.running) {
+                recordProc.running = false;
+            }
+            if (!recordProc.running && root.phase === "stopping") {
+                root.phase = "idle";
+                root.currentTempPath = "";
+                root._stopRequested = false;
+                root.failed("Recording stop timed out");
             }
         }
     }
 
     Process {
-        id: stopProc
+        id: recordProc
+        stdout: SplitParser {
+            onRead: data => {
+                const line = data.trim();
+                if (line.indexOf("ERROR|") === 0) {
+                    root._lastError = line.slice(6).trim();
+                }
+            }
+        }
+        onExited: (code, status) => {
+            stopWatchdog.stop();
+            elapsedTimer.stop();
+
+            const finishedPath = root.currentTempPath;
+            const wasStopped = root._stopRequested;
+            const errText = root._lastError;
+
+            root.currentTempPath = "";
+            root._stopRequested = false;
+            root._lastError = "";
+
+            if (!wasStopped && (code !== 0 || errText !== "")) {
+                root.phase = "idle";
+                root.failed(errText !== "" ? errText : "Recording failed");
+                return;
+            }
+
+            if (finishedPath !== "") {
+                root.phase = "finishing";
+                finishProc.buffer = "";
+                finishProc.command = [root._scriptPath, "finish", finishedPath, root.saveDir];
+                finishProc.running = true;
+            } else {
+                root.phase = "idle";
+            }
+        }
     }
 
     Process {
@@ -109,6 +156,7 @@ Singleton {
             onRead: data => { finishProc.buffer += data; }
         }
         onExited: (code, status) => {
+            root.phase = "idle";
             const line = finishProc.buffer.trim();
             if (!line) {
                 root.failed("Recording failed");
