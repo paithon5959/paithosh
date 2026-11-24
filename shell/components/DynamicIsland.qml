@@ -126,8 +126,46 @@ PanelWindow {
         }
     }
 
+    // Transient VPN status slot (shown briefly on connect/disconnect or while busy)
+    property bool vpnTransientOpen: false
+    property bool _vpnInitialized: false
+
+    function formatVpnLabel(tunnelName) {
+        if (!tunnelName) return "VPN Off";
+        const parts = tunnelName.split(/[-_]/).filter(p => p.length > 0);
+        const prefixes = ["wg", "vpn", "ovpn", "proton"];
+        let loc = parts[0] || tunnelName;
+        if (parts.length > 1 && prefixes.indexOf(parts[0].toLowerCase()) !== -1) {
+            loc = parts[1];
+        }
+        if (/^[a-zA-Z]{2}$/.test(loc)) {
+            loc = loc.toUpperCase();
+        }
+        return "VPN (" + loc + ")";
+    }
+
+    Timer {
+        id: vpnStartupGraceTimer
+        interval: 1500
+        running: true
+        repeat: false
+        onTriggered: root._vpnInitialized = true
+    }
+
+    Timer {
+        id: vpnTransientTimer
+        interval: 3000
+        repeat: false
+        onTriggered: root.vpnTransientOpen = false
+    }
+
     Connections {
         target: VpnProxyService
+        function onActiveTunnelChanged() {
+            if (!root._vpnInitialized) return;
+            root.vpnTransientOpen = true;
+            vpnTransientTimer.restart();
+        }
         function onImportCompleted() {
             if (root.shellState) {
                 root.shellState.settingsPage = "vpn";
@@ -416,10 +454,10 @@ PanelWindow {
                         }
                     }
 
-                    // 1b. VPN Status Slot (inside main statusbar)
+                    // 1b. VPN Status Slot (transient on connect/disconnect or while busy)
                     IslandSlot {
                         id: slotVpn
-                        open: (VpnProxyService.activeTunnel !== "" || VpnProxyService.busy) && !root.anyTransientSlot
+                        open: (root.vpnTransientOpen || VpnProxyService.busy) && !root.isSearchOnThisScreen
                         maxSlotWidth: 190
 
                         Item {
@@ -448,8 +486,8 @@ PanelWindow {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: VpnProxyService.busy
-                                          ? (VpnProxyService.busyTunnel !== "" ? VpnProxyService.busyTunnel + "…" : "VPN…")
-                                          : (VpnProxyService.activeTunnel !== "" ? VpnProxyService.activeTunnel : "VPN Off")
+                                          ? (VpnProxyService.busyTunnel !== "" ? root.formatVpnLabel(VpnProxyService.busyTunnel) + "…" : "VPN…")
+                                          : root.formatVpnLabel(VpnProxyService.activeTunnel)
                                     color: VpnProxyService.activeTunnel !== ""
                                            ? Theme.text
                                            : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.78)
