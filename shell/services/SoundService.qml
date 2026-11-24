@@ -77,6 +77,19 @@ Singleton {
         }
     }
 
+    property bool _windActive: false
+
+    Process {
+        id: windLoopProc
+        running: false
+        command: ["pw-play", "--volume=" + Math.max(0.0, Math.min(1.0, root.volume * 0.16)).toFixed(2), root._soundPath("lock-wind.wav")]
+        onExited: {
+            if (root._windActive && root.enabled) {
+                windLoopProc.running = true;
+            }
+        }
+    }
+
     function _soundPath(file) {
         return Qt.resolvedUrl("../assets/sounds/" + file).toString().replace(/^file:\/\//, "");
     }
@@ -167,6 +180,19 @@ Singleton {
     function playInstallerStart() { play("installer-start.wav", 0.85); }
     function playInstallerDone() { play("installer-done.wav", 0.90); }
     function playIconPop() { play("icon-pop.wav", 0.45); }
+    function playLock() { play("lock.wav", 0.75); }
+    function playLockError() { play("lock-error.wav", 0.75); }
+
+    function startLockWind() {
+        if (!enabled) return;
+        _windActive = true;
+        if (!windLoopProc.running) windLoopProc.running = true;
+    }
+
+    function stopLockWind() {
+        _windActive = false;
+        if (windLoopProc.running) windLoopProc.running = false;
+    }
     function playAudioMuted() { play("audio-muted.wav", 0.85, true); }
 
     function playVolumeUp() {

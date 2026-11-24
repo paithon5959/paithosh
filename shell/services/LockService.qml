@@ -40,6 +40,7 @@ Singleton {
                 root.isError = false;
                 root.unlockSuccess = true;
                 root.exiting = true;
+                SoundService.stopLockWind();
                 SoundService.playIconPop();
                 unlockReleaseTimer.restart();
             } else {
@@ -132,6 +133,8 @@ Singleton {
         root.locked = true;
         root.transitionProgress = 0.0;
         root.transitionVisible = true;
+        SoundService.playLock();
+        SoundService.startLockWind();
         Qt.callLater(function() {
             root.transitionProgress = 1.0;
             lockEngageTimer.restart();
@@ -172,6 +175,7 @@ Singleton {
 
     function _handleAuthFailure() {
         root.isError = true;
+        SoundService.playLockError();
         errorResetTimer.restart();
         root.authFailed();
     }
