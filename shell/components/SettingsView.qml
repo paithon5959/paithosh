@@ -1021,14 +1021,14 @@ Item {
                         action: () => cSel.selected(optVal)
                     });
                 }
-                selectMenu.menuWidth = mw;
-                selectMenu.openAt(pt.x, pt.y, opts);
+                settingsSelectMenu.menuWidth = mw;
+                settingsSelectMenu.openAt(pt.x, pt.y, opts);
             }
         }
     }
 
     ContextMenu {
-        id: selectMenu
+        id: settingsSelectMenu
         z: 250
     }
 
@@ -5458,7 +5458,7 @@ Item {
         z: 210
         active: false
         sourceComponent: KeybindEditorModal {
-            selectMenu: selectMenu
+            selectMenu: settingsSelectMenu
             menuRoot: root
         }
     }
