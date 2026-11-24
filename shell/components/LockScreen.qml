@@ -75,7 +75,7 @@ Scope {
             // Matching statusbar pill so transition between DynamicIsland <-> LockScreen is pixel-seamless
             ClippingRectangle {
                 id: transPill
-                readonly property real edgeOffset: Theme.topOffsetRest + (Theme.topOffsetHover - Theme.topOffsetRest) * transWin.animProgress
+                readonly property real edgeOffset: Theme.topOffsetRest
 
                 height: Theme.islandHeight
                 width: Math.max(260, Math.ceil(transWeather.implicitWidth + 36 + transClock.implicitWidth + 84))
@@ -141,6 +141,7 @@ Scope {
 
             property bool inputOpen: false
             property bool notifTrayOpen: false
+            property bool pillHovered: false
             property real shakeX: 0
 
             readonly property bool hasLockNotifBadge: LockService.showNotifications && NotificationService.hasUnreadBadge && !surface.inputOpen && !LockService.exiting
@@ -322,27 +323,88 @@ Scope {
                     }
                 }
 
-                // Statusbar Lock Pill Row (main lock pill + orbiting media & system alert split pills)
+                // Statusbar Lock Stage (1:1 geometry, hover offset & gooey.frag parity with DynamicIsland.qml)
+                Item {
+                    id: lockStageContainer
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    property real animatedEdgeOffset: (surface.pillHovered || surface.inputOpen || surface.notifTrayOpen) ? Theme.topOffsetHover : Theme.topOffsetRest
+                    Behavior on animatedEdgeOffset {
+                        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    }
+                    width: lockPillRow.width + Theme.shaderPad * 2
+                    height: mainPill.height + Theme.shaderPad * 2
+                    y: surface.isBottom
+                        ? Math.round(surface.height - height + Theme.shaderPad - animatedEdgeOffset)
+                        : Math.round(animatedEdgeOffset - Theme.shaderPad)
+                    transform: Translate { x: surface.shakeX }
+
+                    // Liquid Gooey Background Layer (1:1 geometry sync with foreground pills)
+                    Item {
+                        id: gooSource
+                        anchors.fill: parent
+                        layer.enabled: Theme.gooeyEnabled
+                        layer.effect: ShaderEffect {
+                            fragmentShader: Qt.resolvedUrl("../assets/shaders/gooey.frag.qsb")
+                            property size texelSize: Qt.size(1.0 / Math.max(1, gooSource.width), 1.0 / Math.max(1, gooSource.height))
+                            property real threshold: 0.46
+                            property real softness: 0.06
+                            property color pillColor: Theme.pillBg
+                        }
+
+                        Rectangle {
+                            id: mainBg
+                            x: Theme.shaderPad + mainPill.x
+                            y: Theme.shaderPad
+                            width: mainPill.width
+                            height: mainPill.height
+                            radius: mainPill.radius
+                            color: Theme.pillBg
+                        }
+
+                        Rectangle {
+                            id: mediaBg
+                            x: Theme.shaderPad + mediaSlotWrap.x + mediaPill.x
+                            y: Theme.shaderPad + (Theme.islandHeight - height) / 2
+                            width: Math.max(0, Math.min(mediaPill.width, mediaSlotWrap.width - mediaPill.x))
+                            height: mediaPill.height
+                            radius: Theme.islandRadius
+                            color: Theme.pillBg
+                            scale: mediaPill.scale
+                            opacity: mediaSlotWrap.opacity
+                            visible: width > 1 && opacity > 0.01
+                        }
+
+                        Rectangle {
+                            id: alertBg
+                            x: Theme.shaderPad + alertSlotWrap.x + alertPill.x
+                            y: Theme.shaderPad + (Theme.islandHeight - height) / 2
+                            width: Math.max(0, Math.min(alertPill.width, alertSlotWrap.width - alertPill.x))
+                            height: alertPill.height
+                            radius: Theme.islandRadius
+                            color: Theme.pillBg
+                            scale: alertPill.scale
+                            opacity: alertSlotWrap.opacity
+                            visible: width > 1 && opacity > 0.01
+                        }
+                    }
+
+                // Foreground Pill Row
                 Row {
                     id: lockPillRow
+                    x: Theme.shaderPad
+                    y: Theme.shaderPad
                     spacing: 0
                     height: Theme.islandHeight
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    y: surface.isBottom
-                        ? Math.round(surface.height - height - Theme.topOffsetHover)
-                        : Math.round(Theme.topOffsetHover)
-                    transform: Translate { x: surface.shakeX }
 
                 ClippingRectangle {
                     id: mainPill
 
                     readonly property real slotsTargetWidth: slotLockedIcon.targetWidth + slotPassword.targetWidth + slotNotif.targetWidth
-                    readonly property real edgeOffset: Theme.topOffsetHover
 
                     height: Theme.islandHeight
                     width: Math.max(260, Math.min(surface.width - 48, Math.ceil(weatherLabel.implicitWidth + slotsTargetWidth + clockLabel.implicitWidth + 84)))
                     radius: Theme.islandRadius
-                    color: Theme.pillBg
+                    color: Theme.gooeyEnabled ? "transparent" : Theme.pillBg
                     border.width: 1
                     border.color: {
                         if (LockService.unlockSuccess) return Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.55);
@@ -353,9 +415,9 @@ Scope {
 
                     Behavior on width {
                         NumberAnimation {
-                            duration: Math.round(Theme.springMs * 0.75)
+                            duration: Math.round(Theme.springMs * 0.65)
                             easing.type: Easing.OutBack
-                            easing.overshoot: 1.1
+                            easing.overshoot: 1.25
                         }
                     }
 
@@ -365,8 +427,11 @@ Scope {
 
                     MouseArea {
                         anchors.fill: parent
+                        hoverEnabled: true
                         propagateComposedEvents: true
                         cursorShape: Qt.PointingHandCursor
+                        onEntered: surface.pillHovered = true
+                        onExited: surface.pillHovered = false
                         onClicked: function(mouse) {
                             LockService.activeScreenName = surface.screenName;
                             if (!surface.inputOpen && !LockService.unlockSuccess && !LockService.exiting) {
@@ -730,10 +795,14 @@ Scope {
                         height: Theme.islandHeight
                         width: Math.min(280, Math.max(168, Math.ceil(mediaRow.implicitWidth) + 28))
                         radius: Theme.islandRadius
-                        color: Theme.pillBg
-                        border.width: 1
+                        color: Theme.gooeyEnabled ? "transparent" : Theme.pillBg
+                        border.width: Theme.gooeyEnabled ? 0 : 1
                         border.color: Theme.borderSubtle
                         scale: surface.hasLockMedia ? 1.0 : 0.86
+
+                        HoverHandler {
+                            onHoveredChanged: surface.pillHovered = hovered
+                        }
 
                         Behavior on x {
                             NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
@@ -862,10 +931,14 @@ Scope {
                         height: Theme.islandHeight
                         width: Math.min(248, Math.max(138, Math.ceil(alertRow.implicitWidth) + 34))
                         radius: Theme.islandRadius
-                        color: Theme.pillBg
-                        border.width: 1
+                        color: Theme.gooeyEnabled ? "transparent" : Theme.pillBg
+                        border.width: Theme.gooeyEnabled ? 0 : 1
                         border.color: Qt.rgba(alertTint.r, alertTint.g, alertTint.b, 0.45)
                         scale: surface.hasLockAlert ? 1.0 : 0.86
+
+                        HoverHandler {
+                            onHoveredChanged: surface.pillHovered = hovered
+                        }
 
                         readonly property color alertTint: {
                             if (surface.lockAlertKind === "overheat") return Theme.dangerText;
@@ -925,8 +998,9 @@ Scope {
                     }
                 }
                 }
+                }
 
-                // Concentric Lock Notification Toast / Tray Card (anchored 10px from lockPillRow)
+                // Concentric Lock Notification Toast / Tray Card (anchored 10px from lockStageContainer pill)
                 Rectangle {
                     id: lockNotifCard
 
@@ -947,9 +1021,10 @@ Scope {
                     clip: true
 
                     x: Math.round((surface.width - width) / 2)
+                    readonly property real pillTopY: lockStageContainer.y + Theme.shaderPad
                     readonly property real openY: surface.isBottom
-                        ? Math.round(lockPillRow.y - height - 10)
-                        : Math.round(lockPillRow.y + lockPillRow.height + 10)
+                        ? Math.round(pillTopY - height - 10)
+                        : Math.round(pillTopY + Theme.islandHeight + 10)
                     y: openY + (showNotifCard ? 0 : (surface.isBottom ? 10 : -10))
                     opacity: showNotifCard ? 1.0 : 0.0
                     scale: showNotifCard ? 1.0 : 0.94
