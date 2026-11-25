@@ -141,6 +141,9 @@ write_manifest() {
         h="$(sha256_file "$f")"
         printf '%s  %s\n' "$h" "$rel" >> "$tmp_manifest"
     done < <(find "$SRC_DIR" -type f -print0 | LC_ALL=C sort -z)
+    if [[ -f "${SCRIPT_DIR}/hypr-config-diff.py" ]]; then
+        python3 "${SCRIPT_DIR}/hypr-config-diff.py" norm-manifest "$SRC_DIR" "${target_dir}/.paithosh-norm-manifest"
+    fi
     printf '%s\n' "$defaults_hash" > "${target_dir}/.paithosh-sync-version"
 }
 
@@ -175,10 +178,21 @@ make_unique_backup_path() {
 
 inspect_sync_plan_json() {
     local defaults_hash="$1"
-    python3 - "$SRC_DIR" "$HYPR_DIR" "$REPO_ROOT" "$defaults_hash" <<'PY'
-import hashlib, json, os, sys
+    python3 - "$SRC_DIR" "$HYPR_DIR" "$REPO_ROOT" "$defaults_hash" "$SCRIPT_DIR" <<'PY'
+import hashlib, importlib.util, json, os, sys
 
-src_dir, hypr_dir, repo_root, defaults_hash = sys.argv[1:5]
+src_dir, hypr_dir, repo_root, defaults_hash, script_dir = sys.argv[1:6]
+
+diff_helper = None
+helper_path = os.path.join(script_dir, "hypr-config-diff.py")
+if os.path.isfile(helper_path):
+    try:
+        spec = importlib.util.spec_from_file_location("hypr_config_diff", helper_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        diff_helper = mod
+    except Exception:
+        diff_helper = None
 
 def sha256(path):
     h = hashlib.sha256()
@@ -266,12 +280,28 @@ try:
 except OSError:
     manifest = {}
 
+norm_manifest = {}
+norm_manifest_path = os.path.join(hypr_dir, ".paithosh-norm-manifest")
+if os.path.isfile(norm_manifest_path):
+    try:
+        with open(norm_manifest_path, "r", encoding="utf-8") as nf:
+            for line in nf:
+                line = line.rstrip("\r\n")
+                if not line or "  " not in line:
+                    continue
+                digest, rel = line.split("  ", 1)
+                norm_manifest[rel] = digest.strip()
+    except OSError:
+        norm_manifest = {}
+
 added = []
 updated = []
+settings_updated = []
 modified = []
 
 for rel in sorted(src_files.keys()):
     src_sha = src_files[rel]
+    src_path = os.path.join(src_dir, rel)
     cur_path = os.path.join(hypr_dir, rel)
     if not os.path.isfile(cur_path):
         added.append(rel)
@@ -282,7 +312,25 @@ for rel in sorted(src_files.keys()):
         if cur_sha != src_sha:
             updated.append(rel)
     elif cur_sha != src_sha:
-        modified.append(rel)
+        if diff_helper is None:
+            modified.append(rel)
+            continue
+        try:
+            src_txt = open(src_path, "r", encoding="utf-8").read()
+            cur_txt = open(cur_path, "r", encoding="utf-8").read()
+            cur_norm = diff_helper.norm_sha256(rel, cur_txt)
+            src_norm = diff_helper.norm_sha256(rel, src_txt)
+        except OSError:
+            modified.append(rel)
+            continue
+
+        base_norm = norm_manifest.get(rel)
+        if base_norm is not None and cur_norm == base_norm:
+            # Local file has ONLY Settings-managed changes vs. its installed base.
+            if src_sha != base_sha and rel != "config/binds.lua":
+                settings_updated.append(rel)
+        elif cur_norm != src_norm:
+            modified.append(rel)
 
 paithosh_lua_path = os.path.join(hypr_dir, "config", "paithosh.lua")
 root_mismatch = True
@@ -292,7 +340,7 @@ if os.path.isfile(paithosh_lua_path):
     except OSError:
         root_mismatch = True
 
-pending = added + updated
+pending = added + updated + settings_updated
 state = "outdated" if (pending or root_mismatch) else "synced"
 
 print(json.dumps({
@@ -303,6 +351,7 @@ print(json.dumps({
     "installedHash": installed_hash,
     "addedFiles": added,
     "updatedFiles": updated,
+    "settingsUpdatedFiles": settings_updated,
     "pendingFiles": pending,
     "modifiedFiles": modified,
     "rootMismatch": root_mismatch,
@@ -400,6 +449,7 @@ print(f"PLAN_STATE={shlex.quote(d['state'])}")
 print(f"PLAN_ROOT_MISMATCH={'true' if d['rootMismatch'] else 'false'}")
 print("PLAN_ADDED=(" + " ".join(shlex.quote(x) for x in d["addedFiles"]) + ")")
 print("PLAN_UPDATED=(" + " ".join(shlex.quote(x) for x in d["updatedFiles"]) + ")")
+print("PLAN_SETTINGS_UPDATED=(" + " ".join(shlex.quote(x) for x in d.get("settingsUpdatedFiles", [])) + ")")
 print("PLAN_MODIFIED=(" + " ".join(shlex.quote(x) for x in d["modifiedFiles"]) + ")")
 PY
 )"
@@ -416,6 +466,7 @@ fi
 if [[ "$DRY_RUN" == "true" ]]; then
     [[ ${#PLAN_ADDED[@]} -gt 0 ]] && echo "[dry-run] Would add Hyprland files: ${PLAN_ADDED[*]}"
     [[ ${#PLAN_UPDATED[@]} -gt 0 ]] && echo "[dry-run] Would update unmodified Hyprland files: ${PLAN_UPDATED[*]}"
+    [[ ${#PLAN_SETTINGS_UPDATED[@]} -gt 0 ]] && echo "[dry-run] Would update & re-apply Settings values for: ${PLAN_SETTINGS_UPDATED[*]}"
     [[ "$PLAN_ROOT_MISMATCH" == "true" ]] && echo "[dry-run] Would update config/paithosh.lua root -> $REPO_ROOT"
     [[ ${#PLAN_MODIFIED[@]} -gt 0 ]] && echo "[dry-run] Would preserve customized Hyprland files: ${PLAN_MODIFIED[*]}"
     exit 0
@@ -428,6 +479,15 @@ cp -a "${HYPR_DIR}/." "$STAGING_DIR/"
 for rel in ${PLAN_ADDED[@]+"${PLAN_ADDED[@]}"} ${PLAN_UPDATED[@]+"${PLAN_UPDATED[@]}"}; do
     mkdir -p "$(dirname -- "${STAGING_DIR}/${rel}")"
     cp -a "${SRC_DIR}/${rel}" "${STAGING_DIR}/${rel}"
+done
+
+for rel in ${PLAN_SETTINGS_UPDATED[@]+"${PLAN_SETTINGS_UPDATED[@]}"}; do
+    mkdir -p "$(dirname -- "${STAGING_DIR}/${rel}")"
+    if [[ -f "${SCRIPT_DIR}/hypr-config-diff.py" ]]; then
+        python3 "${SCRIPT_DIR}/hypr-config-diff.py" reapply "${HYPR_DIR}/${rel}" "${SRC_DIR}/${rel}" "$rel" "${STAGING_DIR}/${rel}"
+    else
+        cp -a "${SRC_DIR}/${rel}" "${STAGING_DIR}/${rel}"
+    fi
 done
 
 write_paithosh_lua "$STAGING_DIR"

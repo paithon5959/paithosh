@@ -2896,6 +2896,304 @@ Item {
                                         }
                                     }
                                 }
+                                ColumnLayout {
+                                    visible: PackageService.hyprModifiedFiles.length > 0
+                                    Layout.fillWidth: true
+                                    Layout.leftMargin: 16
+                                    Layout.rightMargin: 16
+                                    Layout.bottomMargin: 12
+                                    spacing: 6
+
+                                    Text {
+                                        text: "Modified vs. defaults"
+                                        color: Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        font.weight: Font.Medium
+                                    }
+
+                                    Repeater {
+                                        model: PackageService.hyprModifiedFiles
+                                        delegate: ColumnLayout {
+                                            required property string modelData
+                                            readonly property bool isSelected: PackageService.hyprDiffFile === modelData
+                                            Layout.fillWidth: true
+                                            spacing: 4
+
+                                            Rectangle {
+                                                id: modFileRow
+                                                Layout.fillWidth: true
+                                                height: 30
+                                                radius: 8
+                                                clip: true
+                                                color: modFileMouse.containsMouse
+                                                    ? Theme.cardHover
+                                                    : (isSelected
+                                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
+                                                        : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035))
+                                                border.width: 1
+                                                border.color: isSelected
+                                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45)
+                                                    : Theme.borderSubtle
+                                                scale: modFileMouse.pressed ? 0.99 : 1.0
+                                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 10
+                                                    anchors.rightMargin: 10
+                                                    spacing: 8
+
+                                                    SvgIcon {
+                                                        sourceName: "code"
+                                                        iconSize: 13
+                                                        color: isSelected ? Theme.accent : Theme.textSub
+                                                    }
+
+                                                    Text {
+                                                        text: modelData
+                                                        color: Theme.text
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 11
+                                                        elide: Text.ElideMiddle
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                    }
+
+                                                    Text {
+                                                        text: isSelected ? "Hide diff" : "Diff"
+                                                        color: isSelected ? Theme.accent : Theme.textMuted
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 10
+                                                        font.weight: Font.Medium
+                                                    }
+
+                                                    SvgIcon {
+                                                        sourceName: "chevron-right"
+                                                        iconSize: 12
+                                                        color: isSelected ? Theme.accent : Theme.textMuted
+                                                        rotation: isSelected ? 90 : 0
+                                                        Behavior on rotation { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: modFileMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: PackageService.loadHyprFileDiff(modelData)
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                visible: isSelected
+                                                Layout.fillWidth: true
+                                                implicitHeight: diffPanelCol.implicitHeight
+                                                radius: 8
+                                                clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+
+                                                ColumnLayout {
+                                                    id: diffPanelCol
+                                                    anchors.left: parent.left
+                                                    anchors.right: parent.right
+                                                    spacing: 0
+
+                                                    Rectangle {
+                                                        Layout.fillWidth: true
+                                                        height: 28
+                                                        color: Theme.pillBg
+
+                                                        RowLayout {
+                                                            anchors.fill: parent
+                                                            anchors.leftMargin: 10
+                                                            anchors.rightMargin: 10
+                                                            spacing: 6
+
+                                                            Text {
+                                                                text: "Manual edits vs. defaults"
+                                                                color: Theme.textMuted
+                                                                font.family: Theme.fontSans
+                                                                font.pixelSize: 10
+                                                                font.weight: Font.Medium
+                                                                elide: Text.ElideRight
+                                                                Layout.fillWidth: true
+                                                                Layout.minimumWidth: 0
+                                                            }
+
+                                                            Rectangle {
+                                                                visible: !PackageService.hyprDiffLoading && PackageService.hyprDiffAdded > 0
+                                                                height: 18
+                                                                implicitWidth: addBadgeTxt.implicitWidth + 10
+                                                                radius: 5
+                                                                color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.12)
+                                                                border.width: 1
+                                                                border.color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35)
+
+                                                                Text {
+                                                                    id: addBadgeTxt
+                                                                    anchors.centerIn: parent
+                                                                    text: "+" + PackageService.hyprDiffAdded
+                                                                    color: Theme.ok
+                                                                    font.family: Theme.fontMono
+                                                                    font.pixelSize: 10
+                                                                    font.weight: Font.DemiBold
+                                                                }
+                                                            }
+
+                                                            Rectangle {
+                                                                visible: !PackageService.hyprDiffLoading && PackageService.hyprDiffDeleted > 0
+                                                                height: 18
+                                                                implicitWidth: delBadgeTxt.implicitWidth + 10
+                                                                radius: 5
+                                                                color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.12)
+                                                                border.width: 1
+                                                                border.color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.35)
+
+                                                                Text {
+                                                                    id: delBadgeTxt
+                                                                    anchors.centerIn: parent
+                                                                    text: "-" + PackageService.hyprDiffDeleted
+                                                                    color: Theme.dangerText
+                                                                    font.family: Theme.fontMono
+                                                                    font.pixelSize: 10
+                                                                    font.weight: Font.DemiBold
+                                                                }
+                                                            }
+                                                        }
+
+                                                        Rectangle {
+                                                            anchors.left: parent.left
+                                                            anchors.right: parent.right
+                                                            anchors.bottom: parent.bottom
+                                                            height: 1
+                                                            color: Theme.borderSubtle
+                                                        }
+                                                    }
+
+                                                    Item {
+                                                        id: diffContentBox
+                                                        Layout.fillWidth: true
+                                                        Layout.margins: 6
+                                                        implicitHeight: PackageService.hyprDiffLoading || PackageService.hyprDiffError !== ""
+                                                            ? 24
+                                                            : Math.min(220, diffLinesCol.implicitHeight)
+
+                                                        Text {
+                                                            visible: PackageService.hyprDiffLoading
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            anchors.left: parent.left
+                                                            anchors.leftMargin: 4
+                                                            text: "Loading diff..."
+                                                            color: Theme.textMuted
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 11
+                                                        }
+
+                                                        Text {
+                                                            visible: !PackageService.hyprDiffLoading && PackageService.hyprDiffError !== ""
+                                                            anchors.verticalCenter: parent.verticalCenter
+                                                            anchors.left: parent.left
+                                                            anchors.right: parent.right
+                                                            anchors.leftMargin: 4
+                                                            anchors.rightMargin: 4
+                                                            text: PackageService.hyprDiffError
+                                                            color: Theme.textSub
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 11
+                                                            elide: Text.ElideRight
+                                                        }
+
+                                                        Flickable {
+                                                            visible: !PackageService.hyprDiffLoading && PackageService.hyprDiffError === ""
+                                                            anchors.fill: parent
+                                                            contentWidth: width
+                                                            contentHeight: diffLinesCol.implicitHeight
+                                                            clip: true
+                                                            boundsBehavior: Flickable.StopAtBounds
+
+                                                            Column {
+                                                                id: diffLinesCol
+                                                                width: parent.width
+                                                                spacing: 1
+
+                                                                Repeater {
+                                                                    model: isSelected ? PackageService.hyprDiffLines : []
+                                                                    delegate: Rectangle {
+                                                                        required property var modelData
+                                                                        width: diffLinesCol.width
+                                                                        height: diffRowLayout.implicitHeight + 4
+                                                                        radius: 4
+                                                                        clip: true
+                                                                        color: modelData.type === "add"
+                                                                            ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.10)
+                                                                            : (modelData.type === "del"
+                                                                                ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.10)
+                                                                                : (modelData.type === "hunk"
+                                                                                    ? Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.08)
+                                                                                    : "transparent"))
+
+                                                                        RowLayout {
+                                                                            id: diffRowLayout
+                                                                            anchors.left: parent.left
+                                                                            anchors.right: parent.right
+                                                                            anchors.verticalCenter: parent.verticalCenter
+                                                                            anchors.leftMargin: 6
+                                                                            anchors.rightMargin: 6
+                                                                            spacing: 8
+
+                                                                            Text {
+                                                                                visible: modelData.type !== "hunk"
+                                                                                Layout.preferredWidth: 28
+                                                                                horizontalAlignment: Text.AlignRight
+                                                                                text: modelData.line > 0 ? String(modelData.line) : ""
+                                                                                color: Theme.textMuted
+                                                                                font.family: Theme.fontMono
+                                                                                font.pixelSize: 10
+                                                                            }
+
+                                                                            Text {
+                                                                                Layout.fillWidth: true
+                                                                                Layout.minimumWidth: 0
+                                                                                text: modelData.text
+                                                                                color: modelData.type === "add"
+                                                                                    ? Theme.ok
+                                                                                    : (modelData.type === "del"
+                                                                                        ? Theme.dangerText
+                                                                                        : (modelData.type === "hunk" ? Theme.info : Theme.textSub))
+                                                                                font.family: Theme.fontMono
+                                                                                font.pixelSize: 11
+                                                                                wrapMode: Text.WrapAnywhere
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    Text {
+                                                        visible: !PackageService.hyprDiffLoading && PackageService.hyprDiffTruncated
+                                                        Layout.fillWidth: true
+                                                        Layout.leftMargin: 10
+                                                        Layout.rightMargin: 10
+                                                        Layout.bottomMargin: 6
+                                                        text: "Showing first 200 diff lines"
+                                                        color: Theme.textMuted
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 10
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 SettingRow {
                                     visible: PackageService.missingCoreDeps.length > 0
                                     showDivider: true

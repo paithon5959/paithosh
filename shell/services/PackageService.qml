@@ -52,6 +52,14 @@ Singleton {
     property string hyprSyncError: ""
     property bool hyprSyncing: false
     property int hyprModifiedCount: 0
+    property var hyprModifiedFiles: []
+    property string hyprDiffFile: ""
+    property var hyprDiffLines: []
+    property int hyprDiffAdded: 0
+    property int hyprDiffDeleted: 0
+    property bool hyprDiffTruncated: false
+    property bool hyprDiffLoading: false
+    property string hyprDiffError: ""
     property int hyprPendingCount: 0
 
     // Mandatory core dependency audit (hyprcursor, Cairo/Rsvg, etc.)
@@ -837,6 +845,43 @@ Singleton {
         hyprSyncProc.running = true;
     }
 
+    function clearHyprFileDiff() {
+        hyprDiffFile = "";
+        hyprDiffLines = [];
+        hyprDiffAdded = 0;
+        hyprDiffDeleted = 0;
+        hyprDiffTruncated = false;
+        hyprDiffError = "";
+        hyprDiffLoading = false;
+    }
+
+    function loadHyprFileDiff(relPath) {
+        if (!relPath || relPath.startsWith("/") || relPath.indexOf("..") !== -1) return;
+        if (hyprDiffFile === relPath && !hyprDiffLoading) {
+            clearHyprFileDiff();
+            return;
+        }
+        hyprDiffFile = relPath;
+        hyprDiffLines = [];
+        hyprDiffAdded = 0;
+        hyprDiffDeleted = 0;
+        hyprDiffTruncated = false;
+        hyprDiffError = "";
+        hyprDiffLoading = true;
+        hyprDiffProc.outBuf = "";
+        hyprDiffProc.errBuf = "";
+        hyprDiffProc._stdoutDone = false;
+        hyprDiffProc._stderrDone = false;
+        hyprDiffProc._exited = false;
+        hyprDiffProc.command = [
+            "bash", "-c",
+            "python3 \"$2/installer/lib/hypr-config-diff.py\" diff \"$2/defaults/hypr/$1\" \"${XDG_CONFIG_HOME:-$HOME/.config}/hypr/$1\" \"$1\"",
+            "_", relPath, root.shellProjectRoot
+        ];
+        hyprDiffProc.running = false;
+        hyprDiffProc.running = true;
+    }
+
     function checkRequiredDeps(onDone) {
         if (depsAuditProc.running) {
             if (typeof onDone === "function") depsAuditProc._callbacks.push(onDone);
@@ -1127,10 +1172,12 @@ Singleton {
             try {
                 const data = JSON.parse((outBuf || "").trim());
                 const st = data.state || "";
-                const modCount = Array.isArray(data.modifiedFiles) ? data.modifiedFiles.length : 0;
+                const modFiles = Array.isArray(data.modifiedFiles) ? data.modifiedFiles : [];
+                const modCount = modFiles.length;
                 const pendCount = (Array.isArray(data.pendingFiles) ? data.pendingFiles.length : 0) + (data.rootMismatch ? 1 : 0);
                 root.hyprSyncState = st;
                 root.hyprModifiedCount = modCount;
+                root.hyprModifiedFiles = modFiles;
                 root.hyprPendingCount = pendCount;
                 root.hyprSyncError = "";
                 if (st === "synced") {
@@ -1173,6 +1220,66 @@ Singleton {
             hyprSyncStatusProc._exitCode = exitCode;
             hyprSyncStatusProc._exited = true;
             hyprSyncStatusProc.tryFinish();
+        }
+    }
+
+    Process {
+        id: hyprDiffProc
+        property string outBuf: ""
+        property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
+            root.hyprDiffLoading = false;
+            try {
+                const data = JSON.parse((outBuf || "").trim());
+                if (data.error) {
+                    root.hyprDiffError = data.error;
+                    root.hyprDiffLines = [];
+                    return;
+                }
+                const lines = Array.isArray(data.lines) ? data.lines : [];
+                if (lines.length === 0) {
+                    root.hyprDiffError = "No manual custom diff (Settings-only changes are ignored)";
+                    root.hyprDiffLines = [];
+                    root.hyprDiffAdded = 0;
+                    root.hyprDiffDeleted = 0;
+                    root.hyprDiffTruncated = false;
+                    return;
+                }
+                root.hyprDiffLines = lines;
+                root.hyprDiffAdded = data.added || 0;
+                root.hyprDiffDeleted = data.deleted || 0;
+                root.hyprDiffTruncated = !!data.truncated;
+                root.hyprDiffError = "";
+            } catch (e) {
+                const parsedErr = root.extractShellError(errBuf);
+                root.hyprDiffError = parsedErr !== "" ? parsedErr : "Failed to parse diff output";
+                root.hyprDiffLines = [];
+            }
+        }
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                hyprDiffProc.outBuf = text || "";
+                hyprDiffProc._stdoutDone = true;
+                hyprDiffProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                hyprDiffProc.errBuf = text || "";
+                hyprDiffProc._stderrDone = true;
+                hyprDiffProc.tryFinish();
+            }
+        }
+        onExited: function() {
+            hyprDiffProc._exited = true;
+            hyprDiffProc.tryFinish();
         }
     }
 
