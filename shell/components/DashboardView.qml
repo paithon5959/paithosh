@@ -105,6 +105,7 @@ Item {
 
         MissionControlTab {
             id: missionTab
+            shellState: root.shellState
             width: parent.width
             opacity: root.activeTab === "mission" ? 1.0 : 0.0
             y: root.activeTab === "mission" ? 0 : 8

@@ -8,6 +8,8 @@ import "../common"
 Item {
     id: root
 
+    required property var shellState
+
     implicitWidth: 408
     implicitHeight: col.implicitHeight
 
@@ -160,6 +162,128 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: NotificationService.dnd = !NotificationService.dnd
                 }
+            }
+        }
+
+        // Weather Location & Current Conditions Banner (click -> 7-day forecast in Dynamic Island)
+        Rectangle {
+            id: weatherCard
+            Layout.fillWidth: true
+            height: 62
+            radius: 14
+            clip: true
+            color: weatherMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+            border.width: 1
+            border.color: weatherMouse.containsMouse
+                ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42)
+                : Theme.borderSubtle
+            scale: weatherMouse.pressed ? 0.97 : 1.0
+
+            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 10
+
+                Rectangle {
+                    width: 34
+                    height: 34
+                    radius: 10
+                    color: Theme.surfaceRaised
+                    border.width: 1
+                    border.color: Theme.borderSubtle
+
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        sourceName: WeatherService.conditionIcon
+                        iconSize: 18
+                        color: Theme.accent.hslSaturation < 0.08 ? Theme.text : Theme.accent
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    spacing: 2
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: WeatherService.locationName
+                        color: Theme.text
+                        font.family: Theme.fontSans
+                        font.pixelSize: 13
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 6
+
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            text: WeatherService.conditionText + " • " + WeatherService.windKmh + " km/h"
+                            color: Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 11
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: 2
+
+                    Text {
+                        Layout.alignment: Qt.AlignRight
+                        text: WeatherService.tempCelsius + "°C"
+                        color: Theme.text
+                        font.family: Theme.fontMono
+                        font.pixelSize: 16
+                        font.weight: Font.Bold
+                    }
+
+                    Row {
+                        Layout.alignment: Qt.AlignRight
+                        spacing: 3
+
+                        SvgIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            sourceName: "droplet"
+                            iconSize: 11
+                            color: Theme.textSub
+                        }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: WeatherService.humidityPct + "%"
+                            color: Theme.textSub
+                            font.family: Theme.fontMono
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+
+                SvgIcon {
+                    sourceName: "chevron-right"
+                    iconSize: 14
+                    color: weatherMouse.containsMouse ? Theme.text : Theme.textMuted
+                }
+            }
+
+            MouseArea {
+                id: weatherMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.shellState.openIslandApp("weather", null)
             }
         }
 

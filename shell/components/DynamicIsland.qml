@@ -43,6 +43,7 @@ PanelWindow {
             return shellState.pickerMode === "download" ? "Save Location (Island)" : "Upload Location (Island)";
         }
         if (shellState.islandApp === "portal") return "Screen Share (Island)";
+        if (shellState.islandApp === "weather") return "Weather Forecast";
         return "";
     }
     readonly property string activeTitle: isAppExpandedOnScreen ? attachedTitle : CompositorService.activeTitleFor(modelData)
@@ -378,8 +379,8 @@ PanelWindow {
                     return w;
                 }
                 readonly property int compactWidth: Math.max(260, Math.ceil(weatherLabel.implicitWidth + slotsTargetWidth + clockLabel.implicitWidth + 84))
-                height: root.isAppExpandedOnScreen ? Math.min(626, root.height - 96) : Theme.islandHeight
-                width: root.isAppExpandedOnScreen ? Math.min(920, root.width - 48) : compactWidth
+                height: root.isAppExpandedOnScreen ? Math.min(root.shellState.islandApp === "weather" ? 320 : 626, root.height - 96) : Theme.islandHeight
+                width: root.isAppExpandedOnScreen ? Math.min(root.shellState.islandApp === "weather" ? 680 : 920, root.width - 48) : compactWidth
                 radius: root.isAppExpandedOnScreen ? 18 : Theme.islandRadius
                 color: "transparent"
                 border.width: root.dropHovered ? 2 : 1
@@ -1153,7 +1154,7 @@ PanelWindow {
                     x: 0
                     y: root.isBottom ? (appHeaderSep.y - height) : (appHeaderSep.y + appHeaderSep.height)
                     width: parent.width
-                    height: root.isAppExpandedOnScreen ? 26 : 0
+                    height: (root.isAppExpandedOnScreen && root.shellState.islandApp !== "weather") ? 26 : 0
                     color: Qt.rgba(1, 1, 1, 0.04)
                     clip: true
                     visible: height > 0
@@ -1259,6 +1260,17 @@ PanelWindow {
                         Component.onCompleted: ensureSource()
                         onActiveChanged: ensureSource()
                         onLoaded: if (item) item.refreshSources()
+                    }
+
+                    Loader {
+                        id: weatherLoader
+                        anchors.fill: parent
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "weather"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("WeatherForecastView.qml", { shellState: root.shellState });
+                        }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
                     }
                 }
 
