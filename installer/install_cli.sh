@@ -71,6 +71,7 @@ def split_unique(groups):
 print(f"MISSING_CORE={shlex.quote(split_unique({'core'}))}")
 print(f"MISSING_REC={shlex.quote(split_unique({'core', 'wayland', 'system'}))}")
 print(f"MISSING_ALL={shlex.quote(split_unique({'core', 'wayland', 'system', 'optional'}))}")
+print(f"MISSING_EXTRA={shlex.quote(split_unique({'wayland', 'system', 'optional'}))}")
 PY
 )"
 
@@ -80,7 +81,16 @@ echo -e "Distro: ${BOLD}$DISTRO_PRETTY${RESET} (${DIM}$PKG_MGR${RESET})"
 [[ -n "$UNSUPPORTED_NOTE" ]] && echo -e "${YELLOW}[!] $UNSUPPORTED_NOTE${RESET}"
 echo ""
 
-# 1. Hyprland config check, backup & default Lua config sync
+# 1. Update stream
+echo "Shell Update Stream:"
+echo "  [1] Main (GitHub) — latest commits from main branch (default)"
+echo "  [2] Release (Stable) — tagged GitHub releases"
+prompt_read u_ans "Choice [1-2, default 1]: "
+UPDATE_STREAM="main"
+[[ "${u_ans:-1}" == "2" ]] && UPDATE_STREAM="release"
+echo ""
+
+# 2. Hyprland config check, backup & default Lua config sync
 BACKUP_HYPR="false"
 SYNC_HYPR="true"
 if [[ "$HYPR_EXISTS" == "true" ]]; then
@@ -104,35 +114,29 @@ if [[ "$SYNC_HYPR" == "true" && "$HYPR_LUA_SUPPORTED" == "false" ]]; then
 fi
 echo ""
 
-# 2. Distro-filtered package audit
-echo -e "${BOLD}System Package Audit:${RESET}"
+# 3. Distro-filtered additional packages (core packages are always auto-installed if missing)
+echo -e "${BOLD}Additional Packages:${RESET}"
 python3 - "$AUDIT_JSON" <<'PY'
 import json, sys
 d = json.loads(sys.argv[1])
-for p in d["packages"]:
-    if p["installed"]:
-        status = "\033[32m[OK]\033[0m"
-    elif p.get("required") or p.get("group") == "core":
-        status = "\033[33m[REQUIRED]\033[0m"
-    else:
-        status = "\033[33m[MISSING]\033[0m"
+extras = [p for p in d["packages"] if not (p.get("required") or p.get("group") == "core")]
+for p in extras:
+    status = "\033[32m[OK]\033[0m" if p["installed"] else "\033[33m[MISSING]\033[0m"
     print(f"  {status} {p['label']:<28} ({p['group']:<8}) -> {p['pkg']}")
 PY
 echo ""
 
-SELECTED_PKGS=""
-if [[ -n "$MISSING_ALL" ]]; then
-    echo "Select missing packages to install:"
-    echo "  [1] Core + Recommended (Wayland & System controls)"
-    echo "  [2] Core only"
-    echo "  [3] All missing (including Optional)"
-    echo "  [4] Skip package installation"
-    prompt_read p_ans "Choice [1-4, default 1]: "
+SELECTED_PKGS="$MISSING_CORE"
+if [[ -n "$MISSING_EXTRA" ]]; then
+    echo "Select additional packages to install (missing core packages are always included):"
+    echo "  [1] Recommended (Wayland & System controls)"
+    echo "  [2] All missing (including Optional)"
+    echo "  [3] Skip additional packages"
+    prompt_read p_ans "Choice [1-3, default 1]: "
     case "${p_ans:-1}" in
         1) SELECTED_PKGS="$MISSING_REC" ;;
-        2) SELECTED_PKGS="$MISSING_CORE" ;;
-        3) SELECTED_PKGS="$MISSING_ALL" ;;
-        *) SELECTED_PKGS="" ;;
+        2) SELECTED_PKGS="$MISSING_ALL" ;;
+        *) SELECTED_PKGS="$MISSING_CORE" ;;
     esac
     echo ""
 fi
@@ -173,6 +177,7 @@ SETUP_PORTALS="true"
 
 echo ""
 echo -e "${BOLD}Summary:${RESET}"
+echo "  Update stream         : $UPDATE_STREAM"
 echo "  Backup ~/.config/hypr : $BACKUP_HYPR (format: $HYPR_KIND)"
 echo "  Hyprland default sync : $SYNC_HYPR"
 echo "  Packages to install   : ${SELECTED_PKGS:-none}"
@@ -191,6 +196,7 @@ APPLY_ARGS=(
     --backup-hypr "$BACKUP_HYPR"
     --sync-hypr "$SYNC_HYPR"
     --packages "$SELECTED_PKGS"
+    --update-stream "$UPDATE_STREAM"
     --theme "$THEME_PRESET"
     --bar-position "$BAR_POSITION"
     --autostart "$AUTOSTART"

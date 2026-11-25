@@ -23,10 +23,10 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
 
-    property int step: 0 // 0: Welcome, 1: System & Config, 2: Packages, 3: Preferences, 4: Install
+    property int step: 0 // 0: Welcome, 1: Config, 2: Preferences, 3: Install
     onStepChanged: {
         SoundService.playInstallerStep();
-        if (step === 4) {
+        if (step === 3) {
             trackCanvas.requestPaint();
             progressCanvas.requestPaint();
         }
@@ -44,10 +44,15 @@ PanelWindow {
     property bool coprNeeded: false
     property string distroNote: ""
     property var packages: []
+    property var missingExtraPackages: []
+    property var installedExtraPackages: []
+    property int missingCoreCount: 0
     property var selectedPkgs: ({})
     property string activePkgPreset: "rec"
+    property bool showInstalledPkgs: false
 
     // User preferences (pre-configured Theme presets from Theme.qml)
+    property string optUpdateStream: "main" // "main" | "release"
     property bool optBackupHypr: true
     property bool optSyncHypr: true
     property string optTheme: Theme.activePreset || "OLED Pure"
@@ -87,6 +92,8 @@ PanelWindow {
 
     // Welcome splash -> dialog expand state
     property real scrimAlpha: 0.0
+    property real splashGlow: 0.0
+    property real splashShaderTime: 0.0
     property real splashOpacity: 0.0
     property real splashScale: 0.55
     property real splashOrbOffsetX: 34.0
@@ -101,11 +108,23 @@ PanelWindow {
         welcomeSeq.start();
     }
 
+    NumberAnimation {
+        id: splashShaderClock
+        target: root
+        property: "splashShaderTime"
+        from: 0.0
+        to: Math.PI * 2
+        duration: 8000
+        loops: Animation.Infinite
+        running: root.splashGlow > 0.002
+    }
+
     SequentialAnimation {
         id: welcomeSeq
-        NumberAnimation { target: root; property: "scrimAlpha"; from: 0.0; to: 0.72; duration: 750; easing.type: Easing.InOutCubic }
+        NumberAnimation { target: root; property: "scrimAlpha"; from: 0.0; to: 0.78; duration: 720; easing.type: Easing.InOutCubic }
         ScriptAction { script: SoundService.playInstallerSplash() }
         ParallelAnimation {
+            NumberAnimation { target: root; property: "splashGlow"; from: 0.0; to: 1.0; duration: 760; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashOpacity"; from: 0.0; to: 1.0; duration: 540; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashScale"; from: 0.68; to: 1.0; duration: 680; easing.type: Easing.OutQuint }
             SequentialAnimation {
@@ -118,19 +137,58 @@ PanelWindow {
                 }
             }
         }
-        PauseAnimation { duration: 520 }
+        PauseAnimation { duration: 560 }
         ParallelAnimation {
+            NumberAnimation { target: root; property: "splashGlow"; to: 0.0; duration: 360; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashOpacity"; to: 0.0; duration: 260; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashScale"; to: 1.18; duration: 300; easing.type: Easing.InCubic }
             ScriptAction { script: root.dialogOpen = true }
         }
     }
 
-    function selectedPkgList() {
-        const out = [];
+    function isCorePkg(p) {
+        return Boolean(p && (p.group === "core" || p.required));
+    }
+
+    function rebuildPackageLists() {
+        const missingExtra = [];
+        const installedExtra = [];
+        let coreMissing = 0;
         for (let i = 0; i < packages.length; ++i) {
             const p = packages[i];
-            if (!p.installed && selectedPkgs[p.pkg] && out.indexOf(p.pkg) === -1) {
+            if (isCorePkg(p)) {
+                if (!p.installed) coreMissing += 1;
+                continue;
+            }
+            if (p.installed) installedExtra.push(p);
+            else missingExtra.push(p);
+        }
+        missingExtraPackages = missingExtra;
+        installedExtraPackages = installedExtra;
+        missingCoreCount = coreMissing;
+    }
+
+    function selectedExtraCount() {
+        let count = 0;
+        for (let i = 0; i < missingExtraPackages.length; ++i) {
+            if (selectedPkgs[missingExtraPackages[i].pkg]) count += 1;
+        }
+        return count;
+    }
+
+    function selectedPkgList() {
+        const out = [];
+        // Core packages are mandatory and always auto-included when missing
+        for (let i = 0; i < packages.length; ++i) {
+            const p = packages[i];
+            if (!p.installed && isCorePkg(p) && out.indexOf(p.pkg) === -1) {
+                out.push(p.pkg);
+            }
+        }
+        // User-selected additional packages
+        for (let i = 0; i < missingExtraPackages.length; ++i) {
+            const p = missingExtraPackages[i];
+            if (selectedPkgs[p.pkg] && out.indexOf(p.pkg) === -1) {
                 out.push(p.pkg);
             }
         }
@@ -141,12 +199,10 @@ PanelWindow {
         activePkgPreset = mode;
         const next = {};
         if (mode !== "skip") {
-            for (let i = 0; i < packages.length; ++i) {
-                const p = packages[i];
-                if (p.installed) continue;
+            for (let i = 0; i < missingExtraPackages.length; ++i) {
+                const p = missingExtraPackages[i];
                 if (mode === "all") next[p.pkg] = true;
-                else if (mode === "rec" && (p.group === "core" || p.group === "wayland" || p.group === "system")) next[p.pkg] = true;
-                else if (mode === "core" && p.group === "core") next[p.pkg] = true;
+                else if (mode === "rec" && (p.group === "wayland" || p.group === "system")) next[p.pkg] = true;
             }
         }
         selectedPkgs = next;
@@ -183,7 +239,7 @@ PanelWindow {
 
     function launchApply(sudoPassword) {
         SoundService.playInstallerStart();
-        step = 4;
+        step = 3;
         installing = true;
         installDone = false;
         installExitCode = -1;
@@ -198,6 +254,7 @@ PanelWindow {
             "--backup-hypr", (hyprExists && optBackupHypr) ? "true" : "false",
             "--sync-hypr", optSyncHypr ? "true" : "false",
             "--packages", pkgs,
+            "--update-stream", optUpdateStream,
             "--theme", optTheme,
             "--bar-position", optBarPos,
             "--autostart", optAutostart ? "true" : "false",
@@ -247,6 +304,7 @@ PanelWindow {
                     if (data.distro && data.distro.unsupportedNote) notes.push(data.distro.unsupportedNote);
                     root.distroNote = notes.join(" ");
                     root.packages = data.packages || [];
+                    root.rebuildPackageLists();
                     root.selectPackagePreset("rec");
                 } catch (e) {
                     root.auditError = "Audit parse error: " + e;
@@ -365,7 +423,44 @@ PanelWindow {
         }
     }
 
-    // Fullscreen dark scrim (gradual dim -> splash -> dialog)
+    // Canonical Paithosh toggle switch (38x22 r=11, thumb 16x16 r=8, spring motion)
+    component InstallerSwitch: Rectangle {
+        id: sw
+        property bool checked: false
+        signal toggled()
+
+        implicitWidth: 38
+        implicitHeight: 22
+        radius: 11
+        clip: true
+        color: checked ? Theme.accent : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, swMouse.containsMouse ? 0.18 : 0.12)
+        border.width: 1
+        border.color: checked ? Theme.accent : Theme.borderSubtle
+        scale: swMouse.pressed ? 0.94 : 1.0
+
+        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+        Rectangle {
+            width: 16; height: 16; radius: 8
+            y: 3
+            x: sw.checked ? (sw.width - width - 3) : 3
+            color: sw.checked ? Theme.accentFg : Theme.text
+            Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: 1.15 } }
+            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        }
+
+        MouseArea {
+            id: swMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: sw.toggled()
+        }
+    }
+
+    // Fullscreen dark scrim (gradual dim -> splash shader glow -> dialog)
     Rectangle {
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, root.scrimAlpha)
@@ -376,6 +471,18 @@ PanelWindow {
             } else if (!root.installing) {
                 Qt.quit();
             }
+        }
+
+        // Default-wallpaper-style monochrome radial glow shader emerging behind the splash emblem
+        ShaderEffect {
+            id: splashGlowShader
+            anchors.fill: parent
+            visible: root.splashGlow > 0.002
+            property vector2d resolution: Qt.vector2d(width, height)
+            property real reveal: root.splashGlow
+            property real time: root.splashShaderTime
+            property color glowColor: Theme.text
+            fragmentShader: Qt.resolvedUrl("assets/shaders/splash_glow.frag.qsb")
         }
 
         // Welcome Splash Emblem (Frameless Orbital Nucleus with detached-orb spring animation)
@@ -419,7 +526,7 @@ PanelWindow {
 
             Text {
                 Layout.alignment: Qt.AlignHCenter
-                text: "Paithosh Shell"
+                text: "Paithosh"
                 color: Theme.text
                 font.family: Theme.fontSans
                 font.pixelSize: 22
@@ -483,11 +590,11 @@ PanelWindow {
                 anchors.fill: parent
                 spacing: 0
 
-                // Left Sidebar (matches SettingsView)
+                // Left Sidebar (Two-Pane Polarity: Theme.pillBg + 1px Theme.borderSubtle divider)
                 Rectangle {
                     Layout.preferredWidth: 236
                     Layout.fillHeight: true
-                    color: Theme.surfaceRaised
+                    color: Theme.pillBg
                     clip: true
 
                     Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -508,7 +615,7 @@ PanelWindow {
                                 SvgIcon { anchors.centerIn: parent; sourceName: "paithosh"; iconSize: 19; preserveColor: true }
                             }
                             ColumnLayout {
-                                Layout.fillWidth: true; spacing: 1
+                                Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
                                 Text {
                                     text: "Paithosh"
                                     color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.Bold
@@ -541,13 +648,12 @@ PanelWindow {
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
 
-                        // Sidebar Nav Steps
+                        // Sidebar Nav Steps (4 steps: Welcome, Config, Preferences, Install)
                         Repeater {
                             model: [
                                 { title: "Welcome", sub: "Version & changelogs", icon: "home" },
-                                { title: "System & Config", sub: "Distro & Hypr backup", icon: "info" },
-                                { title: "Packages", sub: "Anti-bloat audit", icon: "download" },
-                                { title: "Preferences", sub: "Theme & layout", icon: "settings" },
+                                { title: "Config", sub: "Stream, backup & extras", icon: "sliders" },
+                                { title: "Preferences", sub: "Theme & layout", icon: "palette" },
                                 { title: "Install", sub: "Apply & progress", icon: "terminal" }
                             ]
                             delegate: Rectangle {
@@ -559,25 +665,39 @@ PanelWindow {
                                 clip: true
                                 readonly property bool active: root.step === index
                                 readonly property bool done: root.step > index
-                                color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+                                color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
                                               : (navMouse.containsMouse ? Theme.cardHover : "transparent")
                                 border.width: 1
-                                border.color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : "transparent"
-                                scale: navMouse.pressed && !root.installing && index < 4 ? 0.96 : 1.0
+                                border.color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : "transparent"
+                                scale: navMouse.pressed && !root.installing && index < 3 ? 0.96 : 1.0
 
                                 Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
                                 Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
+                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                // Canonical 3x15px active indicator pill
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 3
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 3
+                                    height: active ? 15 : 0
+                                    radius: 2
+                                    color: Theme.accent
+                                    opacity: active ? 1.0 : 0.0
+                                    Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 1.2 } }
+                                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                }
 
                                 RowLayout {
-                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
+                                    anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 10; spacing: 10
                                     SvgIcon {
                                         sourceName: done ? "check" : modelData.icon
                                         iconSize: 16
                                         color: active ? Theme.accent : (done ? Theme.ok : Theme.textSub)
                                     }
                                     ColumnLayout {
-                                        Layout.fillWidth: true; spacing: 1
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
                                         Text {
                                             text: (index + 1) + ". " + modelData.title
                                             color: active ? Theme.text : Theme.textSub
@@ -597,7 +717,7 @@ PanelWindow {
                                     id: navMouse
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    enabled: !root.installing && index < 4
+                                    enabled: !root.installing && index < 3
                                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                     onClicked: root.step = index
                                 }
@@ -617,13 +737,36 @@ PanelWindow {
                                 id: sumCol
                                 anchors.fill: parent; anchors.margins: 10; spacing: 4
                                 Text { text: "Summary"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; font.weight: Font.DemiBold }
-                                Text {
-                                    text: "Theme: " + root.optTheme + " (" + root.optBarPos + ")"
-                                    color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 6
+                                    Text { text: "Stream"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: root.optUpdateStream === "release" ? "Release" : "Main"
+                                        color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
                                 }
-                                Text {
-                                    text: "Packages: " + root.selectedPkgList().length + " selected"
-                                    color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 6
+                                    Text { text: "Theme"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        Layout.maximumWidth: 132
+                                        text: root.optTheme + " (" + root.optBarPos + ")"
+                                        color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 6
+                                    Text { text: "Extras"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: root.selectedExtraCount() + " selected"
+                                        color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
                                 }
                             }
                         }
@@ -649,9 +792,8 @@ PanelWindow {
                         Text {
                             Layout.fillWidth: true; Layout.minimumWidth: 0
                             text: root.step === 0 ? "Welcome to Paithosh Shell"
-                                : root.step === 1 ? "System & Configuration Check"
-                                : root.step === 2 ? "Distro-Filtered Package Audit"
-                                : root.step === 3 ? "Visual Preferences & Theme"
+                                : root.step === 1 ? "Configuration & Packages"
+                                : root.step === 2 ? "Visual Preferences & Theme"
                                 : "Installing Paithosh Shell"
                             color: Theme.text
                             font.family: Theme.fontSans; font.pixelSize: 16; font.weight: Font.DemiBold
@@ -798,12 +940,12 @@ PanelWindow {
                             }
                         }
 
-                        // STEP 1: System & Config (Balanced, minimal, fills space)
+                        // STEP 1: Config (Update Stream, Hyprland Backup & Defaults, Additional Packages)
                         Flickable {
                             id: step1Flick
                             anchors.fill: parent
                             contentWidth: width
-                            contentHeight: s1Col.implicitHeight + 8
+                            contentHeight: s1Col.implicitHeight + 12
                             boundsBehavior: Flickable.StopAtBounds
                             clip: true
                             visible: opacity > 0.01
@@ -817,416 +959,689 @@ PanelWindow {
                                 width: parent.width
                                 spacing: 12
 
-                            // Audit Error Card (with Retry)
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.auditError !== ""
-                                implicitHeight: auditErrRow.implicitHeight + 24
-                                radius: 12; clip: true
-                                color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.12)
-                                border.width: 1; border.color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
-                                RowLayout {
-                                    id: auditErrRow
-                                    anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                    SvgIcon { sourceName: "info"; iconSize: 16; color: Theme.danger }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: root.auditError
-                                        color: Theme.dangerText; font.family: Theme.fontSans; font.pixelSize: 12
-                                        wrapMode: Text.WordWrap
+                                // Audit Error Card (with Retry)
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.auditError !== ""
+                                    implicitHeight: auditErrRow.implicitHeight + 24
+                                    radius: 12; clip: true
+                                    color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.12)
+                                    border.width: 1; border.color: Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
+                                    RowLayout {
+                                        id: auditErrRow
+                                        anchors.fill: parent; anchors.margins: 12; spacing: 10
+                                        SvgIcon { sourceName: "alert-triangle"; iconSize: 16; color: Theme.danger }
+                                        Text {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                            text: root.auditError
+                                            color: Theme.dangerText; font.family: Theme.fontSans; font.pixelSize: 12
+                                            wrapMode: Text.WordWrap
+                                        }
+                                        PillButton { text: "Retry"; iconName: "refresh"; onClicked: root.retryAudit() }
                                     }
-                                    PillButton { text: "Retry"; iconName: "refresh"; onClicked: root.retryAudit() }
                                 }
-                            }
 
-                            // Hyprland Config Warning, Replacement & Backup Card
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.hyprExists
-                                implicitHeight: hyprCol.implicitHeight + 32
-                                radius: 14; clip: true
-                                color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.08)
-                                border.width: 1
-                                border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
+                                // ==================== 1. UPDATE STREAM ====================
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Update Stream"
+                                    color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
 
-                                ColumnLayout {
-                                    id: hyprCol
-                                    anchors.fill: parent; anchors.margins: 16; spacing: 10
+                                GridLayout {
+                                    Layout.fillWidth: true
+                                    columns: 2; columnSpacing: 10; rowSpacing: 10
+
+                                    Repeater {
+                                        model: [
+                                            { id: "main", title: "Main (GitHub)", sub: "Latest commits directly from main branch", icon: "package-update", badge: "Rolling" },
+                                            { id: "release", title: "Release (Stable)", sub: "Tagged GitHub releases for stability", icon: "shield", badge: "Stable" }
+                                        ]
+                                        delegate: Rectangle {
+                                            required property var modelData
+                                            Layout.fillWidth: true
+                                            height: 68; radius: 12; clip: true
+                                            readonly property bool active: root.optUpdateStream === modelData.id
+                                            color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
+                                                          : (streamMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                            border.width: active ? 1.5 : 1
+                                            border.color: active ? Theme.accent : (streamMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.40) : Theme.borderSubtle)
+                                            scale: streamMouse.pressed ? 0.97 : 1.0
+                                            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
+                                                Rectangle {
+                                                    width: 30; height: 30; radius: 8
+                                                    color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18) : Theme.surfaceRaised
+                                                    border.width: 1; border.color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                                    SvgIcon { anchors.centerIn: parent; sourceName: modelData.icon; iconSize: 15; color: active ? Theme.accent : Theme.textSub }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                                    RowLayout {
+                                                        Layout.fillWidth: true; spacing: 6
+                                                        Text {
+                                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                            text: modelData.title
+                                                            color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
+                                                            elide: Text.ElideRight
+                                                        }
+                                                        Rectangle {
+                                                            radius: 5
+                                                            implicitWidth: stBadge.implicitWidth + 10; implicitHeight: 18
+                                                            color: active ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.20) : Theme.surfaceRaised
+                                                            Text {
+                                                                id: stBadge
+                                                                anchors.centerIn: parent
+                                                                text: modelData.badge
+                                                                color: active ? Theme.accent : Theme.textMuted
+                                                                font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
+                                                            }
+                                                        }
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                        text: modelData.sub
+                                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+
+                                            MouseArea {
+                                                id: streamMouse
+                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.optUpdateStream = modelData.id
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ==================== 2. HYPRLAND CONFIG & BACKUP ====================
+                                Text {
+                                    Layout.fillWidth: true; Layout.topMargin: 2
+                                    text: "Hyprland Configuration"
+                                    color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+
+                                // Existing ~/.config/hypr: mode + backup switch inside one clean SettingGroup
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.hyprExists
+                                    implicitHeight: hyprGroupCol.implicitHeight
+                                    radius: 12; clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1
+                                    border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.36)
+
+                                    ColumnLayout {
+                                        id: hyprGroupCol
+                                        width: parent.width
+                                        spacing: 0
+
+                                        // Header + Mode Selector
+                                        ColumnLayout {
+                                            Layout.fillWidth: true
+                                            Layout.margins: 14
+                                            spacing: 10
+
+                                            RowLayout {
+                                                Layout.fillWidth: true; spacing: 10
+                                                Rectangle {
+                                                    width: 30; height: 30; radius: 8
+                                                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                    border.width: 1; border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.32)
+                                                    SvgIcon { anchors.centerIn: parent; sourceName: "alert-triangle"; iconSize: 15; color: Theme.warn }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                                    RowLayout {
+                                                        Layout.fillWidth: true; spacing: 8
+                                                        Text {
+                                                            text: "Existing ~/.config/hypr detected"
+                                                            color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
+                                                            elide: Text.ElideRight
+                                                        }
+                                                        Rectangle {
+                                                            radius: 5
+                                                            implicitWidth: hyprMetaTxt.implicitWidth + 10; implicitHeight: 18
+                                                            color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                            Text {
+                                                                id: hyprMetaTxt
+                                                                anchors.centerIn: parent
+                                                                text: root.hyprFiles + " files • " + (root.hyprConfigKind === "lua" ? "Lua" : (root.hyprConfigKind === "conf" ? "conf" : "custom"))
+                                                                color: Theme.warn
+                                                                font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
+                                                            }
+                                                        }
+                                                        Item { Layout.fillWidth: true }
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                        text: root.optSyncHypr
+                                                            ? "Replace ~/.config/hypr with Paithosh modular Lua defaults."
+                                                            : (root.hyprConfigKind === "lua"
+                                                                ? "Keep existing config and only add Paithosh autostart."
+                                                                : "Keep existing config and append exec-once to hyprland.conf.")
+                                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+
+                                            GridLayout {
+                                                Layout.fillWidth: true
+                                                columns: 2; columnSpacing: 8; rowSpacing: 8
+
+                                                Rectangle {
+                                                    Layout.fillWidth: true; height: 52; radius: 9; clip: true
+                                                    color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (syncRepMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised)
+                                                    border.width: root.optSyncHypr ? 1.5 : 1
+                                                    border.color: root.optSyncHypr ? Theme.accent : Theme.borderSubtle
+                                                    scale: syncRepMouse.pressed ? 0.97 : 1.0
+                                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                    RowLayout {
+                                                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
+                                                        SvgIcon { sourceName: "code"; iconSize: 15; color: root.optSyncHypr ? Theme.accent : Theme.textMuted }
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                                            Text { text: "Replace with Defaults"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                            Text { text: "Clean modular Lua setup"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                        }
+                                                    }
+                                                    MouseArea {
+                                                        id: syncRepMouse
+                                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            root.optSyncHypr = true;
+                                                            root.optBackupHypr = true;
+                                                        }
+                                                    }
+                                                }
+
+                                                Rectangle {
+                                                    Layout.fillWidth: true; height: 52; radius: 9; clip: true
+                                                    color: !root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (keepCfgMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised)
+                                                    border.width: !root.optSyncHypr ? 1.5 : 1
+                                                    border.color: !root.optSyncHypr ? Theme.accent : Theme.borderSubtle
+                                                    scale: keepCfgMouse.pressed ? 0.97 : 1.0
+                                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                    RowLayout {
+                                                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 10
+                                                        SvgIcon { sourceName: "folder"; iconSize: 15; color: !root.optSyncHypr ? Theme.accent : Theme.textMuted }
+                                                        ColumnLayout {
+                                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                                            Text { text: "Keep Existing Config"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                            Text { text: "Only inject autostart"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                        }
+                                                    }
+                                                    MouseArea {
+                                                        id: keepCfgMouse
+                                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                        onClicked: root.optSyncHypr = false
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+
+                                        // Backup Toggle Row
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            height: 54
+                                            color: bkpRowMouse.containsMouse ? Theme.cardHover : "transparent"
+                                            Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                            MouseArea {
+                                                id: bkpRowMouse
+                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.optBackupHypr = !root.optBackupHypr
+                                            }
+
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                                Rectangle {
+                                                    width: 30; height: 30; radius: 8
+                                                    color: root.optBackupHypr ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14) : Theme.surfaceRaised
+                                                    border.width: 1; border.color: root.optBackupHypr ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35) : Theme.borderSubtle
+                                                    SvgIcon { anchors.centerIn: parent; sourceName: "archive"; iconSize: 15; color: root.optBackupHypr ? Theme.ok : Theme.textSub }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: "Backup old Hyprland config"
+                                                        color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: root.optBackupHypr
+                                                            ? "Saves snapshot to ~/.config/hypr.bak.<timestamp>"
+                                                            : (root.optSyncHypr ? "Overwrite ~/.config/hypr without backup" : "Update existing config in-place")
+                                                        color: Theme.textSub
+                                                        font.family: root.optBackupHypr ? Theme.fontMono : Theme.fontSans
+                                                        font.pixelSize: 11
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                                InstallerSwitch {
+                                                    checked: root.optBackupHypr
+                                                    onToggled: root.optBackupHypr = !root.optBackupHypr
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Clean ~/.config/hypr toggle group (when no prior hypr config exists)
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: !root.loadingAudit && !root.hyprExists && root.auditError === ""
+                                    height: 58; radius: 12; clip: true
+                                    color: cleanSyncMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                                    border.width: 1
+                                    border.color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle
+                                    scale: cleanSyncMouse.pressed ? 0.99 : 1.0
+                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                    MouseArea {
+                                        id: cleanSyncMouse
+                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.optSyncHypr = !root.optSyncHypr
+                                    }
 
                                     RowLayout {
-                                        Layout.fillWidth: true; spacing: 12
+                                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
                                         Rectangle {
-                                            width: 36; height: 36; radius: 10
-                                            color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.16)
-                                            SvgIcon { anchors.centerIn: parent; sourceName: "info"; iconSize: 18; color: Theme.warn }
+                                            width: 30; height: 30; radius: 8
+                                            color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1; border.color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "code"; iconSize: 15; color: root.optSyncHypr ? Theme.accent : Theme.textSub }
                                         }
                                         ColumnLayout {
                                             Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
                                             Text {
-                                                text: "Existing ~/.config/hypr (" + root.hyprFiles + " files • " + (root.hyprConfigKind === "lua" ? "Lua" : (root.hyprConfigKind === "conf" ? "conf" : "custom")) + ")"
-                                                color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.DemiBold
-                                                elide: Text.ElideRight; Layout.fillWidth: true
-                                            }
-                                            Text {
-                                                text: root.optSyncHypr
-                                                    ? "Back up old config, clean ~/.config/hypr, and install Paithosh Lua defaults."
-                                                    : (root.hyprConfigKind === "lua"
-                                                        ? "Keep existing config and only add Paithosh autostart."
-                                                        : "Keep existing config and add exec-once to hyprland.conf.")
-                                                color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 12
-                                                elide: Text.ElideRight; Layout.fillWidth: true
-                                            }
-                                        }
-                                    }
-
-                                    GridLayout {
-                                        Layout.fillWidth: true
-                                        columns: 2; columnSpacing: 10; rowSpacing: 10
-
-                                        Rectangle {
-                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
-                                            color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (syncRepMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                            border.width: 1; border.color: root.optSyncHypr ? Theme.accent : Theme.borderSubtle
-                                            scale: syncRepMouse.pressed ? 0.97 : 1.0
-                                            Behavior on color { ColorAnimation { duration: 140 } }
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-                                            RowLayout {
-                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                                SvgIcon { sourceName: "code"; iconSize: 16; color: root.optSyncHypr ? Theme.accent : Theme.textMuted }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                                    Text { text: "Replace with Paithosh Defaults"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                    Text { text: "Clean install of modular Lua config"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                }
-                                            }
-                                            MouseArea {
-                                                id: syncRepMouse
-                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    root.optSyncHypr = true;
-                                                    root.optBackupHypr = true;
-                                                }
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
-                                            color: !root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : (keepCfgMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                            border.width: 1; border.color: !root.optSyncHypr ? Theme.accent : Theme.borderSubtle
-                                            scale: keepCfgMouse.pressed ? 0.97 : 1.0
-                                            Behavior on color { ColorAnimation { duration: 140 } }
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-                                            RowLayout {
-                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                                SvgIcon { sourceName: "folder"; iconSize: 16; color: !root.optSyncHypr ? Theme.accent : Theme.textMuted }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                                    Text { text: "Keep Existing Config"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                    Text { text: "Only inject Paithosh autostart"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                }
-                                            }
-                                            MouseArea {
-                                                id: keepCfgMouse
-                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.optSyncHypr = false
-                                            }
-                                        }
-                                    }
-
-                                    GridLayout {
-                                        Layout.fillWidth: true
-                                        columns: 2; columnSpacing: 10; rowSpacing: 10
-
-                                        Rectangle {
-                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
-                                            color: root.optBackupHypr ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14) : (bkpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                            border.width: 1; border.color: root.optBackupHypr ? Theme.ok : Theme.borderSubtle
-                                            scale: bkpMouse.pressed ? 0.97 : 1.0
-                                            Behavior on color { ColorAnimation { duration: 140 } }
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-                                            RowLayout {
-                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                                SvgIcon { sourceName: "check"; iconSize: 16; color: root.optBackupHypr ? Theme.ok : Theme.textMuted }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                                    Text { text: "Timestamped Backup (Recommended)"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                    Text { text: "~/.config/hypr.bak.<time>"; color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                }
-                                            }
-                                            MouseArea { id: bkpMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = true }
-                                        }
-
-                                        Rectangle {
-                                            Layout.fillWidth: true; height: 60; radius: 10; clip: true
-                                            color: !root.optBackupHypr ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14) : (skipBkpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                            border.width: 1; border.color: !root.optBackupHypr ? Theme.warn : Theme.borderSubtle
-                                            scale: skipBkpMouse.pressed ? 0.97 : 1.0
-                                            Behavior on color { ColorAnimation { duration: 140 } }
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-                                            RowLayout {
-                                                anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                                SvgIcon { sourceName: "close"; iconSize: 16; color: !root.optBackupHypr ? Theme.warn : Theme.textMuted }
-                                                ColumnLayout {
-                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                                    Text { text: "Skip Backup"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                    Text { text: root.optSyncHypr ? "Overwrite ~/.config/hypr directly" : (root.hyprConfigKind === "lua" ? "Update Lua config in-place" : "Update hyprland.conf in-place"); color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                }
-                                            }
-                                            MouseArea { id: skipBkpMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.optBackupHypr = false }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Clean Hyprland card + Default Lua Config Toggle
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: !root.loadingAudit && !root.hyprExists && root.auditError === ""
-                                height: 74; radius: 14; clip: true
-                                color: root.optSyncHypr ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : (cleanSyncMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                border.width: 1
-                                border.color: root.optSyncHypr ? Theme.accent : Theme.borderSubtle
-                                scale: cleanSyncMouse.pressed ? 0.98 : 1.0
-                                Behavior on color { ColorAnimation { duration: 140 } }
-                                Behavior on border.color { ColorAnimation { duration: 140 } }
-                                Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 16; spacing: 12
-                                    SvgIcon { sourceName: root.optSyncHypr ? "check" : "close"; iconSize: 18; color: root.optSyncHypr ? Theme.ok : Theme.textMuted }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: "Clean ~/.config/hypr — install Paithosh default Hyprland Lua config"
-                                            color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
-                                            elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: root.optSyncHypr
-                                                ? "Copies defaults/hypr (binds, monitors, animations, appearance, theme) to ~/.config/hypr"
-                                                : "Skipped — only a minimal hyprland.conf autostart file will be created"
-                                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-                                }
-                                MouseArea {
-                                    id: cleanSyncMouse
-                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.optSyncHypr = !root.optSyncHypr
-                                }
-                            }
-
-                            // Hyprland Lua Compatibility Warning
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.hyprLuaSupported === false && root.optSyncHypr
-                                implicitHeight: luaWarnRow.implicitHeight + 22
-                                radius: 12; clip: true
-                                color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.10)
-                                border.width: 1; border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
-                                RowLayout {
-                                    id: luaWarnRow
-                                    anchors.fill: parent; anchors.margins: 11; spacing: 10
-                                    SvgIcon { sourceName: "info"; iconSize: 15; color: Theme.warn }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Installed Hyprland binary does not appear to link liblua. Hyprland 0.57+ with Lua support is required for Paithosh's modular Lua configuration."
-                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                            }
-
-                            // Distro Note (COPR / AUR / Debian)
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.distroNote !== ""
-                                implicitHeight: noteRow.implicitHeight + 22
-                                radius: 12; clip: true
-                                color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.10)
-                                border.width: 1; border.color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.35)
-                                RowLayout {
-                                    id: noteRow
-                                    anchors.fill: parent; anchors.margins: 11; spacing: 10
-                                    SvgIcon { sourceName: "info"; iconSize: 15; color: Theme.info }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: root.distroNote
-                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                            }
-
-                            // 2-column Compact Environment Cards
-                            GridLayout {
-                                Layout.fillWidth: true
-                                columns: 2; columnSpacing: 12; rowSpacing: 12
-
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 104; radius: 12; clip: true
-                                    color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 16; spacing: 14
-                                        Rectangle {
-                                            width: 40; height: 40; radius: 10
-                                            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
-                                            SvgIcon { anchors.centerIn: parent; sourceName: "terminal"; iconSize: 18; color: Theme.accent }
-                                        }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 3
-                                            Text { text: "Package Manager"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
-                                            Text { text: root.distroInfo.pkgMgr + " (" + root.distroInfo.family + ")"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                            Text { text: "Anti-bloat filter active"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 104; radius: 12; clip: true
-                                    color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 16; spacing: 14
-                                        Rectangle {
-                                            width: 40; height: 40; radius: 10
-                                            color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.14)
-                                            SvgIcon { anchors.centerIn: parent; sourceName: "folder"; iconSize: 18; color: Theme.info }
-                                        }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 3
-                                            Text { text: "Target Directory"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
-                                            Text { text: "~/.config/paithosh"; color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                            Text { text: root.paithoshExists ? "Existing settings preserved" : "Fresh setup"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        }
-                                    }
-                                }
-                            }
-                            }
-                        }
-
-                        // STEP 2: Packages
-                        ColumnLayout {
-                            anchors.fill: parent
-                            spacing: 12
-                            visible: opacity > 0.01
-                            opacity: root.step === 2 ? 1.0 : 0.0
-                            x: root.step === 2 ? 0 : (root.step > 2 ? -24 : 24)
-                            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                            Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-
-                            // Large preset action strip
-                            RowLayout {
-                                Layout.fillWidth: true; spacing: 8
-                                PillButton { text: "Recommended"; active: root.activePkgPreset === "rec"; onClicked: root.selectPackagePreset("rec") }
-                                PillButton { text: "Core Only"; active: root.activePkgPreset === "core"; onClicked: root.selectPackagePreset("core") }
-                                PillButton { text: "All Missing"; active: root.activePkgPreset === "all"; onClicked: root.selectPackagePreset("all") }
-                                PillButton { text: "Skip All"; active: root.activePkgPreset === "skip"; onClicked: root.selectPackagePreset("skip") }
-                                Item { Layout.fillWidth: true }
-                            }
-
-                            Rectangle {
-                                Layout.fillWidth: true
-                                visible: root.loadingAudit || root.auditError !== "" || root.distroNote !== ""
-                                implicitHeight: pkgBannerRow.implicitHeight + 20
-                                radius: 10; clip: true
-                                color: root.auditError !== "" ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.12) : Theme.cardBg
-                                border.width: 1
-                                border.color: root.auditError !== "" ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45) : Theme.borderSubtle
-                                RowLayout {
-                                    id: pkgBannerRow
-                                    anchors.fill: parent; anchors.margins: 10; spacing: 10
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: root.loadingAudit ? "Scanning installed packages..." : (root.auditError !== "" ? root.auditError : root.distroNote)
-                                        color: root.auditError !== "" ? Theme.dangerText : Theme.textSub
-                                        font.family: Theme.fontSans; font.pixelSize: 11
-                                        wrapMode: Text.WordWrap
-                                    }
-                                    PillButton { visible: root.auditError !== ""; text: "Retry"; iconName: "refresh"; onClicked: root.retryAudit() }
-                                }
-                            }
-
-                            ListView {
-                                Layout.fillWidth: true; Layout.fillHeight: true
-                                clip: true; spacing: 8
-                                model: root.packages
-                                delegate: Rectangle {
-                                    required property var modelData
-                                    width: ListView.view.width
-                                    height: 52; radius: 10; clip: true
-                                    readonly property bool isChecked: Boolean(root.selectedPkgs[modelData.pkg])
-                                    color: pkgMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                    border.width: 1
-                                    border.color: modelData.installed ? Theme.borderSubtle : (isChecked ? Theme.accent : Theme.borderSubtle)
-                                    scale: pkgMouse.pressed && !modelData.installed ? 0.98 : 1.0
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-                                    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
-
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
-                                        SvgIcon {
-                                            sourceName: modelData.installed ? "check" : (isChecked ? "check" : "download")
-                                            iconSize: 16
-                                            color: modelData.installed ? Theme.ok : (isChecked ? Theme.accent : Theme.textMuted)
-                                        }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 1
-                                            Text {
-                                                text: modelData.label
+                                                Layout.fillWidth: true
+                                                text: "Install Paithosh Hyprland Defaults"
                                                 color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
-                                                elide: Text.ElideRight; Layout.fillWidth: true
+                                                elide: Text.ElideRight
                                             }
                                             Text {
-                                                text: modelData.pkg + "  •  " + modelData.group
-                                                color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
-                                                elide: Text.ElideRight; Layout.fillWidth: true
+                                                Layout.fillWidth: true
+                                                text: root.optSyncHypr
+                                                    ? "Copies modular Lua config (binds, monitors, theme) to ~/.config/hypr"
+                                                    : "Skipped — only a minimal hyprland.conf autostart will be created"
+                                                color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                                elide: Text.ElideRight
                                             }
                                         }
-                                        Rectangle {
-                                            radius: 6
-                                            implicitWidth: stTxt.implicitWidth + 16; implicitHeight: 24
-                                            color: modelData.installed ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
-                                                                       : (isChecked ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14) : Theme.surfaceRaised)
-                                            Text {
-                                                id: stTxt
-                                                anchors.centerIn: parent
-                                                text: modelData.installed ? "Installed" : (isChecked ? ((modelData.required || modelData.group === "core") ? "Required" : "Install") : ((modelData.required || modelData.group === "core") ? "Required (Skip)" : "Skip"))
-                                                color: modelData.installed ? Theme.ok : (isChecked ? Theme.accent : Theme.textMuted)
-                                                font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
-                                            }
+                                        InstallerSwitch {
+                                            checked: root.optSyncHypr
+                                            onToggled: root.optSyncHypr = !root.optSyncHypr
+                                        }
+                                    }
+                                }
+
+                                // Hyprland Lua Compatibility Warning
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.hyprLuaSupported === false && root.optSyncHypr
+                                    implicitHeight: luaWarnRow.implicitHeight + 20
+                                    radius: 10; clip: true
+                                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.10)
+                                    border.width: 1; border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
+                                    RowLayout {
+                                        id: luaWarnRow
+                                        anchors.fill: parent; anchors.margins: 10; spacing: 10
+                                        SvgIcon { sourceName: "alert-triangle"; iconSize: 15; color: Theme.warn }
+                                        Text {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                            text: "Installed Hyprland binary does not appear to link liblua. Hyprland 0.57+ with Lua support is required for Paithosh's modular Lua configuration."
+                                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+
+                                // Distro Note (COPR / AUR / Debian)
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.distroNote !== ""
+                                    implicitHeight: noteRow.implicitHeight + 20
+                                    radius: 10; clip: true
+                                    color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.10)
+                                    border.width: 1; border.color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.35)
+                                    RowLayout {
+                                        id: noteRow
+                                        anchors.fill: parent; anchors.margins: 10; spacing: 10
+                                        SvgIcon { sourceName: "info"; iconSize: 15; color: Theme.info }
+                                        Text {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                            text: root.distroNote
+                                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+
+                                // ==================== 3. ADDITIONAL PACKAGES (CORE HIDDEN & AUTO-INSTALLED) ====================
+                                RowLayout {
+                                    Layout.fillWidth: true; Layout.topMargin: 2
+                                    spacing: 8
+
+                                    Text {
+                                        text: "Additional Packages"
+                                        color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    }
+
+                                    Rectangle {
+                                        visible: !root.loadingAudit
+                                        radius: 5
+                                        implicitWidth: pkgCountTxt.implicitWidth + 10; implicitHeight: 18
+                                        color: Theme.surfaceRaised
+                                        border.width: 1; border.color: Theme.borderSubtle
+                                        Text {
+                                            id: pkgCountTxt
+                                            anchors.centerIn: parent
+                                            text: root.missingExtraPackages.length > 0
+                                                ? (root.selectedExtraCount() + "/" + root.missingExtraPackages.length + " selected")
+                                                : (root.installedExtraPackages.length + " ready")
+                                            color: Theme.textSub
+                                            font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
                                         }
                                     }
 
-                                    MouseArea {
-                                        id: pkgMouse
-                                        anchors.fill: parent; hoverEnabled: true
-                                        enabled: !modelData.installed
-                                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                        onClicked: {
-                                            root.activePkgPreset = "";
-                                            const next = Object.assign({}, root.selectedPkgs);
-                                            next[modelData.pkg] = !next[modelData.pkg];
-                                            root.selectedPkgs = next;
+                                    Item { Layout.fillWidth: true }
+
+                                    PillButton {
+                                        visible: !root.loadingAudit && root.missingExtraPackages.length > 0
+                                        text: "Recommended"
+                                        fontSize: 11; horizontalPadding: 10; verticalPadding: 4
+                                        active: root.activePkgPreset === "rec"
+                                        onClicked: root.selectPackagePreset("rec")
+                                    }
+                                    PillButton {
+                                        visible: !root.loadingAudit && root.missingExtraPackages.length > 0
+                                        text: "All Missing"
+                                        fontSize: 11; horizontalPadding: 10; verticalPadding: 4
+                                        active: root.activePkgPreset === "all"
+                                        onClicked: root.selectPackagePreset("all")
+                                    }
+                                    PillButton {
+                                        visible: !root.loadingAudit && root.missingExtraPackages.length > 0
+                                        text: "Skip Extras"
+                                        fontSize: 11; horizontalPadding: 10; verticalPadding: 4
+                                        active: root.activePkgPreset === "skip"
+                                        onClicked: root.selectPackagePreset("skip")
+                                    }
+                                }
+
+                                // Scanning placeholder
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: root.loadingAudit
+                                    height: 52; radius: 12; clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1; border.color: Theme.borderSubtle
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
+                                        SvgIcon { sourceName: "clock"; iconSize: 15; color: Theme.textSub }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Scanning optional & recommended packages for " + root.distroInfo.pretty + "..."
+                                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 12
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+
+                                // Missing Additional Packages Group (or all-ready confirmation)
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: !root.loadingAudit
+                                    implicitHeight: extraPkgCol.implicitHeight
+                                    radius: 12; clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1; border.color: Theme.borderSubtle
+
+                                    ColumnLayout {
+                                        id: extraPkgCol
+                                        width: parent.width
+                                        spacing: 0
+
+                                        // Empty state when all additional packages are already installed
+                                        Item {
+                                            Layout.fillWidth: true
+                                            height: 54
+                                            visible: root.missingExtraPackages.length === 0
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                                Rectangle {
+                                                    width: 30; height: 30; radius: 8
+                                                    color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
+                                                    border.width: 1; border.color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35)
+                                                    SvgIcon { anchors.centerIn: parent; sourceName: "check"; iconSize: 15; color: Theme.ok }
+                                                }
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: "All recommended & optional packages are installed"
+                                                        color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: root.distroInfo.pkgMgr + " (" + root.distroInfo.family + ") • Nothing extra needed"
+                                                        color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Interactive rows for missing non-core packages
+                                        Repeater {
+                                            model: root.missingExtraPackages
+                                            delegate: Rectangle {
+                                                required property int index
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                height: 52
+                                                clip: true
+                                                readonly property bool isChecked: Boolean(root.selectedPkgs[modelData.pkg])
+                                                color: pkgRowMouse.containsMouse ? Theme.cardHover : "transparent"
+                                                scale: pkgRowMouse.pressed ? 0.99 : 1.0
+                                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                                Rectangle {
+                                                    visible: index > 0
+                                                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                                                    height: 1; color: Theme.borderSubtle
+                                                }
+
+                                                RowLayout {
+                                                    anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                                    Rectangle {
+                                                        width: 30; height: 30; radius: 8
+                                                        color: isChecked ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                                        border.width: 1; border.color: isChecked ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                        SvgIcon {
+                                                            anchors.centerIn: parent
+                                                            sourceName: isChecked ? "check" : "download"
+                                                            iconSize: 14
+                                                            color: isChecked ? Theme.accent : Theme.textMuted
+                                                        }
+                                                    }
+                                                    ColumnLayout {
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
+                                                        Text {
+                                                            Layout.fillWidth: true
+                                                            text: modelData.label
+                                                            color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
+                                                            elide: Text.ElideRight
+                                                        }
+                                                        Text {
+                                                            Layout.fillWidth: true
+                                                            text: modelData.pkg + " • " + modelData.group
+                                                            color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
+                                                            elide: Text.ElideRight
+                                                        }
+                                                    }
+                                                    Rectangle {
+                                                        radius: 6
+                                                        implicitWidth: stTxt.implicitWidth + 16; implicitHeight: 24
+                                                        color: isChecked ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                                        border.width: 1; border.color: isChecked ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                        Text {
+                                                            id: stTxt
+                                                            anchors.centerIn: parent
+                                                            text: isChecked ? "Install" : "Skip"
+                                                            color: isChecked ? Theme.accent : Theme.textMuted
+                                                            font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                                        }
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: pkgRowMouse
+                                                    anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.activePkgPreset = "";
+                                                        const next = Object.assign({}, root.selectedPkgs);
+                                                        next[modelData.pkg] = !next[modelData.pkg];
+                                                        root.selectedPkgs = next;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Progressive Disclosure Accordion: Already Installed Additional Packages
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: !root.loadingAudit && root.installedExtraPackages.length > 0
+                                    implicitHeight: instHeader.height + (root.showInstalledPkgs ? instBody.implicitHeight : 0)
+                                    radius: 12; clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1
+                                    border.color: instHeadMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.40) : Theme.borderSubtle
+                                    Behavior on implicitHeight { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                    Rectangle {
+                                        id: instHeader
+                                        width: parent.width; height: 46
+                                        color: instHeadMouse.containsMouse ? Theme.cardHover : "transparent"
+                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                        RowLayout {
+                                            anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
+                                            SvgIcon { sourceName: "check"; iconSize: 14; color: Theme.ok }
+                                            Text {
+                                                text: "Already Installed"
+                                                color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.Medium
+                                            }
+                                            Rectangle {
+                                                radius: 5
+                                                implicitWidth: instCountTxt.implicitWidth + 10; implicitHeight: 18
+                                                color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
+                                                Text {
+                                                    id: instCountTxt
+                                                    anchors.centerIn: parent
+                                                    text: String(root.installedExtraPackages.length)
+                                                    color: Theme.ok
+                                                    font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
+                                                }
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            SvgIcon {
+                                                sourceName: "chevron-right"
+                                                iconSize: 14
+                                                color: Theme.textSub
+                                                rotation: root.showInstalledPkgs ? 90 : 0
+                                                Behavior on rotation { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                                            }
+                                        }
+
+                                        MouseArea {
+                                            id: instHeadMouse
+                                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.showInstalledPkgs = !root.showInstalledPkgs
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        id: instBody
+                                        y: instHeader.height
+                                        width: parent.width
+                                        spacing: 0
+                                        opacity: root.showInstalledPkgs ? 1.0 : 0.0
+                                        enabled: root.showInstalledPkgs
+                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                        Repeater {
+                                            model: root.installedExtraPackages
+                                            delegate: Item {
+                                                required property var modelData
+                                                Layout.fillWidth: true
+                                                height: 42
+                                                clip: true
+
+                                                Rectangle {
+                                                    anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                                                    height: 1; color: Theme.borderSubtle
+                                                }
+
+                                                RowLayout {
+                                                    anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 10
+                                                    SvgIcon { sourceName: "check"; iconSize: 13; color: Theme.ok }
+                                                    Text {
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                        text: modelData.label
+                                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 12
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        Layout.maximumWidth: 220
+                                                        text: modelData.pkg + " • " + modelData.group
+                                                        color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
 
-                        // STEP 3: Preferences (Large Settings-Style Cards + Pre-configured Theme Presets)
+                        // STEP 2: Preferences (Large Settings-Style Cards + Pre-configured Theme Presets)
                         Flickable {
                             anchors.fill: parent
                             contentHeight: s2Col.implicitHeight + 16
+                            boundsBehavior: Flickable.StopAtBounds
                             clip: true
                             visible: opacity > 0.01
-                            opacity: root.step === 3 ? 1.0 : 0.0
-                            x: root.step === 3 ? 0 : (root.step > 3 ? -24 : 24)
+                            opacity: root.step === 2 ? 1.0 : 0.0
+                            x: root.step === 2 ? 0 : (root.step > 2 ? -24 : 24)
                             Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
@@ -1265,7 +1680,7 @@ PanelWindow {
                                                 Rectangle {
                                                     width: 42; height: 42; radius: 10
                                                     color: modelData.previewBg
-                                                    border.width: 1; border.color: Qt.rgba(1, 1, 1, 0.22)
+                                                    border.width: 1; border.color: Theme.borderSubtle
                                                     Rectangle {
                                                         anchors.centerIn: parent
                                                         width: 18; height: 18; radius: 9
@@ -1273,7 +1688,7 @@ PanelWindow {
                                                     }
                                                 }
                                                 ColumnLayout {
-                                                    Layout.fillWidth: true; spacing: 2
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
                                                     Text { text: modelData.name; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
                                                     Text { text: modelData.shortDesc; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 }
@@ -1334,20 +1749,32 @@ PanelWindow {
 
                                 // Autostart Large Toggle Card
                                 Rectangle {
-                                    Layout.fillWidth: true; height: 64; radius: 12; clip: true
-                                    color: root.optAutostart ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : Theme.cardBg
+                                    Layout.fillWidth: true; height: 60; radius: 12; clip: true
+                                    color: autoMouse.containsMouse ? Theme.cardHover : Theme.cardBg
                                     border.width: 1
-                                    border.color: root.optAutostart ? Theme.accent : Theme.borderSubtle
-                                    scale: autoMouse.pressed ? 0.98 : 1.0
-                                    Behavior on color { ColorAnimation { duration: 140 } }
-                                    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
+                                    border.color: root.optAutostart ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle
+                                    scale: autoMouse.pressed ? 0.99 : 1.0
+                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                    MouseArea {
+                                        id: autoMouse
+                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.optAutostart = !root.optAutostart
+                                    }
 
                                     RowLayout {
-                                        anchors.fill: parent; anchors.margins: 14; spacing: 12
-                                        SvgIcon { sourceName: root.optAutostart ? "check" : "close"; iconSize: 16; color: root.optAutostart ? Theme.accent : Theme.textMuted }
+                                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                        Rectangle {
+                                            width: 30; height: 30; radius: 8
+                                            color: root.optAutostart ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1; border.color: root.optAutostart ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "bolt"; iconSize: 15; color: root.optAutostart ? Theme.accent : Theme.textMuted }
+                                        }
                                         ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 2
-                                            Text { text: "Hyprland Autostart"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { text: "Hyprland Autostart"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
                                             Text {
                                                 text: (root.optSyncHypr || root.hyprConfigKind === "lua")
                                                     ? "Launch Paithosh automatically in Hyprland Lua config"
@@ -1355,48 +1782,58 @@ PanelWindow {
                                                 color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true
                                             }
                                         }
-                                    }
-                                    MouseArea {
-                                        id: autoMouse
-                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.optAutostart = !root.optAutostart
+                                        InstallerSwitch {
+                                            checked: root.optAutostart
+                                            onToggled: root.optAutostart = !root.optAutostart
+                                        }
                                     }
                                 }
 
                                 // XDG Desktop Portals Toggle Card
                                 Rectangle {
-                                    Layout.fillWidth: true; height: 64; radius: 12; clip: true
-                                    color: root.optSetupPortals ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : Theme.cardBg
+                                    Layout.fillWidth: true; height: 60; radius: 12; clip: true
+                                    color: portalMouse.containsMouse ? Theme.cardHover : Theme.cardBg
                                     border.width: 1
-                                    border.color: root.optSetupPortals ? Theme.accent : Theme.borderSubtle
-                                    scale: portalMouse.pressed ? 0.98 : 1.0
-                                    Behavior on color { ColorAnimation { duration: 140 } }
-                                    Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutBack } }
+                                    border.color: root.optSetupPortals ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle
+                                    scale: portalMouse.pressed ? 0.99 : 1.0
+                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 14; spacing: 12
-                                        SvgIcon { sourceName: root.optSetupPortals ? "check" : "close"; iconSize: 16; color: root.optSetupPortals ? Theme.accent : Theme.textMuted }
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; spacing: 2
-                                            Text { text: "XDG Desktop Portals"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight; Layout.fillWidth: true }
-                                            Text { text: "Register Paithosh Screen Share picker & FileChooser portal"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        }
-                                    }
                                     MouseArea {
                                         id: portalMouse
-                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                        anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                         onClicked: root.optSetupPortals = !root.optSetupPortals
+                                    }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
+                                        Rectangle {
+                                            width: 30; height: 30; radius: 8
+                                            color: root.optSetupPortals ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1; border.color: root.optSetupPortals ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "layers"; iconSize: 15; color: root.optSetupPortals ? Theme.accent : Theme.textMuted }
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { text: "XDG Desktop Portals"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
+                                            Text { text: "Register Paithosh Screen Share picker & FileChooser portal"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        }
+                                        InstallerSwitch {
+                                            checked: root.optSetupPortals
+                                            onToggled: root.optSetupPortals = !root.optSetupPortals
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        // STEP 4: Progress Circle (live status + optional/error log)
+                        // STEP 3: Progress Circle (live status + optional/error log)
                         ColumnLayout {
                             anchors.fill: parent; spacing: 14
                             visible: opacity > 0.01
-                            opacity: root.step === 4 ? 1.0 : 0.0
-                            x: root.step === 4 ? 0 : 24
+                            opacity: root.step === 3 ? 1.0 : 0.0
+                            x: root.step === 3 ? 0 : 24
                             Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
@@ -1556,19 +1993,19 @@ PanelWindow {
 
                         PillButton {
                             text: "Back"
-                            visible: (root.step > 0 && root.step < 4) || (root.step === 4 && root.installDone && root.installExitCode !== 0)
-                            onClicked: root.step = root.step === 4 ? 3 : Math.max(0, root.step - 1)
+                            visible: (root.step > 0 && root.step < 3) || (root.step === 3 && root.installDone && root.installExitCode !== 0)
+                            onClicked: root.step = root.step === 3 ? 2 : Math.max(0, root.step - 1)
                         }
 
                         Item { Layout.fillWidth: true }
 
                         PillButton {
-                            text: root.step === 3 ? "Install Now" : "Next"
-                            iconName: root.step === 3 ? "download" : "chevron-right"
+                            text: root.step === 2 ? "Install Now" : "Next"
+                            iconName: root.step === 2 ? "download" : "chevron-right"
                             active: true
-                            visible: root.step < 4
+                            visible: root.step < 3
                             onClicked: {
-                                if (root.step < 3) root.step += 1;
+                                if (root.step < 2) root.step += 1;
                                 else root.startInstall();
                             }
                         }
@@ -1577,7 +2014,7 @@ PanelWindow {
                             text: "Retry"
                             iconName: "refresh"
                             active: true
-                            visible: root.step === 4 && root.installDone && root.installExitCode !== 0
+                            visible: root.step === 3 && root.installDone && root.installExitCode !== 0
                             onClicked: root.startInstall()
                         }
 
@@ -1585,7 +2022,7 @@ PanelWindow {
                             text: "Finish"
                             iconName: "check"
                             active: root.installExitCode === 0
-                            visible: root.step === 4 && root.installDone
+                            visible: root.step === 3 && root.installDone
                             onClicked: Qt.quit()
                         }
                     }
@@ -1607,8 +2044,8 @@ PanelWindow {
                 sudoPasswordField.text = "";
                 root.sudoPromptError = "";
                 root.sudoPromptOpen = false;
-                if (root.step === 4 && !root.installing && !root.installDone) {
-                    root.step = 3;
+                if (root.step === 3 && !root.installing && !root.installDone) {
+                    root.step = 2;
                 }
             }
             function submitPrompt() {
@@ -1677,6 +2114,7 @@ PanelWindow {
                             anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
                             verticalAlignment: TextInput.AlignVCenter
                             echoMode: TextInput.Password
+                            textColor: Theme.text
                             font.family: Theme.fontSans; font.pixelSize: 13
                             Keys.onReturnPressed: sudoOverlay.submitPrompt()
                             Keys.onEnterPressed: sudoOverlay.submitPrompt()

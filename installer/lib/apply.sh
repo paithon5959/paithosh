@@ -9,6 +9,7 @@ source "$SCRIPT_DIR/audit.sh"
 BACKUP_HYPR="false"
 SYNC_HYPR="false"
 INSTALL_PKGS=""
+UPDATE_STREAM="main"
 THEME_PRESET="OLED Pure"
 BAR_POSITION="top"
 AUTOSTART="true"
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
         --backup-hypr) require_arg $# "$1"; BACKUP_HYPR="$2"; shift 2 ;;
         --sync-hypr) require_arg $# "$1"; SYNC_HYPR="$2"; shift 2 ;;
         --packages) require_arg $# "$1"; INSTALL_PKGS="$2"; shift 2 ;;
+        --update-stream) require_arg $# "$1"; UPDATE_STREAM="$2"; shift 2 ;;
         --theme) require_arg $# "$1"; THEME_PRESET="$2"; shift 2 ;;
         --bar-position) require_arg $# "$1"; BAR_POSITION="$2"; shift 2 ;;
         --autostart) require_arg $# "$1"; AUTOSTART="$2"; shift 2 ;;
@@ -42,6 +44,9 @@ done
 
 BAR_POSITION="${BAR_POSITION,,}"
 [[ "$BAR_POSITION" != "bottom" ]] && BAR_POSITION="top"
+
+UPDATE_STREAM="${UPDATE_STREAM,,}"
+[[ "$UPDATE_STREAM" != "release" ]] && UPDATE_STREAM="main"
 
 SUDO_PWD=""
 ASKPASS_DIR=""
@@ -244,12 +249,14 @@ SHOTS_DIR="${HOME}/Pictures/Screenshots"
 run_cmd mkdir -p "$PAITHOSH_DIR" "$SHOTS_DIR"
 
 SETTINGS_FILE="${PAITHOSH_DIR}/settings.json"
+PKG_SETTINGS_FILE="${PAITHOSH_DIR}/package-settings.json"
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "[dry-run] Write $SETTINGS_FILE (theme=$THEME_PRESET, barPosition=$BAR_POSITION)"
+    echo "[dry-run] Write $PKG_SETTINGS_FILE (shellUpdateStream=$UPDATE_STREAM)"
 else
-    python3 - "$SETTINGS_FILE" "$THEME_PRESET" "$BAR_POSITION" <<'PY'
+    python3 - "$SETTINGS_FILE" "$THEME_PRESET" "$BAR_POSITION" "$PKG_SETTINGS_FILE" "$UPDATE_STREAM" <<'PY'
 import json, os, sys
-path, theme, pos = sys.argv[1:4]
+path, theme, pos, pkg_path, update_stream = sys.argv[1:6]
 surface_map = {
     "OLED Pure": "OLED Pure",
     "Nord Frost": "Adaptive",
@@ -275,6 +282,21 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
 print(f"[paithosh] Saved {path}")
+
+pkg_data = {}
+if os.path.exists(pkg_path):
+    try:
+        with open(pkg_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+            if isinstance(loaded, dict):
+                pkg_data = loaded
+    except Exception:
+        pkg_data = {}
+pkg_data["shellUpdateStream"] = "release" if update_stream == "release" else "main"
+with open(pkg_path, "w", encoding="utf-8") as f:
+    json.dump(pkg_data, f, indent=2)
+    f.write("\n")
+print(f"[paithosh] Saved {pkg_path} (shellUpdateStream={pkg_data['shellUpdateStream']})")
 PY
     if command -v hyprcursor-util >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" ]]; then
         python3 "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" apply --style sharp --size 24 --color-mode auto --no-live >/dev/null 2>&1 || true

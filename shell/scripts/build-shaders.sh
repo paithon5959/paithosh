@@ -22,4 +22,8 @@ fi
     -o "$SHADER_DIR/cursor_blur.frag.qsb" \
     "$SHADER_DIR/cursor_blur.frag"
 
-echo "Compiled $SHADER_DIR/gooey.frag.qsb & $SHADER_DIR/cursor_blur.frag.qsb"
+"$QSB_BIN" --qt6 \
+    -o "$SHADER_DIR/splash_glow.frag.qsb" \
+    "$SHADER_DIR/splash_glow.frag"
+
+echo "Compiled gooey.frag.qsb, cursor_blur.frag.qsb & splash_glow.frag.qsb"

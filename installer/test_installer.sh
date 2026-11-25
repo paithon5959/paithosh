@@ -99,13 +99,15 @@ PY
     mkdir -p "$cli_home/.config/hypr/config"
     touch "$cli_home/.config/hypr/hyprland.lua" "$cli_home/.config/hypr/config/autostart.lua"
     local has_missing cli_in cli_out
-    has_missing="$(HOME="$cli_home" bash "$REPO_ROOT/installer/lib/audit.sh" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print("1" if any(not p["installed"] for p in d["packages"]) else "0")')"
+    has_missing="$(HOME="$cli_home" bash "$REPO_ROOT/installer/lib/audit.sh" --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print("1" if any((not p["installed"]) and (not p.get("required")) and p.get("group") != "core" for p in d["packages"]) else "0")')"
     if [[ "$has_missing" == "1" ]]; then
-        cli_in=$'\n\n4\n6\nBOTTOM\ny\ny\ny\n'
+        cli_in=$'2\n\n\n3\n6\nBOTTOM\ny\ny\ny\n'
     else
-        cli_in=$'\n\n6\nBOTTOM\ny\ny\ny\n'
+        cli_in=$'2\n\n\n6\nBOTTOM\ny\ny\ny\n'
     fi
     cli_out="$(printf '%s' "$cli_in" | HOME="$cli_home" PAITHOSH_INSTALLER_DRY_RUN=1 bash "$REPO_ROOT/installer/install_cli.sh")"
+    grep -q "Update stream         : release" <<<"$cli_out"
+    grep -q "shellUpdateStream=release" <<<"$cli_out"
     grep -q "Hyprland default sync : true" <<<"$cli_out"
     grep -q "Catppuccin Mocha" <<<"$cli_out"
     grep -q "barPosition=bottom" <<<"$cli_out"
