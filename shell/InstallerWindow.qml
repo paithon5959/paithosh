@@ -71,6 +71,7 @@ PanelWindow {
     property string installLog: ""
     property bool sudoPromptOpen: false
     property string sudoPromptError: ""
+    property bool _closing: false
 
     Behavior on installProgress { NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
 
@@ -273,6 +274,43 @@ PanelWindow {
         applyProc.running = true;
     }
 
+    function closeInstaller() {
+        if (_closing) return;
+        _closing = true;
+        if (installDone && installExitCode === 0 && !isDryRun) {
+            const shellDir = repoRoot + "/shell";
+            const syncHyprFlag = optSyncHypr ? "1" : "0";
+            Quickshell.execDetached([
+                "setsid", "-f", "sh", "-c",
+                "exec </dev/null >/dev/null 2>&1; " +
+                "shell_dir=\"$1\"; sync_hypr=\"$2\"; " +
+                "i=0; while [ $i -lt 20 ] && pgrep -f 'InstallerWindow\\.qml' >/dev/null 2>&1; do " +
+                "  sleep 0.1; i=$((i + 1)); " +
+                "done; " +
+                "pkill -x qs 2>/dev/null || true; " +
+                "pkill -x quickshell 2>/dev/null || true; " +
+                "i=0; while [ $i -lt 30 ] && (pgrep -x qs >/dev/null 2>&1 || pgrep -x quickshell >/dev/null 2>&1); do " +
+                "  sleep 0.1; i=$((i + 1)); " +
+                "done; " +
+                "pkill -9 -x qs 2>/dev/null || true; " +
+                "pkill -9 -x quickshell 2>/dev/null || true; " +
+                "if [ \"$sync_hypr\" = \"1\" ] && [ -n \"${HYPRLAND_INSTANCE_SIGNATURE:-}\" ] && command -v hyprctl >/dev/null 2>&1; then " +
+                "  hyprctl reload >/dev/null 2>&1 || true; " +
+                "  sleep 0.2; " +
+                "fi; " +
+                "if command -v qs >/dev/null 2>&1; then " +
+                "  exec env QS_NO_RELOAD_POPUP=1 qs -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                "elif command -v quickshell >/dev/null 2>&1; then " +
+                "  exec env QS_NO_RELOAD_POPUP=1 quickshell -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                "fi",
+                "_",
+                shellDir,
+                syncHyprFlag
+            ]);
+        }
+        Qt.quit();
+    }
+
     Process {
         id: auditProc
         command: ["bash", root.repoRoot + "/installer/lib/audit.sh", "--json"]
@@ -469,7 +507,7 @@ PanelWindow {
             if (root.sudoPromptOpen) {
                 sudoOverlay.cancelPrompt();
             } else if (!root.installing) {
-                Qt.quit();
+                root.closeInstaller();
             }
         }
 
@@ -804,7 +842,7 @@ PanelWindow {
                             text: "Close"
                             iconName: "close"
                             enabled: !root.installing
-                            onClicked: Qt.quit()
+                            onClicked: root.closeInstaller()
                         }
                     }
 
@@ -2019,11 +2057,11 @@ PanelWindow {
                         }
 
                         PillButton {
-                            text: "Finish"
+                            text: root.installExitCode === 0 && !root.isDryRun ? "Finish & Launch" : "Finish"
                             iconName: "check"
                             active: root.installExitCode === 0
                             visible: root.step === 3 && root.installDone
-                            onClicked: Qt.quit()
+                            onClicked: root.closeInstaller()
                         }
                     }
                 }

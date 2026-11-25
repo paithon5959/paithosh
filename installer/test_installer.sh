@@ -499,6 +499,75 @@ if shutil.which("luajit") or shutil.which("luac") or shutil.which("lua"):
 PY
     echo "  PASS: sync-hypr.sh, Hyprland Lua verify, KeybindService & shell updater verified"
 
+    echo "[8/8] Checking GUI installer post-install shell launch..."
+    python3 - "$REPO_ROOT/shell/InstallerWindow.qml" "$TMP_HOME" <<'PY'
+import os, re, stat, subprocess, sys
+
+qml_path, tmp_home = sys.argv[1:3]
+src = open(qml_path, "r", encoding="utf-8").read()
+
+# 1. Finish button must invoke finishAndClose / closeInstaller rather than bare Qt.quit()
+m_finish = re.search(r'text:\s*root\.installExitCode\s*===\s*0[^}]+?onClicked:\s*([^\n]+)', src, re.DOTALL)
+if not m_finish:
+    m_finish = re.search(r'text:\s*"Finish"[^}]+?onClicked:\s*([^\n]+)', src, re.DOTALL)
+assert m_finish, "Could not locate Finish button in InstallerWindow.qml"
+assert "Qt.quit()" not in m_finish.group(1), f"Finish button still calls bare Qt.quit(): {m_finish.group(1)}"
+
+# 2. Must define detached post-install launcher guarded by !isDryRun and installExitCode === 0
+m_fn = re.search(r'function\s+closeInstaller\s*\(\s*\)\s*\{.*?\n    \}', src, re.DOTALL)
+assert m_fn, "Missing closeInstaller() helper in InstallerWindow.qml"
+fn_body = m_fn.group(0)
+assert "isDryRun" in fn_body, "closeInstaller() must not launch shell in dry-run mode"
+assert "installDone" in fn_body and "installExitCode === 0" in fn_body, "closeInstaller() must only launch shell on successful install"
+assert "Quickshell.execDetached" in fn_body and "setsid" in fn_body, "closeInstaller() must spawn detached setsid launcher"
+assert "InstallerWindow" in fn_body, "Launcher must wait for InstallerWindow.qml to exit cleanly before pkill"
+assert "QS_NO_RELOAD_POPUP=1" in fn_body and "qs -d -p" in fn_body, "Launcher must start qs -d -p with QS_NO_RELOAD_POPUP=1"
+assert "hyprctl reload" in fn_body, "Launcher must reload Hyprland when config was synced"
+
+# 3. Extract the sh -c payload and execute it with mock binaries
+m_sh = re.search(r'"setsid",\s*"-f",\s*"sh",\s*"-c",\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+),', fn_body, re.DOTALL)
+assert m_sh, "Could not extract sh -c script from closeInstaller()"
+parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m_sh.group(1))
+sh_script = "".join(bytes(p, "utf-8").decode("unicode_escape") for p in parts)
+
+mock_bin = os.path.join(tmp_home, "mock-launch-bin")
+os.makedirs(mock_bin, exist_ok=True)
+log_file = os.path.join(tmp_home, "launch-trace.log")
+
+def write_stub(name, body):
+    p = os.path.join(mock_bin, name)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write("#!/usr/bin/env bash\n" + body + "\n")
+    os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+write_stub("pgrep", "exit 1")
+write_stub("pkill", "exit 0")
+write_stub("hyprctl", f'echo "hyprctl:$*" >> "{log_file}"')
+write_stub("qs", f'echo "qs:NO_POPUP=${{QS_NO_RELOAD_POPUP:-}}:$*" >> "{log_file}"')
+
+base_env = os.environ.copy()
+base_env["PATH"] = mock_bin + ":" + base_env.get("PATH", "")
+
+# Case A: sync_hypr=1 in Hyprland session -> reloads Hyprland then starts qs -d -p
+env_a = base_env.copy()
+env_a["HYPRLAND_INSTANCE_SIGNATURE"] = "test-sig"
+subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "1"], env=env_a, check=True)
+trace_a = open(log_file, encoding="utf-8").read().splitlines()
+assert trace_a == [
+    "hyprctl:reload",
+    "qs:NO_POPUP=1:-d -p /fake/paithosh/shell",
+], f"Unexpected launch trace with sync_hypr=1: {trace_a}"
+
+# Case B: sync_hypr=0 -> skips hyprctl reload, still starts qs -d -p
+os.remove(log_file)
+subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "0"], env=env_a, check=True)
+trace_b = open(log_file, encoding="utf-8").read().splitlines()
+assert trace_b == [
+    "qs:NO_POPUP=1:-d -p /fake/paithosh/shell",
+], f"Unexpected launch trace with sync_hypr=0: {trace_b}"
+PY
+    echo "  PASS: GUI installer post-install shell launch verified"
+
     echo "ALL INSTALLER CHECKS PASSED"
 }
 
