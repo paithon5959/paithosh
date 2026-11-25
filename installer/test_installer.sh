@@ -155,7 +155,7 @@ PY
         --backup-hypr false --packages "" --theme "OLED Pure" \
         --bar-position top --autostart true --setup-portals true >/dev/null
     compgen -G "$conf_home/.config/hypr.bak.*" >/dev/null
-    [[ "$(grep -c "exec-once = qs -p " "$conf_home/.config/hypr/hyprland.conf")" -eq 1 ]]
+    [[ "$(grep -c "exec-once = QS_NO_RELOAD_POPUP=1 qs -p " "$conf_home/.config/hypr/hyprland.conf")" -eq 1 ]]
 
     local pkg_only_home="$TMP_HOME/pkgonly"
     mkdir -p "$pkg_only_home"

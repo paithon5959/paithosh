@@ -59,8 +59,13 @@ PanelWindow {
     }
     readonly property bool hasAlert: alertMode > 0 && !isAppExpandedOnScreen
 
-    readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen || PackageService.statusEventOpen || PackageService.activeOpText !== "" || BackupService.busy
+    readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen || shellState.reloadSlotOpen || PackageService.statusEventOpen || PackageService.activeOpText !== "" || BackupService.busy
 
+    property bool bootEntered: false
+    readonly property bool isReloadExiting: shellState.reloadPhase === "exiting" || shellState.reloadPhase === "revealing"
+    readonly property bool isSessionExiting: shellState.sessionPhase === "fading" || shellState.sessionPhase === "executing"
+    readonly property bool isLifecycleExiting: isReloadExiting || isSessionExiting
+    readonly property bool isTucked: !bootEntered || isLifecycleExiting
     property bool hovered: false
     property bool dropHovered: false
     property string clockText: Qt.formatTime(new Date(), "hh:mm")
@@ -77,6 +82,14 @@ PanelWindow {
         } else {
             searchInput.focus = false;
         }
+    }
+
+    Timer {
+        id: bootEntranceTimer
+        interval: 35
+        running: true
+        repeat: false
+        onTriggered: root.bootEntered = true
     }
 
     Timer {
@@ -254,13 +267,17 @@ PanelWindow {
             }
         }
         property real animatedEdgeOffset: (root.hovered || root.isPopoverOpenOnThisScreen || root.isAppExpandedOnScreen) ? Theme.topOffsetHover : Theme.topOffsetRest
-        property real animatedHideOffset: root.isHidden ? 26 : 0
+        property real animatedHideOffset: root.isTucked ? 32 : (root.isHidden ? 26 : 0)
         property real bottomProgress: root.isBottom ? 1.0 : 0.0
         Behavior on animatedEdgeOffset {
             NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
         }
         Behavior on animatedHideOffset {
-            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+            NumberAnimation {
+                duration: root.isLifecycleExiting ? Math.max(100, Math.round(170 / Math.max(0.5, Theme.speedMultiplier))) : Theme.springMs
+                easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutBack
+                easing.overshoot: 1.0
+            }
         }
         Behavior on bottomProgress {
             NumberAnimation {
@@ -274,15 +291,22 @@ PanelWindow {
         y: topY + (bottomY - topY) * bottomProgress
         width: contentRow.width + Theme.shaderPad * 2
         height: mainPill.height + Theme.shaderPad * 2
-        opacity: root.isHidden ? 0.0 : 1.0
-        scale: root.isHidden ? 0.65 : 1.0
+        opacity: (root.isHidden || root.isTucked) ? 0.0 : 1.0
+        scale: root.isTucked ? 0.76 : (root.isHidden ? 0.65 : 1.0)
         transformOrigin: root.isBottom ? Item.Bottom : Item.Top
 
         Behavior on opacity {
-            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation {
+                duration: root.isLifecycleExiting ? Math.max(90, Math.round(160 / Math.max(0.5, Theme.speedMultiplier))) : 240
+                easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutCubic
+            }
         }
         Behavior on scale {
-            NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+            NumberAnimation {
+                duration: root.isLifecycleExiting ? Math.max(100, Math.round(170 / Math.max(0.5, Theme.speedMultiplier))) : Theme.springMs
+                easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutBack
+                easing.overshoot: 1.05
+            }
         }
 
         // Liquid Gooey Background Layer (1:1 geometry sync with foreground pills; auto-disabled when app expanded)
@@ -768,6 +792,53 @@ PanelWindow {
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                             width: Math.min(implicitWidth, 280)
+                        }
+
+                        Item { width: 14; height: 1 }
+                    }
+
+                    // 5.5. Inline Shell / Config Reload Status Slot (replaces Quickshell corner popup)
+                    IslandSlot {
+                        id: slotReload
+                        open: shellState.reloadSlotOpen && !root.isSearchOnThisScreen
+                        maxSlotWidth: 280
+
+                        readonly property color reloadTint: shellState.reloadSlotState === "loading"
+                            ? Theme.accent
+                            : (shellState.reloadSlotState === "error" ? Theme.dangerText : Theme.ok)
+
+                        Item { width: 14; height: 1 }
+
+                        SvgIcon {
+                            id: reloadSlotIcon
+                            anchors.verticalCenter: parent.verticalCenter
+                            sourceName: shellState.reloadSlotState === "loading"
+                                ? "refresh"
+                                : (shellState.reloadSlotState === "error" ? "alert-triangle" : "check")
+                            iconSize: 16
+                            color: slotReload.reloadTint
+
+                            RotationAnimation on rotation {
+                                from: 0
+                                to: 360
+                                duration: 760
+                                loops: Animation.Infinite
+                                running: shellState.reloadSlotOpen && shellState.reloadSlotState === "loading"
+                                onRunningChanged: if (!running) reloadSlotIcon.rotation = 0
+                            }
+                        }
+
+                        Item { width: 8; height: 1 }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: shellState.reloadSlotText
+                            color: shellState.reloadSlotState === "loading" ? Theme.text : slotReload.reloadTint
+                            font.family: Theme.fontSans
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            width: Math.min(implicitWidth, 215)
                         }
 
                         Item { width: 14; height: 1 }

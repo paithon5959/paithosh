@@ -37,6 +37,7 @@ Singleton {
     }
 
     signal chargerChanged(bool charging, int pct, int watts)
+    signal sessionActionRequested(string action)
 
     onChargingChanged: {
         if (!initialized) {
@@ -75,11 +76,18 @@ Singleton {
     function executeAction(action) {
         if (action === "Lock") {
             LockService.lock();
-        } else if (action === "Logout") {
+        } else if (action === "Logout" || action === "Reboot" || action === "Shutdown") {
+            sessionActionRequested(action);
+        }
+    }
+
+    function runSessionCommand(action) {
+        const key = String(action || "").toLowerCase();
+        if (key === "logout") {
             Quickshell.execDetached(["sh", "-c", "command -v hyprctl >/dev/null && hyprctl dispatch exit || loginctl terminate-user \"$USER\""]);
-        } else if (action === "Reboot") {
+        } else if (key === "reboot" || key === "restart") {
             Quickshell.execDetached(["systemctl", "reboot"]);
-        } else if (action === "Shutdown") {
+        } else if (key === "shutdown" || key === "poweroff") {
             Quickshell.execDetached(["systemctl", "poweroff"]);
         }
     }

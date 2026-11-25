@@ -6,10 +6,19 @@ import ".."
 
 PanelWindow {
     id: root
+    reloadableId: "paithoshBackground"
 
     readonly property string wallpaperDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/wallpapers"
     readonly property int maxWallpapers: 16
 
+    property string initialWallpaperPath: ""
+    property real initialVeilOpacity: 0.0
+    property real targetVeilOpacity: 0.0
+    property real targetStageScale: 1.0
+    readonly property int exitFadeMs: Math.max(140, Math.round(280 / Math.max(0.5, Theme.speedMultiplier)))
+    readonly property int enterFadeMs: Math.max(200, Math.round(460 / Math.max(0.5, Theme.speedMultiplier)))
+    property bool _bootRevealed: false
+    property bool _reloadVeilSettled: false
     property var wallpapers: []
     property int currentIndex: 0
     property string currentWallpaperPath: ""
@@ -18,6 +27,49 @@ PanelWindow {
     property bool usingA: true
     property bool importing: false
     property string transitionMode: "crossfade-scale" // "crossfade-scale" | "crossfade" | "instant"
+
+    readonly property real effectiveVeilOpacity: (!_reloadVeilSettled && initialVeilOpacity > 0.001)
+        ? initialVeilOpacity
+        : targetVeilOpacity
+    readonly property real effectiveStageScale: {
+        if (!_bootRevealed) return 1.035;
+        if (!_reloadVeilSettled && initialVeilOpacity > 0.001) return 1.02;
+        return targetStageScale;
+    }
+
+    Component.onCompleted: {
+        const initLocal = _toLocalPath(initialWallpaperPath);
+        if (initLocal !== "") {
+            // Soft reload: wallpaper is already cached & ready, start from opaque veil and reveal smoothly
+            currentWallpaperPath = initLocal;
+            imgA.source = _toUrl(initLocal);
+            usingA = true;
+            _bootRevealed = true;
+            if (initialVeilOpacity > 0.001) {
+                reloadVeilSettleTimer.restart();
+            } else {
+                _reloadVeilSettled = true;
+            }
+        } else {
+            // Cold boot: wait for first image decode (or fallback timer) then fade & settle in smoothly
+            _reloadVeilSettled = true;
+            bootFallbackTimer.restart();
+        }
+    }
+
+    Timer {
+        id: reloadVeilSettleTimer
+        interval: 45
+        repeat: false
+        onTriggered: root._reloadVeilSettled = true
+    }
+
+    Timer {
+        id: bootFallbackTimer
+        interval: 260
+        repeat: false
+        onTriggered: root._bootRevealed = true
+    }
 
     anchors {
         top: true
@@ -142,6 +194,8 @@ PanelWindow {
         if (!path || path === "") return;
         const url = _toUrl(path);
         currentWallpaperPath = _toLocalPath(url);
+        const activeUrl = usingA ? imgA.source.toString() : imgB.source.toString();
+        if (activeUrl === url) return;
         const startScale = transitionMode === "crossfade-scale" ? 1.03 : 1.0;
         if (usingA) {
             imgB.source = url;
@@ -225,48 +279,100 @@ PanelWindow {
         }
     }
 
-    Image {
-        id: imgA
+    Item {
+        id: wallpaperStage
         anchors.fill: parent
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        smooth: true
-        opacity: root.usingA ? 1.0 : 0.0
-        scale: root.usingA ? 1.0 : (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0)
+        opacity: root._bootRevealed ? 1.0 : 0.0
+        scale: root.effectiveStageScale
 
         Behavior on opacity {
             NumberAnimation {
-                duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
+                duration: root.transitionMode === "instant" ? 0 : root.enterFadeMs
                 easing.type: Easing.OutCubic
             }
         }
         Behavior on scale {
             NumberAnimation {
-                duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
-                easing.type: Easing.OutCubic
+                duration: root.transitionMode === "instant"
+                    ? 0
+                    : (root.targetVeilOpacity > 0.01 ? root.exitFadeMs : root.enterFadeMs)
+                easing.type: root.targetVeilOpacity > 0.01 ? Easing.InOutCubic : Easing.OutCubic
+            }
+        }
+
+        Image {
+            id: imgA
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            smooth: true
+            opacity: root.usingA ? 1.0 : 0.0
+            scale: root.usingA ? 1.0 : (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0)
+            onStatusChanged: {
+                if (status === Image.Ready && !root._bootRevealed) {
+                    bootFallbackTimer.stop();
+                    root._bootRevealed = true;
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
+                    easing.type: Easing.OutCubic
+                }
+            }
+        }
+
+        Image {
+            id: imgB
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            smooth: true
+            opacity: root.usingA ? 0.0 : 1.0
+            scale: root.usingA ? (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0) : 1.0
+            onStatusChanged: {
+                if (status === Image.Ready && !root._bootRevealed) {
+                    bootFallbackTimer.stop();
+                    root._bootRevealed = true;
+                }
+            }
+
+            Behavior on opacity {
+                NumberAnimation {
+                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Behavior on scale {
+                NumberAnimation {
+                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
+                    easing.type: Easing.OutCubic
+                }
             }
         }
     }
 
-    Image {
-        id: imgB
+    // Cohesive OLED fade veil for Reload & Logout/Reboot/Shutdown lifecycle transitions
+    Rectangle {
+        id: transitionVeil
         anchors.fill: parent
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        smooth: true
-        opacity: root.usingA ? 0.0 : 1.0
-        scale: root.usingA ? (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0) : 1.0
+        color: Theme.pillBg
+        opacity: root.effectiveVeilOpacity
+        visible: opacity > 0.002
 
         Behavior on opacity {
             NumberAnimation {
-                duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
-                easing.type: Easing.OutCubic
-            }
-        }
-        Behavior on scale {
-            NumberAnimation {
-                duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
-                easing.type: Easing.OutCubic
+                duration: root.effectiveVeilOpacity > transitionVeil.opacity
+                    ? root.exitFadeMs
+                    : root.enterFadeMs
+                easing.type: root.effectiveVeilOpacity > transitionVeil.opacity ? Easing.InOutCubic : Easing.OutCubic
             }
         }
     }

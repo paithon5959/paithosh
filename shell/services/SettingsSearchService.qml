@@ -147,7 +147,7 @@ QtObject {
             page: "system",
             pageLabel: "System",
             title: "Reload Shell",
-            subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config",
+            subtitle: "Smoothly reload Quickshell and Hyprland config",
             keywords: "reload shell restart quickshell qs hyprctl",
             icon: "refresh"
         },

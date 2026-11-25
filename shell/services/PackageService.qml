@@ -43,6 +43,7 @@ Singleton {
     property string shellLatestSummary: ""
     property string shellReleaseChangelog: ""
     property var shellCommits: []
+    signal shellReloadRequested(bool hard, string reason)
     property string shellUpdateError: ""
 
     // Default Hyprland Lua config sync state
@@ -895,7 +896,7 @@ Singleton {
         interval: 400
         repeat: false
         onTriggered: {
-            if (typeof Quickshell.reload === "function") Quickshell.reload(true);
+            root.shellReloadRequested(false, "Shell Updated");
         }
     }
 

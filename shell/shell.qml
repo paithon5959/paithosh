@@ -8,8 +8,69 @@ import "components"
 ShellRoot {
     id: root
 
+    PersistentProperties {
+        id: reloadState
+        reloadableId: "paithoshReloadState"
+        property bool pendingEntrance: false
+        property bool pendingBgReveal: false
+        property bool pendingOverlayReveal: false
+        property string reloadReason: ""
+        property string lastWallpaperPath: ""
+
+        onReloaded: {
+            stateObj._handledReloadEntrance = true;
+            const msg = pendingEntrance
+                ? (reloadReason !== "" ? reloadReason : "Config Reloaded")
+                : "Config Reloaded";
+            const showOverlayReveal = pendingOverlayReveal;
+            pendingEntrance = false;
+            pendingOverlayReveal = false;
+            reloadReason = "";
+            if (showOverlayReveal) {
+                stateObj.reloadPhase = "revealing";
+                reloadRevealHoldTimer.restart();
+            }
+            reloadPostShowTimer.pendingMessage = msg;
+            reloadPostShowTimer.interval = showOverlayReveal ? 280 : 120;
+            reloadPostShowTimer.restart();
+        }
+    }
+
+    Connections {
+        target: Quickshell
+        function onReloadCompleted() {
+            Quickshell.inhibitReloadPopup();
+            if (!stateObj._handledReloadEntrance) {
+                stateObj._handledReloadEntrance = true;
+                reloadPostShowTimer.pendingMessage = "Config Reloaded";
+                reloadPostShowTimer.restart();
+            }
+        }
+        function onReloadFailed(errorString) {
+            Quickshell.inhibitReloadPopup();
+            reloadCollapseTimer.stop();
+            reloadExecuteTimer.stop();
+            reloadSafetyTimer.stop();
+            reloadState.pendingEntrance = false;
+            reloadState.pendingBgReveal = false;
+            reloadState.pendingOverlayReveal = false;
+            reloadState.reloadReason = "";
+            stateObj.reloadPhase = "idle";
+            stateObj.showReloadResult(false, "Reload Failed");
+            console.warn("[paithosh] Shell reload failed:", errorString);
+        }
+    }
+
     BackgroundLayer {
         id: bgLayer
+        initialWallpaperPath: reloadState.lastWallpaperPath
+        initialVeilOpacity: reloadState.pendingBgReveal ? 1.0 : 0.0
+        targetVeilOpacity: (stateObj.sessionPhase === "fading" || stateObj.sessionPhase === "executing")
+            ? 1.0
+            : (stateObj.reloadPhase === "exiting" ? 1.0 : 0.0)
+        targetStageScale: (stateObj.sessionPhase === "fading" || stateObj.sessionPhase === "executing")
+            ? 0.98
+            : (stateObj.reloadPhase === "exiting" ? 1.02 : 1.0)
     }
 
     Binding {
@@ -324,7 +385,12 @@ ShellRoot {
     Connections {
         target: bgLayer
         function onCurrentIndexChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onCurrentWallpaperPathChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onCurrentWallpaperPathChanged() {
+            if (bgLayer.currentWallpaperPath !== "") {
+                reloadState.lastWallpaperPath = bgLayer.currentWallpaperPath;
+            }
+            if (!stateObj._applyingExternalState) stateObj.saveSettings();
+        }
         function onTransitionModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
 
@@ -457,6 +523,129 @@ ShellRoot {
         property bool lastProfileOk: true
         property int themeImportSeq: 0
         property string currentShareCode: ""
+        property string reloadPhase: "idle" // "idle" | "collapsing" | "exiting" | "revealing" | "clearing"
+        readonly property bool reloadOverlayActive: reloadPhase === "exiting" || reloadPhase === "revealing" || reloadPhase === "clearing"
+        property bool reloadSlotOpen: false
+        property string reloadSlotText: ""
+        property string reloadSlotState: "ok" // "loading" | "ok" | "error"
+        property bool _handledReloadEntrance: false
+        property bool _pendingReloadHyprland: false
+        property bool _pendingReloadHard: false
+        property bool _pendingReloadRestart: false
+        property string _pendingReloadReason: "Config Reloaded"
+
+        property string sessionAction: "" // "" | "logout" | "reboot" | "shutdown"
+        property string sessionPhase: "idle" // "idle" | "fading" | "executing" | "cancelling"
+        property bool sessionDryRun: false
+        property int sessionGraceMs: 650
+        readonly property bool sessionTransitionActive: sessionPhase !== "idle"
+
+        function requestSessionAction(action, dryRun) {
+            if (sessionPhase !== "idle" || reloadPhase !== "idle") return;
+            const raw = String(action || "").trim().toLowerCase();
+            let norm = "";
+            if (raw === "logout" || raw === "exit") norm = "logout";
+            else if (raw === "reboot" || raw === "restart") norm = "reboot";
+            else if (raw === "shutdown" || raw === "poweroff") norm = "shutdown";
+            if (norm === "") return;
+
+            closePopovers();
+            closeModal();
+            if (islandApp !== "") collapseIslandApp();
+            if (detachedApp !== "") detachedApp = "";
+            SoundService.stopLockAmbient();
+
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            sessionGraceMs = Math.max(380, Math.round((norm === "shutdown" ? 720 : 620) / speed));
+            sessionAction = norm;
+            sessionDryRun = Boolean(dryRun);
+            sessionPhase = "fading";
+            sessionCleanupTimer.stop();
+            sessionCommitTimer.stop();
+            sessionExecuteTimer.interval = sessionGraceMs;
+            sessionExecuteTimer.restart();
+        }
+
+        function cancelSessionAction() {
+            if (sessionPhase !== "fading") return;
+            sessionExecuteTimer.stop();
+            sessionCommitTimer.stop();
+            sessionPhase = "cancelling";
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            sessionCleanupTimer.interval = Math.max(160, Math.round(300 / speed));
+            sessionCleanupTimer.restart();
+            showReloadResult(true, "Action Cancelled");
+        }
+
+        function showReloadResult(ok, message) {
+            reloadSlotState = ok ? "ok" : "error";
+            reloadSlotText = message || (ok ? "Config Reloaded" : "Reload Failed");
+            reloadSlotOpen = true;
+            reloadHideTimer.interval = ok ? 1900 : 3200;
+            reloadHideTimer.restart();
+            SoundService.playNotify();
+        }
+
+        function requestShellReload(opts) {
+            if (reloadPhase !== "idle") return;
+            const cfg = opts || ({});
+            const hadExpandedSurface = (islandApp !== "" || openPopover !== "" || modalKind !== "" || detachedApp !== "");
+
+            _pendingReloadHyprland = cfg.reloadHyprland !== false;
+            _pendingReloadHard = Boolean(cfg.hard);
+            _pendingReloadRestart = Boolean(cfg.restartProcess);
+            _pendingReloadReason = (typeof cfg.reason === "string" && cfg.reason !== "")
+                ? cfg.reason
+                : (_pendingReloadHyprland ? "Shell & Hyprland Reloaded" : "Config Reloaded");
+
+            closePopovers();
+            closeModal();
+            if (islandApp !== "") collapseIslandApp();
+            if (detachedApp !== "") detachedApp = "";
+
+            reloadState.lastWallpaperPath = bgLayer.currentWallpaperPath || reloadState.lastWallpaperPath;
+            reloadState.pendingEntrance = true;
+            reloadState.pendingBgReveal = true;
+            reloadState.pendingOverlayReveal = true;
+            reloadState.reloadReason = _pendingReloadReason;
+
+            reloadHideTimer.stop();
+            reloadSlotState = "loading";
+            reloadSlotText = "Reloading…";
+            reloadSlotOpen = true;
+            reloadPhase = "collapsing";
+
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            reloadCollapseTimer.interval = Math.max(90, Math.round((hadExpandedSurface ? 200 : 130) / speed));
+            reloadCollapseTimer.restart();
+            reloadSafetyTimer.restart();
+        }
+
+        function _executeShellReloadNow() {
+            const shellDir = Quickshell.shellDir;
+            if (_pendingReloadRestart || typeof Quickshell.reload !== "function") {
+                Quickshell.execDetached([
+                    "setsid", "-f", "sh", "-c",
+                    "shell_dir=\"$1\"; " +
+                    "pkill -x qs 2>/dev/null || true; " +
+                    "pkill -x quickshell 2>/dev/null || true; " +
+                    "i=0; while [ $i -lt 30 ] && (pgrep -x qs >/dev/null 2>&1 || pgrep -x quickshell >/dev/null 2>&1); do " +
+                    "  sleep 0.1; i=$((i + 1)); " +
+                    "done; " +
+                    "pkill -9 -x qs 2>/dev/null || true; " +
+                    "pkill -9 -x quickshell 2>/dev/null || true; " +
+                    "if command -v qs >/dev/null 2>&1; then " +
+                    "  exec env QS_NO_RELOAD_POPUP=1 qs -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                    "else " +
+                    "  exec env QS_NO_RELOAD_POPUP=1 quickshell -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
+                    "fi",
+                    "_",
+                    shellDir
+                ]);
+                return;
+            }
+            Quickshell.reload(_pendingReloadHard);
+        }
 
         signal shareCodeCopied(string code)
         signal themeCodeImported(bool ok, string message)
@@ -1091,12 +1280,144 @@ ShellRoot {
             stateObj.chargeSlotOpen = true;
             chargeHideTimer.restart();
         }
+        function onSessionActionRequested(action) {
+            stateObj.requestSessionAction(action, false);
+        }
     }
 
     Timer {
         id: statusHideTimer
         interval: 2500
         onTriggered: stateObj.kdeSlotOpen = false
+    }
+
+    Timer {
+        id: reloadCollapseTimer
+        interval: 180
+        repeat: false
+        onTriggered: {
+            stateObj.reloadPhase = "exiting";
+            // Wait until fullscreen reload dialog + BackgroundLayer fade 100% smoothly before reloading
+            reloadExecuteTimer.interval = bgLayer.exitFadeMs + 140;
+            reloadExecuteTimer.restart();
+        }
+    }
+
+    Timer {
+        id: reloadExecuteTimer
+        interval: 420
+        repeat: false
+        onTriggered: {
+            if (stateObj._pendingReloadHyprland && CompositorService.isHyprland) {
+                Quickshell.execDetached(["hyprctl", "reload"]);
+            }
+            stateObj._executeShellReloadNow();
+        }
+    }
+
+    Timer {
+        id: reloadRevealHoldTimer
+        interval: 190
+        repeat: false
+        onTriggered: {
+            if (stateObj.reloadPhase !== "revealing") return;
+            stateObj.reloadPhase = "clearing";
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            reloadClearTimer.interval = Math.max(160, Math.round(380 / speed));
+            reloadClearTimer.restart();
+        }
+    }
+
+    Timer {
+        id: reloadClearTimer
+        interval: 380
+        repeat: false
+        onTriggered: {
+            if (stateObj.reloadPhase === "clearing") {
+                stateObj.reloadPhase = "idle";
+            }
+        }
+    }
+
+    Timer {
+        id: reloadPostShowTimer
+        property string pendingMessage: "Config Reloaded"
+        interval: 120
+        repeat: false
+        onTriggered: {
+            reloadState.pendingBgReveal = false;
+            stateObj.showReloadResult(true, pendingMessage);
+        }
+    }
+
+    Timer {
+        id: sessionExecuteTimer
+        interval: 650
+        repeat: false
+        onTriggered: {
+            if (stateObj.sessionPhase !== "fading") return;
+            stateObj.sessionPhase = "executing";
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            sessionCommitTimer.interval = Math.max(120, Math.round((stateObj.sessionDryRun ? 320 : 200) / speed));
+            sessionCommitTimer.restart();
+        }
+    }
+
+    Timer {
+        id: sessionCommitTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            if (stateObj.sessionPhase !== "executing") return;
+            if (stateObj.sessionDryRun) {
+                stateObj.sessionPhase = "cancelling";
+                sessionCleanupTimer.interval = 300;
+                sessionCleanupTimer.restart();
+                return;
+            }
+            PowerService.runSessionCommand(stateObj.sessionAction);
+        }
+    }
+
+    Timer {
+        id: sessionCleanupTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            stateObj.sessionPhase = "idle";
+            stateObj.sessionAction = "";
+            stateObj.sessionDryRun = false;
+        }
+    }
+
+    Timer {
+        id: reloadHideTimer
+        interval: 1900
+        repeat: false
+        onTriggered: stateObj.reloadSlotOpen = false
+    }
+
+    Timer {
+        id: reloadSafetyTimer
+        interval: 3000
+        repeat: false
+        onTriggered: {
+            if (stateObj.reloadPhase !== "idle") {
+                stateObj.reloadPhase = "idle";
+                stateObj.reloadSlotOpen = false;
+            }
+        }
+    }
+
+    Connections {
+        target: PackageService
+        function onShellReloadRequested(hard, reason) {
+            stateObj.requestShellReload({
+                reloadHyprland: false,
+                hard: hard,
+                reason: reason || "Shell Updated"
+            });
+        }
     }
 
     Connections {
@@ -1221,6 +1542,19 @@ ShellRoot {
     LockScreen {
         shellState: stateObj
         wallpaperPath: bgLayer.currentWallpaperPath
+    }
+
+    // Lazy-loaded Fullscreen Transition Curtain (Reload / Logout / Restart / Shutdown)
+    Loader {
+        active: stateObj.sessionTransitionActive || stateObj.reloadOverlayActive
+        sourceComponent: Component {
+            Variants {
+                model: Quickshell.screens
+                SessionTransitionOverlay {
+                    shellState: stateObj
+                }
+            }
+        }
     }
 
     // IPC API for Hyprland keybindings & KDE preview verification
@@ -1413,6 +1747,24 @@ ShellRoot {
 
         function closeModal(): void {
             stateObj.closeModal();
+        }
+
+        function reloadShell(mode: string): void {
+            const m = (mode || "").toLowerCase();
+            stateObj.requestShellReload({
+                reloadHyprland: m !== "qml-only",
+                hard: m === "hard",
+                restartProcess: m === "restart",
+                reason: m === "qml-only" ? "Config Reloaded" : "Shell & Hyprland Reloaded"
+            });
+        }
+
+        function sessionAction(action: string): void {
+            stateObj.requestSessionAction(action, false);
+        }
+
+        function previewSessionTransition(action: string): void {
+            stateObj.requestSessionAction(action !== "" ? action : "shutdown", true);
         }
     }
 

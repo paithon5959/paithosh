@@ -1819,30 +1819,17 @@ Item {
                                     CtrlSwitch { checked: NotificationService.dnd; onToggled: (v) => NotificationService.dnd = v }
                                 }
                                 SettingRow {
-                                    iconName: "refresh"; title: "Reload Shell"; subtitle: "Restart Quickshell (pkill qs) and reload Hyprland config"
+                                    iconName: "refresh"; title: "Reload Shell"; subtitle: "Smoothly reload Quickshell and Hyprland config"
                                     searchKeywords: "reload shell restart quickshell qs hyprctl"
                                     CtrlBtn {
-                                        text: "Reload"
+                                        text: root.shellState.reloadPhase !== "idle" ? "Reloading…" : "Reload"
                                         ghost: true
-                                        onClicked: Quickshell.execDetached([
-                                            "setsid", "-f", "sh", "-c",
-                                            "shell_dir=\"$1\"; " +
-                                            "pkill -x qs 2>/dev/null || true; " +
-                                            "pkill -x quickshell 2>/dev/null || true; " +
-                                            "i=0; while [ $i -lt 30 ] && (pgrep -x qs >/dev/null 2>&1 || pgrep -x quickshell >/dev/null 2>&1); do " +
-                                            "  sleep 0.1; i=$((i + 1)); " +
-                                            "done; " +
-                                            "pkill -9 -x qs 2>/dev/null || true; " +
-                                            "pkill -9 -x quickshell 2>/dev/null || true; " +
-                                            "hyprctl reload >/dev/null 2>&1 || true; " +
-                                            "if command -v qs >/dev/null 2>&1; then " +
-                                            "  exec qs -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
-                                            "else " +
-                                            "  exec quickshell -d -p \"$shell_dir\" </dev/null >/dev/null 2>&1; " +
-                                            "fi",
-                                            "_",
-                                            Quickshell.shellDir
-                                        ])
+                                        enabled: root.shellState.reloadPhase === "idle"
+                                        onClicked: root.shellState.requestShellReload({
+                                            reloadHyprland: true,
+                                            hard: false,
+                                            reason: "Shell & Hyprland Reloaded"
+                                        })
                                     }
                                 }
                             }

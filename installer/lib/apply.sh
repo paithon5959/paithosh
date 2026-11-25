@@ -316,9 +316,9 @@ if [[ "$AUTOSTART" == "true" ]]; then
     _sq="'"
     if [[ "$REPO_ROOT" == *[[:space:]"$_sq"\"\\]* ]]; then
         escaped_shell_arg="${_sq}${REPO_ROOT//"$_sq"/"$_sq\\$_sq$_sq"}/shell${_sq}"
-        SHELL_CMD="qs -p ${escaped_shell_arg}"
+        SHELL_CMD="QS_NO_RELOAD_POPUP=1 qs -p ${escaped_shell_arg}"
     else
-        SHELL_CMD="qs -p ${REPO_ROOT}/shell"
+        SHELL_CMD="QS_NO_RELOAD_POPUP=1 qs -p ${REPO_ROOT}/shell"
     fi
 
     if [[ "$DRY_RUN" == "true" && "$SYNC_HYPR" == "true" ]]; then

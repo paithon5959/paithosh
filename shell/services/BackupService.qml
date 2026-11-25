@@ -882,7 +882,7 @@ Singleton {
     }
 
     function rebootNow() {
-        Quickshell.execDetached(["systemctl", "reboot"]);
+        PowerService.executeAction("Reboot");
     }
 
     function deleteBackup(kind, pathOrId, hasBtrfsSnap) {
