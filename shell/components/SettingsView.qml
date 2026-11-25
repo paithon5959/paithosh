@@ -4450,6 +4450,14 @@ Item {
                                     ColumnLayout {
                                         id: shareCodeCol
                                         anchors.fill: parent; anchors.margins: 12; spacing: 8
+                                        property bool copiedFeedback: false
+
+                                        Timer {
+                                            id: copyFeedbackTimer
+                                            interval: 1600
+                                            repeat: false
+                                            onTriggered: shareCodeCol.copiedFeedback = false
+                                        }
 
                                         Component.onCompleted: {
                                             if (root.shellState) root.shellState.refreshShareCode();
@@ -4460,6 +4468,8 @@ Item {
                                             function onShareCodeCopied(code) {
                                                 root.themeExportOk = true;
                                                 root.themeExportStatus = "Copied share code (" + code.length + " chars)";
+                                                shareCodeCol.copiedFeedback = true;
+                                                copyFeedbackTimer.restart();
                                             }
                                             function onThemeCodeImported(ok, message) {
                                                 root.themeExportOk = ok;
@@ -4480,7 +4490,7 @@ Item {
                                                 }
                                             }
                                             CtrlBtn {
-                                                text: "Copy Code"
+                                                text: shareCodeCol.copiedFeedback ? "Copied" : "Copy Code"
                                                 onClicked: {
                                                     if (root.shellState) root.shellState.copyShareCode();
                                                 }
