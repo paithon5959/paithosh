@@ -43,6 +43,23 @@ Singleton {
         property: "_duckGain"
         onStopped: {
             if (root._activeSfx === 0 && root._duckGain >= 0.999) {
+                for (const id in root._savedStreams) {
+                    const entry = root._savedStreams[id];
+                    if (entry && entry.node && entry.node.audio) {
+                        entry.node.audio.volume = entry.orig;
+                    }
+                }
+                savedClearTimer.restart();
+            }
+        }
+    }
+
+    Timer {
+        id: savedClearTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            if (root._activeSfx === 0 && !duckAnim.running && root._duckGain >= 0.999) {
                 root._savedStreams = ({});
             }
         }
@@ -453,12 +470,15 @@ Singleton {
             return;
         }
 
+        savedClearTimer.stop();
         restoreHoldTimer.stop();
         _activeSfx += 1;
         if (_duckGain <= duckLevel + 0.02) {
             _spawnSfx(path, v);
         } else {
-            _animateDuck(duckLevel, duckDownMs, Easing.InOutSine);
+            if (!(duckAnim.running && duckAnim.to === duckLevel)) {
+                _animateDuck(duckLevel, duckDownMs, Easing.InOutSine);
+            }
             _pendingSfx.push({ path: path, vol: v });
             if (!sfxDelayTimer.running) sfxDelayTimer.start();
         }
