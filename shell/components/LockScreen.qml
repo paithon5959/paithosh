@@ -57,7 +57,7 @@ Scope {
             // Wallpaper fading over active windows
             Image {
                 anchors.fill: parent
-                source: lockRoot.resolvedWallpaperUrl
+                source: LockService.transitionVisible ? lockRoot.resolvedWallpaperUrl : ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: false
                 cache: true

@@ -387,8 +387,13 @@ Singleton {
         }
     }
 
-    Component.onCompleted: {
-        statsProc.running = true;
-        specsProc.running = true;
+    Timer {
+        interval: 1500
+        running: true
+        repeat: false
+        onTriggered: {
+            statsProc.running = true;
+            specsProc.running = true;
+        }
     }
 }

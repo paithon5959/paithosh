@@ -121,6 +121,7 @@ PanelWindow {
             setWallpaper(wallpapers[cl]);
         } else {
             _pendingIndex = target;
+            if (!wallpaperScanProc.running) wallpaperScanProc.running = true;
         }
     }
 
@@ -144,6 +145,11 @@ PanelWindow {
             setWallpaper(url);
         } else {
             _pendingPath = local;
+            currentWallpaperPath = local;
+            if (imgA.source.toString() === "" && imgB.source.toString() === "") {
+                imgA.source = url;
+                usingA = true;
+            }
         }
     }
 
@@ -226,6 +232,18 @@ PanelWindow {
         }
     }
 
+    Timer {
+        id: deferredWallpaperScanTimer
+        interval: 1200
+        running: true
+        repeat: false
+        onTriggered: {
+            if (root.wallpapers.length === 0 && !wallpaperScanProc.running) {
+                wallpaperScanProc.running = true;
+            }
+        }
+    }
+
     Process {
         id: wallpaperScanProc
         command: [
@@ -233,7 +251,7 @@ PanelWindow {
             "mkdir -p \"$1\" && find \"$1\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -n 16 | cut -d' ' -f2-",
             "_", root.wallpaperDir
         ]
-        running: true
+        running: false
         stdout: StdioCollector {
             onStreamFinished: {
                 const lines = (this.text || "").split("\n").map(s => s.trim()).filter(s => s.length > 0);

@@ -39,9 +39,14 @@ Singleton {
     readonly property string userWgDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/wg"
     readonly property string proxyEnvPath: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/proxy.env"
 
-    Component.onCompleted: {
-        refresh();
-        loadProxySettings();
+    Timer {
+        interval: 1800
+        running: true
+        repeat: false
+        onTriggered: {
+            root.refresh();
+            root.loadProxySettings();
+        }
     }
 
     function refresh() {

@@ -181,7 +181,7 @@ ShellRoot {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
-                CursorService.applyNow(false);
+                cursorBootApplyTimer.restart();
             });
         }
         onLoadFailed: {
@@ -192,9 +192,63 @@ ShellRoot {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
                 stateObj.refreshProfiles();
                 stateObj.loadProfile("default", true);
-                CursorService.applyNow(false);
+                cursorBootApplyTimer.restart();
             });
         }
+    }
+
+    Timer {
+        id: cursorBootApplyTimer
+        interval: 1600
+        repeat: false
+        onTriggered: CursorService.applyNow(false)
+    }
+
+    // Background QML bytecode pre-warmer (compiles lazy views off-thread after boot; zero object instantiation)
+    property var _prewarmCache: []
+    property int _prewarmIdx: 0
+    readonly property var _prewarmUrls: [
+        "components/LauncherView.qml",
+        "components/DashboardView.qml",
+        "components/FilesView.qml",
+        "components/SettingsView.qml",
+        "components/ClipboardView.qml",
+        "components/SearchResultsView.qml",
+        "components/WorkspaceOverview.qml",
+        "components/PickerView.qml",
+        "components/PortalView.qml",
+        "components/ModalOverlay.qml",
+        "components/DetachedAppWindow.qml",
+        "components/LockScreen.qml"
+    ]
+
+    function _prewarmNext() {
+        if (_prewarmIdx >= _prewarmUrls.length) return;
+        const url = _prewarmUrls[_prewarmIdx++];
+        const comp = Qt.createComponent(url, Component.Asynchronous);
+        _prewarmCache.push(comp);
+        if (comp.status === Component.Loading) {
+            comp.statusChanged.connect(function() {
+                if (comp.status !== Component.Loading) prewarmStepTimer.restart();
+            });
+        } else {
+            prewarmStepTimer.restart();
+        }
+    }
+
+    Timer {
+        id: prewarmStartTimer
+        interval: 1800
+        running: true
+        repeat: false
+        onTriggered: root._prewarmNext()
+    }
+
+    Timer {
+        id: prewarmStepTimer
+        interval: 80
+        repeat: false
+        onTriggered: root._prewarmNext()
     }
 
     Process {
@@ -1511,24 +1565,46 @@ ShellRoot {
         shellState: stateObj
     }
 
-    // Reusable Monochrome Modal Overlay (Confirm / Multi / Monitor+Portal / Progress)
-    ModalOverlay {
-        shellState: stateObj
+    // Reusable Monochrome Modal Overlay (lazy-loaded on first use)
+    Loader {
+        id: modalOverlayLoader
+        active: false
+        function open() {
+            active = true;
+            if (source.toString() === "") setSource("components/ModalOverlay.qml", { shellState: stateObj });
+        }
+        Component.onCompleted: if (stateObj.modalKind !== "") open()
     }
 
-    // Independent Floating Window for Detached Settings / Files / Picker
-    DetachedAppWindow {
-        shellState: stateObj
+    // Independent Floating Window for Detached Settings / Files / Picker (lazy-loaded on first detach)
+    Loader {
+        id: detachedAppLoader
+        active: false
+        function open() {
+            active = true;
+            if (source.toString() === "") setSource("components/DetachedAppWindow.qml", { shellState: stateObj });
+        }
+        Component.onCompleted: if (stateObj.detachedApp !== "") open()
+    }
+
+    Connections {
+        target: stateObj
+        function onModalKindChanged() { if (stateObj.modalKind !== "") modalOverlayLoader.open(); }
+        function onDetachedAppChanged() { if (stateObj.detachedApp !== "") detachedAppLoader.open(); }
     }
 
     Connections {
         target: LockService
         function onLockedChanged() {
             if (LockService.locked) {
+                lockScreenLoader.open();
                 stateObj.closePopovers();
                 stateObj.collapseIslandApp();
                 stateObj.closeModal();
             }
+        }
+        function onTransitionVisibleChanged() {
+            if (LockService.transitionVisible) lockScreenLoader.open();
         }
         function onEffectPresetChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onAmbientSoundChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
@@ -1560,10 +1636,26 @@ ShellRoot {
         source: "components/CursorMotionOverlay.qml"
     }
 
-    // Native Wayland Session Lock (Minimal Statusbar Lock Screen)
-    LockScreen {
-        shellState: stateObj
-        wallpaperPath: bgLayer.currentWallpaperPath
+    // Native Wayland Session Lock (lazy-loaded on first lock)
+    Loader {
+        id: lockScreenLoader
+        active: false
+        function open() {
+            active = true;
+            if (source.toString() === "") {
+                setSource("components/LockScreen.qml", {
+                    shellState: stateObj,
+                    wallpaperPath: bgLayer.currentWallpaperPath
+                });
+            }
+        }
+        Component.onCompleted: if (LockService.locked || LockService.transitionVisible) open()
+    }
+    Binding {
+        target: lockScreenLoader.item
+        property: "wallpaperPath"
+        value: bgLayer.currentWallpaperPath
+        when: lockScreenLoader.status === Loader.Ready
     }
 
     // Persistent Reloadable Fullscreen Transition Curtain (Reload / Logout / Restart / Shutdown)

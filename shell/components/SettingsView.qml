@@ -5994,18 +5994,21 @@ Item {
 
                         // ==================== KEYBINDS ====================
                         Loader {
+                            id: keybindPageLoader
                             Layout.fillWidth: true
                             Layout.preferredHeight: item ? item.implicitHeight : 0
                             visible: root.currentPage === "keybind"
                             active: Boolean(root.loadedPages["keybind"])
-                            sourceComponent: KeybindSettingsPage {
-                                onEditRequested: (bindObj, comboIdx, defaultTab) => {
-                                    keybindEditorLoader.active = true;
-                                    if (keybindEditorLoader.item) {
-                                        if (bindObj) keybindEditorLoader.item.openEdit(bindObj, comboIdx);
-                                        else keybindEditorLoader.item.openNew(defaultTab);
-                                    }
-                                }
+                            function ensureSource() {
+                                if (active && source.toString() === "") setSource("KeybindSettingsPage.qml");
+                            }
+                            Component.onCompleted: ensureSource()
+                            onActiveChanged: ensureSource()
+                        }
+                        Connections {
+                            target: keybindPageLoader.item
+                            function onEditRequested(bindObj, comboIdx, defaultTab) {
+                                keybindEditorLoader.openEditor(bindObj, comboIdx, defaultTab);
                             }
                         }
 
@@ -6709,25 +6712,36 @@ Item {
 
                         // ==================== 17b. STORAGE ====================
                         Loader {
+                            id: storagePageLoader
                             Layout.fillWidth: true
                             Layout.preferredHeight: item ? item.implicitHeight : 0
                             visible: root.currentPage === "storage"
                             active: Boolean(root.loadedPages["storage"])
-                            sourceComponent: StorageSettingsPage {
-                                shellState: root.shellState
-                                onConfirmActionRequested: (payload) => storageConfirmOverlay.openWith(payload)
+                            function ensureSource() {
+                                if (active && source.toString() === "") setSource("StorageSettingsPage.qml", { shellState: root.shellState });
+                            }
+                            Component.onCompleted: ensureSource()
+                            onActiveChanged: ensureSource()
+                        }
+                        Connections {
+                            target: storagePageLoader.item
+                            function onConfirmActionRequested(payload) {
+                                storageConfirmOverlay.openWith(payload);
                             }
                         }
 
                         // ==================== 18. ABOUT ====================
                         Loader {
+                            id: aboutPageLoader
                             Layout.fillWidth: true
                             Layout.preferredHeight: item ? item.implicitHeight : 0
                             visible: root.currentPage === "about"
                             active: Boolean(root.loadedPages["about"])
-                            sourceComponent: AboutSettingsPage {
-                                shellState: root.shellState
+                            function ensureSource() {
+                                if (active && source.toString() === "") setSource("AboutSettingsPage.qml", { shellState: root.shellState });
                             }
+                            Component.onCompleted: ensureSource()
+                            onActiveChanged: ensureSource()
                         }
                     }
                 }
@@ -7501,9 +7515,15 @@ Item {
         anchors.fill: parent
         z: 210
         active: false
-        sourceComponent: KeybindEditorModal {
-            selectMenu: settingsSelectMenu
-            menuRoot: root
+        function openEditor(bindObj, comboIdx, defaultTab) {
+            active = true;
+            if (source.toString() === "") {
+                setSource("KeybindEditorModal.qml", { selectMenu: settingsSelectMenu, menuRoot: root });
+            }
+            if (item) {
+                if (bindObj) item.openEdit(bindObj, comboIdx);
+                else item.openNew(defaultTab);
+            }
         }
     }
 }

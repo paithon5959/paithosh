@@ -91,5 +91,10 @@ Singleton {
         onTriggered: root.refresh()
     }
 
-    Component.onCompleted: refresh()
+    Timer {
+        interval: 2500
+        running: true
+        repeat: false
+        onTriggered: root.refresh()
+    }
 }

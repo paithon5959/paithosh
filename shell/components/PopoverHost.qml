@@ -55,16 +55,29 @@ PanelWindow {
         item: root.popoverActive ? fullScreenMask : (root.toastActive ? cardBox : emptyMask)
     }
 
+    property bool _loadedLauncher: false
+    property bool _loadedClipboard: false
+    property bool _loadedDashboard: false
+    property bool _loadedSearch: false
+    property bool _loadedOverview: false
+
     Connections {
         target: root.shellState
         function onOpenPopoverChanged() {
             const p = root.shellState.openPopover;
             if (p === "launcher") {
-                launcherView.resetAndFocus();
+                root._loadedLauncher = true;
+                Qt.callLater(function() { if (launcherLoader.item) launcherLoader.item.resetAndFocus(); });
             } else if (p === "clipboard") {
-                clipboardView.resetAndFocus();
+                root._loadedClipboard = true;
+                Qt.callLater(function() { if (clipboardLoader.item) clipboardLoader.item.resetAndFocus(); });
+            } else if (p === "dashboard") {
+                root._loadedDashboard = true;
+            } else if (p === "search") {
+                root._loadedSearch = true;
             } else if (p === "overview") {
-                overviewView.resetAndFocus();
+                root._loadedOverview = true;
+                Qt.callLater(function() { if (overviewLoader.item) overviewLoader.item.resetAndFocus(); });
             }
             if (p !== "" && p !== "search" && p !== "overview") {
                 rootFocusItem.forceActiveFocus();
@@ -114,20 +127,20 @@ PanelWindow {
         }
         y: (root.isBottom ? (root.height - height - baseMargin) : baseMargin) + slideOffset
         width: {
-            if (root.activeMode === "launcher") return launcherView.implicitWidth + 32;
-            if (root.activeMode === "clipboard") return clipboardView.implicitWidth + 32;
-            if (root.activeMode === "dashboard") return dashboardView.implicitWidth + 32;
-            if (root.activeMode === "search") return searchResultsView.implicitWidth + 32;
-            if (root.activeMode === "overview") return overviewView.implicitWidth + 32;
+            if (root.activeMode === "launcher") return (launcherLoader.item ? launcherLoader.item.implicitWidth : 520) + 32;
+            if (root.activeMode === "clipboard") return (clipboardLoader.item ? clipboardLoader.item.implicitWidth : 440) + 32;
+            if (root.activeMode === "dashboard") return (dashboardLoader.item ? dashboardLoader.item.implicitWidth : 420) + 32;
+            if (root.activeMode === "search") return (searchResultsLoader.item ? searchResultsLoader.item.implicitWidth : 520) + 32;
+            if (root.activeMode === "overview") return (overviewLoader.item ? overviewLoader.item.implicitWidth : 760) + 32;
             if (root.activeMode === "toast") return toastView.implicitWidth + 40;
             return 420;
         }
         height: {
-            if (root.activeMode === "launcher") return launcherView.implicitHeight + 32;
-            if (root.activeMode === "clipboard") return clipboardView.implicitHeight + 32;
-            if (root.activeMode === "dashboard") return dashboardView.implicitHeight + 32;
-            if (root.activeMode === "search") return searchResultsView.implicitHeight + 32;
-            if (root.activeMode === "overview") return overviewView.implicitHeight + 32;
+            if (root.activeMode === "launcher") return (launcherLoader.item ? launcherLoader.item.implicitHeight : 420) + 32;
+            if (root.activeMode === "clipboard") return (clipboardLoader.item ? clipboardLoader.item.implicitHeight : 420) + 32;
+            if (root.activeMode === "dashboard") return (dashboardLoader.item ? dashboardLoader.item.implicitHeight : 460) + 32;
+            if (root.activeMode === "search") return (searchResultsLoader.item ? searchResultsLoader.item.implicitHeight : 360) + 32;
+            if (root.activeMode === "overview") return (overviewLoader.item ? overviewLoader.item.implicitHeight : 420) + 32;
             if (root.activeMode === "toast") return toastView.implicitHeight + 32;
             return 200;
         }
@@ -163,49 +176,83 @@ PanelWindow {
             onClicked: function(mouse) { mouse.accepted = true; }
         }
 
-        LauncherView {
-            id: launcherView
+        Loader {
+            id: launcherLoader
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 16
-            shellState: root.shellState
+            active: root._loadedLauncher || root.activeMode === "launcher"
             visible: root.activeMode === "launcher"
+            function ensureSource() {
+                if (active && source.toString() === "") setSource("LauncherView.qml", { shellState: root.shellState });
+            }
+            Component.onCompleted: ensureSource()
+            onActiveChanged: ensureSource()
+            onLoaded: {
+                if (root.activeMode === "launcher" && item) item.resetAndFocus();
+            }
         }
 
-        ClipboardView {
-            id: clipboardView
+        Loader {
+            id: clipboardLoader
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 16
-            shellState: root.shellState
+            active: root._loadedClipboard || root.activeMode === "clipboard"
             visible: root.activeMode === "clipboard"
+            function ensureSource() {
+                if (active && source.toString() === "") setSource("ClipboardView.qml", { shellState: root.shellState });
+            }
+            Component.onCompleted: ensureSource()
+            onActiveChanged: ensureSource()
+            onLoaded: {
+                if (root.activeMode === "clipboard" && item) item.resetAndFocus();
+            }
         }
 
-        DashboardView {
-            id: dashboardView
+        Loader {
+            id: dashboardLoader
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 16
-            shellState: root.shellState
+            active: root._loadedDashboard || root.activeMode === "dashboard"
             visible: root.activeMode === "dashboard"
+            function ensureSource() {
+                if (active && source.toString() === "") setSource("DashboardView.qml", { shellState: root.shellState });
+            }
+            Component.onCompleted: ensureSource()
+            onActiveChanged: ensureSource()
         }
 
-        SearchResultsView {
-            id: searchResultsView
+        Loader {
+            id: searchResultsLoader
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 16
-            shellState: root.shellState
+            active: root._loadedSearch || root.activeMode === "search"
             visible: root.activeMode === "search"
+            function ensureSource() {
+                if (active && source.toString() === "") setSource("SearchResultsView.qml", { shellState: root.shellState });
+            }
+            Component.onCompleted: ensureSource()
+            onActiveChanged: ensureSource()
         }
 
-        WorkspaceOverview {
-            id: overviewView
+        Loader {
+            id: overviewLoader
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.margins: 16
-            shellState: root.shellState
+            active: root._loadedOverview || root.activeMode === "overview"
             visible: root.activeMode === "overview"
+            function ensureSource() {
+                if (active && source.toString() === "") setSource("WorkspaceOverview.qml", { shellState: root.shellState });
+            }
+            Component.onCompleted: ensureSource()
+            onActiveChanged: ensureSource()
+            onLoaded: {
+                if (root.activeMode === "overview" && item) item.resetAndFocus();
+            }
         }
 
         NotificationToast {

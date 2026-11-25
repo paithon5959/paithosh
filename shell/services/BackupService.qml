@@ -179,7 +179,12 @@ Singleton {
         });
     }
 
-    Component.onCompleted: loadSettings()
+    Timer {
+        interval: 2500
+        running: true
+        repeat: false
+        onTriggered: root.loadSettings()
+    }
 
     function loadSettings() {
         runCmd(["sh", "-c", 'cat "$1" 2>/dev/null || true', "sh", backupSettingsPath], (ok, out) => {
@@ -210,7 +215,6 @@ Singleton {
                 }
             } catch (e) {}
             root._settingsLoaded = true;
-            root.refreshAll();
         });
     }
 

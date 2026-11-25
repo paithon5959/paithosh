@@ -79,9 +79,15 @@ Singleton {
 
     readonly property string daemonSignature: style + "|" + size + "|" + colorMode + "|" + lightThemeId + "|" + darkThemeId + "|" + (motionBlur ? "1" : "0")
 
-    Component.onCompleted: {
-        checkDeps();
-        refreshPreviews();
+    Timer {
+        id: deferredPreviewTimer
+        interval: 1200
+        running: true
+        repeat: false
+        onTriggered: {
+            root.checkDeps();
+            root.refreshPreviews();
+        }
     }
 
     function normalizeStyle(s) {

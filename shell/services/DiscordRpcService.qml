@@ -26,13 +26,14 @@ QtObject {
     property string currentState: ""
 
     property bool _hydrating: false
+    property bool _bootReady: false
 
     readonly property string _scriptPath: Quickshell.shellDir + "/scripts/discord-rpc.py"
 
     function pushConfig() {
         if (root._hydrating) return;
         if (!rpcProc.running) {
-            rpcProc.running = true;
+            if (root._bootReady) rpcProc.running = true;
             return;
         }
         const payload = {
@@ -76,9 +77,19 @@ QtObject {
     onClientIdChanged: pushConfig()
     onThemeNameChanged: pushConfig()
 
+    property Timer _bootTimer: Timer {
+        interval: 3000
+        running: true
+        repeat: false
+        onTriggered: {
+            root._bootReady = true;
+            rpcProc.running = true;
+        }
+    }
+
     property Process _rpcProc: Process {
         id: rpcProc
-        running: true
+        running: false
         stdinEnabled: true
         command: {
             var cmd = ["python3", root._scriptPath];

@@ -127,7 +127,12 @@ Singleton {
         return (b / 1073741824).toFixed(1) + " GB";
     }
 
-    Component.onCompleted: loadSettings()
+    Timer {
+        interval: 2500
+        running: true
+        repeat: false
+        onTriggered: root.loadSettings()
+    }
 
     function loadSettings() {
         runCmd(["sh", "-c", 'cat "$1" 2>/dev/null || true', "sh", settingsPath], (ok, out) => {

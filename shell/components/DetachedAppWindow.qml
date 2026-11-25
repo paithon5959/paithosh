@@ -130,33 +130,38 @@ FloatingWindow {
                     id: settingsLoader
                     anchors.fill: parent
                     active: root.visible && root.appKind === "settings"
-                    onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
-                    sourceComponent: SettingsView {
-                        shellState: root.shellState
+                    function ensureSource() {
+                        if (active && source.toString() === "") setSource("SettingsView.qml", { shellState: root.shellState });
                     }
+                    Component.onCompleted: ensureSource()
+                    onActiveChanged: ensureSource()
+                    onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
                 }
 
                 Loader {
                     id: filesLoader
                     anchors.fill: parent
                     active: root.visible && root.appKind === "files"
-                    onLoaded: if (item) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
-                    sourceComponent: FilesView {
-                        shellState: root.shellState
+                    function ensureSource() {
+                        if (active && source.toString() === "") setSource("FilesView.qml", { shellState: root.shellState });
                     }
+                    Component.onCompleted: ensureSource()
+                    onActiveChanged: ensureSource()
+                    onLoaded: if (item) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
                 }
 
                 Loader {
                     id: pickerLoader
                     anchors.fill: parent
                     active: root.visible && root.appKind === "picker"
+                    function ensureSource() {
+                        if (active && source.toString() === "") setSource("PickerView.qml", { shellState: root.shellState, isDetached: true });
+                    }
+                    Component.onCompleted: ensureSource()
+                    onActiveChanged: ensureSource()
                     onLoaded: if (item) {
                         item.initFromState();
                         Qt.callLater(() => { if (item) item.forceActiveFocus(); });
-                    }
-                    sourceComponent: PickerView {
-                        shellState: root.shellState
-                        isDetached: true
                     }
                 }
             }

@@ -1213,44 +1213,52 @@ PanelWindow {
                     Loader {
                         id: settingsLoader
                         anchors.fill: parent
-                        active: appBody.visible && root.shellState.islandApp === "settings"
-                        onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
-                        sourceComponent: SettingsView {
-                            shellState: root.shellState
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "settings"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("SettingsView.qml", { shellState: root.shellState });
                         }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
+                        onLoaded: if (item) item.openPage(root.shellState.settingsPage || "home")
                     }
 
                     Loader {
                         id: filesLoader
                         anchors.fill: parent
-                        active: appBody.visible && root.shellState.islandApp === "files"
-                        onLoaded: if (item && root.isAppExpandedOnScreen) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
-                        sourceComponent: FilesView {
-                            shellState: root.shellState
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "files"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("FilesView.qml", { shellState: root.shellState });
                         }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
+                        onLoaded: if (item && root.isAppExpandedOnScreen) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
                     }
 
                     Loader {
                         id: pickerLoader
                         anchors.fill: parent
-                        active: appBody.visible && root.shellState.islandApp === "picker"
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "picker"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("PickerView.qml", { shellState: root.shellState });
+                        }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
                         onLoaded: if (item) {
                             item.initFromState();
                             if (root.isAppExpandedOnScreen) Qt.callLater(() => { if (item) item.forceActiveFocus(); });
-                        }
-                        sourceComponent: PickerView {
-                            shellState: root.shellState
                         }
                     }
 
                     Loader {
                         id: portalLoader
                         anchors.fill: parent
-                        active: appBody.visible && root.shellState.islandApp === "portal"
-                        onLoaded: if (item) item.refreshSources()
-                        sourceComponent: PortalView {
-                            shellState: root.shellState
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "portal"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("PortalView.qml", { shellState: root.shellState });
                         }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
+                        onLoaded: if (item) item.refreshSources()
                     }
                 }
 
