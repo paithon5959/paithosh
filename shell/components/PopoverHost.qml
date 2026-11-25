@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Wayland
 import ".."
 import "../services"
+import "common"
 
 PanelWindow {
     id: root
@@ -171,6 +172,15 @@ PanelWindow {
         }
 
         // Prevent clicks inside card from propagating to outside-click MouseArea
+        ThemeGradientFill {
+            anchors.fill: parent
+            anchors.margins: 1
+            enabled: Theme.shellGradientEnabled
+            color1: Theme.pillBg
+            color2: Theme.pillBg2
+            cornerRadius: Math.max(0, cardBox.radius - 1)
+        }
+
         MouseArea {
             anchors.fill: parent
             onClicked: function(mouse) { mouse.accepted = true; }

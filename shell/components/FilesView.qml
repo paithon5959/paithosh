@@ -1341,6 +1341,14 @@ FocusScope {
             Layout.fillHeight: true
             color: Theme.pillBg
 
+            ThemeGradientFill {
+                anchors.fill: parent
+                enabled: Theme.shellGradientEnabled
+                color1: Theme.pillBg
+                color2: Theme.pillBg2
+                cornerRadius: 0
+            }
+
             Rectangle {
                 anchors.right: parent.right
                 anchors.top: parent.top
@@ -3045,6 +3053,14 @@ FocusScope {
             color: Theme.pillBg
             clip: true
 
+            ThemeGradientFill {
+                anchors.fill: parent
+                enabled: Theme.shellGradientEnabled
+                color1: Theme.pillBg
+                color2: Theme.pillBg2
+                cornerRadius: 0
+            }
+
             Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
             Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
@@ -3233,6 +3249,15 @@ FocusScope {
             scale: root.passwordOpen ? 1.0 : 0.94
             Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutBack; easing.overshoot: 1.0 } }
 
+            ThemeGradientFill {
+                anchors.fill: parent
+                anchors.margins: 1
+                enabled: Theme.surfaceGradientEnabled
+                color1: Theme.surfaceBg
+                color2: Theme.surfaceBg2
+                cornerRadius: 13
+            }
+
             MouseArea { anchors.fill: parent; onClicked: (m) => { m.accepted = true; } }
 
             SequentialAnimation {
@@ -3313,6 +3338,15 @@ FocusScope {
             scale: root.inputModalOpen ? 1.0 : 0.94
             Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutBack; easing.overshoot: 1.0 } }
             Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+            ThemeGradientFill {
+                anchors.fill: parent
+                anchors.margins: 1
+                enabled: Theme.surfaceGradientEnabled
+                color1: Theme.surfaceBg
+                color2: Theme.surfaceBg2
+                cornerRadius: 13
+            }
 
             MouseArea { anchors.fill: parent; onClicked: (m) => { m.accepted = true; } }
 
@@ -3404,6 +3438,15 @@ FocusScope {
             scale: root.confirmOpen ? 1.0 : 0.94
             Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutBack; easing.overshoot: 1.0 } }
 
+            ThemeGradientFill {
+                anchors.fill: parent
+                anchors.margins: 1
+                enabled: Theme.surfaceGradientEnabled
+                color1: Theme.surfaceBg
+                color2: Theme.surfaceBg2
+                cornerRadius: 13
+            }
+
             MouseArea { anchors.fill: parent; onClicked: (m) => { m.accepted = true; } }
 
             ColumnLayout {
@@ -3464,6 +3507,15 @@ FocusScope {
             clip: true
             scale: root.propsOpen ? 1.0 : 0.94
             Behavior on scale { NumberAnimation { duration: 190; easing.type: Easing.OutBack; easing.overshoot: 1.0 } }
+
+            ThemeGradientFill {
+                anchors.fill: parent
+                anchors.margins: 1
+                enabled: Theme.surfaceGradientEnabled
+                color1: Theme.surfaceBg
+                color2: Theme.surfaceBg2
+                cornerRadius: 13
+            }
 
             MouseArea { anchors.fill: parent; onClicked: (m) => { m.accepted = true; } }
 

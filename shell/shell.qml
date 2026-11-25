@@ -132,17 +132,11 @@ ShellRoot {
                     if (typeof obj.globalSurfaceTheme === "string") stateObj.globalSurfaceTheme = obj.globalSurfaceTheme;
                     if (typeof obj.activeProfile === "string") stateObj.activeProfile = obj.activeProfile;
                     if (typeof obj.themePreset === "string") Theme.applyPreset(obj.themePreset);
-                    if (typeof obj.accentMode === "string") Theme.accentMode = obj.accentMode;
-                    if (typeof obj.hueVal === "number") Theme.hueVal = obj.hueVal;
-                    if (typeof obj.satVal === "number") Theme.satVal = obj.satVal;
-                    if (typeof obj.valVal === "number") Theme.valVal = obj.valVal;
-                    if (typeof obj.gradientAngle === "number") Theme.gradientAngle = obj.gradientAngle;
+                    Theme.applySurfaceTheme(stateObj.globalSurfaceTheme);
+                    Theme.applyPaletteState(obj);
                     if (typeof obj.masterRatio === "number") Theme.masterRatio = obj.masterRatio;
                     if (typeof obj.preserveSplit === "boolean") Theme.preserveSplit = obj.preserveSplit;
                     if (typeof obj.shadowRange === "number") Theme.shadowRange = obj.shadowRange;
-                    if (obj.customAccentActive === true) {
-                        Theme.applyAccentHsv(Theme.hueVal, Theme.satVal, Theme.valVal);
-                    }
                     if (typeof obj.gooeyEnabled === "boolean") Theme.gooeyEnabled = obj.gooeyEnabled;
                     if (typeof obj.speedMultiplier === "number" && obj.speedMultiplier >= 0.5 && obj.speedMultiplier <= 2.5) Theme.speedMultiplier = obj.speedMultiplier;
                     if (typeof obj.transitionMode === "string") bgLayer.transitionMode = obj.transitionMode;
@@ -181,6 +175,7 @@ ShellRoot {
             stateObj.themeImportSeq += 1;
             Qt.callLater(function() {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
+                stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
                 cursorBootApplyTimer.restart();
@@ -192,6 +187,7 @@ ShellRoot {
             stateObj.themeImportSeq += 1;
             Qt.callLater(function() {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
+                stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 stateObj.loadProfile("default", true);
                 cursorBootApplyTimer.restart();
@@ -325,9 +321,9 @@ ShellRoot {
                 } catch (e) {
                     decoded = null;
                 }
-                if (!decoded || decoded.version !== 2) {
+                if (!decoded || (decoded.version !== 2 && decoded.version !== 3)) {
                     if (!paishReader.silentOnMissing) {
-                        stateObj.lastProfileStatus = "Invalid .paish v2 format in " + paishReader.profileName + ".paish";
+                        stateObj.lastProfileStatus = "Invalid .paish v2/v3 format in " + paishReader.profileName + ".paish";
                         stateObj.lastProfileOk = false;
                     }
                     return;
@@ -354,7 +350,7 @@ ShellRoot {
                 } catch (e) {
                     decoded = null;
                 }
-                if (!decoded || decoded.version !== 2) {
+                if (!decoded || (decoded.version !== 2 && decoded.version !== 3)) {
                     stateObj.themeCodeImported(false, "Invalid paish: code or format");
                     return;
                 }
@@ -425,14 +421,15 @@ ShellRoot {
                 CompositorService.applyThemePreset(stateObj.compositorKeyForPreset(name));
                 stateObj.themeImportSeq += 1;
                 stateObj.saveSettings();
+                stateObj.syncHyprThemeColors();
             }
         }
-        function onCustomAccentActiveChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onAccentModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onHueValChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onSatValChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onValValChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
-        function onGradientAngleChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onThemeColorsChanged() {
+            if (!stateObj._applyingExternalState && stateObj.settingsLoaded) {
+                stateObj.saveSettings();
+                stateObj.syncHyprThemeColors();
+            }
+        }
         function onMasterRatioChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onPreserveSplitChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onShadowRangeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
@@ -473,7 +470,54 @@ ShellRoot {
             _applyingExternalState = false;
             themeImportSeq += 1;
             saveSettings();
+            syncHyprThemeColors();
             return true;
+        }
+
+        function syncHyprThemeColors() {
+            const p = Theme.presetMeta(Theme.activePreset);
+            const al = Theme.surfaceAlphas(Theme.surfaceTheme, p);
+            CompositorService.syncThemeColors({
+                pillBg: Theme.colorToHex(Theme.pillBg),
+                surfaceBg: Theme.colorToHex(Theme.surfaceBg),
+                surfaceRaised: Theme.colorToHex(Theme.surfaceRaised),
+                text: Theme.colorToHex(Theme.text),
+                accent: Theme.colorToHex(Theme.accent),
+                accent2: Theme.colorToHex(Theme.accent2),
+                borderColor: Theme.getSlotHex("borderColor"),
+                borderAlpha: al.border,
+                accentGradientEnabled: Theme.accentGradientEnabled,
+                gradientAngle: Theme.gradientAngle,
+                activeBorderHighlight: activeBorderHighlight
+            });
+        }
+
+        function setThemeColor(slot, hex) {
+            if (!Theme.setPaletteColor(slot, hex)) return false;
+            if (!_applyingExternalState) markAppearanceCustomized();
+            return true;
+        }
+
+        function clearThemeColorOverride(slot) {
+            if (!Theme.clearPaletteOverride(slot)) return false;
+            if (!_applyingExternalState) markAppearanceCustomized();
+            return true;
+        }
+
+        function setThemeGradients(shellOn, surfaceOn, accentOn) {
+            Theme.setGradientFlags(shellOn, surfaceOn, accentOn);
+            if (!_applyingExternalState) markAppearanceCustomized();
+        }
+
+        function setThemeGradientAngle(deg) {
+            Theme.setGradientAngle(deg);
+            if (!_applyingExternalState) markAppearanceCustomized();
+        }
+
+        function applyGlobalSurfaceTheme(mode) {
+            Theme.applySurfaceTheme(mode);
+            globalSurfaceTheme = Theme.surfaceTheme;
+            if (!_applyingExternalState) markAppearanceCustomized();
         }
 
         function nextLocalThemeName(basePreset) {
@@ -733,22 +777,15 @@ ShellRoot {
             _applyingExternalState = true;
             activeProfile = profileName ? sanitizeProfileName(profileName) : "";
             Theme.applyPreset(d.presetName);
-            Theme.accentMode = d.accentMode;
-            Theme.gradientAngle = d.gradientAngle;
+            globalSurfaceTheme = d.globalSurfaceTheme || "OLED Pure";
+            Theme.applySurfaceTheme(globalSurfaceTheme);
+            Theme.applyPaletteState(d);
             Theme.masterRatio = d.masterRatio;
             Theme.preserveSplit = d.preserveSplit;
             Theme.shadowRange = d.shadowRange;
-            if (d.customAccentActive) {
-                Theme.applyAccentHsv(d.hueVal, d.satVal, d.valVal);
-            } else {
-                Theme.hueVal = d.hueVal;
-                Theme.satVal = d.satVal;
-                Theme.valVal = d.valVal;
-            }
             if (typeof d.gooeyEnabled === "boolean") Theme.gooeyEnabled = d.gooeyEnabled;
             if (typeof d.speedMultiplier === "number") Theme.speedMultiplier = d.speedMultiplier;
 
-            globalSurfaceTheme = d.globalSurfaceTheme;
             islandCornerRadius = d.islandCornerRadius;
             topEdgeOffset = d.topEdgeOffset;
             hideBarFullscreen = d.hideBarFullscreen;
@@ -786,6 +823,7 @@ ShellRoot {
             _applyingExternalState = false;
             themeImportSeq += 1;
             saveSettings();
+            syncHyprThemeColors();
             CursorService.applyNow(true);
             return true;
         }
@@ -844,6 +882,7 @@ ShellRoot {
 
         function writeSettingsNow() {
             if (!settingsLoaded) return;
+            const pal = Theme.exportPaletteState();
             const data = {
                 hideBarFullscreen: hideBarFullscreen,
                 autoHideOnOverlap: autoHideOnOverlap,
@@ -860,12 +899,6 @@ ShellRoot {
                 globalSurfaceTheme: globalSurfaceTheme,
                 themePreset: Theme.activePreset,
                 activeProfile: activeProfile,
-                customAccentActive: Theme.customAccentActive,
-                accentMode: Theme.accentMode,
-                hueVal: Theme.hueVal,
-                satVal: Theme.satVal,
-                valVal: Theme.valVal,
-                gradientAngle: Theme.gradientAngle,
                 masterRatio: Theme.masterRatio,
                 preserveSplit: Theme.preserveSplit,
                 shadowRange: Theme.shadowRange,
@@ -893,6 +926,7 @@ ShellRoot {
                 cursorMotionBlurStrength: CursorService.motionBlurStrength,
                 cursorMotionBlurThreshold: CursorService.motionBlurThreshold
             };
+            for (const k in pal) data[k] = pal[k];
             settingsWriter.payload = JSON.stringify(data, null, 2);
             settingsWriter.running = false;
             settingsWriter.running = true;
@@ -905,7 +939,10 @@ ShellRoot {
         onIslandCornerRadiusChanged: { applyIslandMetrics(); saveSettings(); }
         onBarPositionChanged: saveSettings()
         onTopEdgeOffsetChanged: { applyIslandMetrics(); saveSettings(); }
-        onActiveBorderHighlightChanged: saveSettings()
+        onActiveBorderHighlightChanged: {
+            saveSettings();
+            if (!stateObj._applyingExternalState && stateObj.settingsLoaded) syncHyprThemeColors();
+        }
         onGlobalSurfaceThemeChanged: saveSettings()
 
         property bool osdOpen: false

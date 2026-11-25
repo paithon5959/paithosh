@@ -325,6 +325,15 @@ PanelWindow {
             Behavior on scale { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.25 } }
             Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack } }
 
+            ThemeGradientFill {
+                anchors.fill: parent
+                anchors.margins: 1
+                enabled: Theme.surfaceGradientEnabled
+                color1: Theme.surfaceBg
+                color2: Theme.surfaceBg2
+                cornerRadius: 19
+            }
+
             MouseArea {
                 anchors.fill: parent
                 onClicked: function(mouse) { mouse.accepted = true; }

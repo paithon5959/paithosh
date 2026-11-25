@@ -321,6 +321,9 @@ PanelWindow {
                 property real threshold: 0.46
                 property real softness: 0.06
                 property color pillColor: Theme.pillBg
+                property color pillColor2: Theme.pillBg2
+                property real angleRad: Theme.gradientAngle * Math.PI / 180.0
+                property real gradEnabled: Theme.shellGradientEnabled ? 1.0 : 0.0
             }
 
             Rectangle {
@@ -331,6 +334,13 @@ PanelWindow {
                 height: mainPill.height
                 radius: mainPill.radius
                 color: Theme.pillBg
+                ThemeGradientFill {
+                    anchors.fill: parent
+                    enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
+                    color1: Theme.pillBg
+                    color2: Theme.pillBg2
+                    cornerRadius: mainBg.radius
+                }
             }
 
             Rectangle {
@@ -344,6 +354,13 @@ PanelWindow {
                 scale: mediaPill.scale
                 opacity: mediaSlotWrap.opacity
                 visible: width > 1 && opacity > 0.01
+                ThemeGradientFill {
+                    anchors.fill: parent
+                    enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
+                    color1: Theme.pillBg
+                    color2: Theme.pillBg2
+                    cornerRadius: mediaBg.radius
+                }
             }
 
             Rectangle {
@@ -357,6 +374,13 @@ PanelWindow {
                 scale: alertPill.scale
                 opacity: alertSlotWrap.opacity
                 visible: width > 1 && opacity > 0.01
+                ThemeGradientFill {
+                    anchors.fill: parent
+                    enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
+                    color1: Theme.pillBg
+                    color2: Theme.pillBg2
+                    cornerRadius: alertBg.radius
+                }
             }
         }
 
@@ -1203,6 +1227,14 @@ PanelWindow {
                     clip: true
                     opacity: root.isAppExpandedOnScreen ? 1.0 : 0.0
                     visible: opacity > 0.01
+
+                    ThemeGradientFill {
+                        anchors.fill: parent
+                        enabled: Theme.surfaceGradientEnabled
+                        color1: Theme.surfaceBg
+                        color2: Theme.surfaceBg2
+                        cornerRadius: 0
+                    }
 
                     Behavior on opacity {
                         NumberAnimation {

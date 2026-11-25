@@ -74,6 +74,14 @@ Item {
             ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
         }
 
+        ThemeGradientFill {
+            anchors.fill: parent
+            enabled: root.active && !root.danger && Theme.accentGradientEnabled
+            color1: Theme.accent
+            color2: Theme.accent2
+            cornerRadius: root.radius
+        }
+
         RowLayout {
             id: contentRow
             anchors.centerIn: parent

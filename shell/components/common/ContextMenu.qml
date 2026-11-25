@@ -140,6 +140,15 @@ Item {
         Behavior on opacity { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
         Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutBack; easing.overshoot: 0.9 } }
 
+        ThemeGradientFill {
+            anchors.fill: parent
+            anchors.margins: 1
+            enabled: Theme.shellGradientEnabled
+            color1: Theme.pillBg
+            color2: Theme.pillBg2
+            cornerRadius: 11
+        }
+
         Keys.onPressed: (event) => {
             if (!root.isOpen) return;
             if (event.key === Qt.Key_Escape) {

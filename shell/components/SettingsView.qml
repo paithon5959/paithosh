@@ -55,8 +55,14 @@ Item {
     property string maxDisplayRes: "1920 × 1080"
 
     function isPresetActive(name) {
+        const meta = Theme.presetMeta(name);
         return Theme.activePreset === name
             && !Theme.customAccentActive
+            && !Theme.customAccent2Active
+            && !Theme.customPaletteActive
+            && Boolean(meta && meta.shellGradient) === Theme.shellGradientEnabled
+            && Boolean(meta && meta.surfaceGradient) === Theme.surfaceGradientEnabled
+            && Boolean(meta && meta.accentGradient) === Theme.accentGradientEnabled
             && (!root.shellState || root.shellState.activeProfile === "");
     }
 
@@ -69,6 +75,73 @@ Item {
         if (root.shellState) root.shellState.markAppearanceCustomized();
     }
 
+    function loadStudioSlot(slot) {
+        const target = slot || root.colorStudioSlot || "accent";
+        root.colorStudioSlot = target;
+        root.studioHexError = "";
+        const hex = Theme.getSlotHex(target);
+        root.studioHexInput = hex;
+        if (target === "accent" && Theme.customAccentActive) {
+            root.studioHue = Theme.hueVal;
+            root.studioSat = Theme.satVal;
+            root.studioVal = Theme.valVal;
+        } else {
+            const c = Qt.color(hex);
+            root.studioHue = c.hsvHue >= 0 ? c.hsvHue : 0;
+            root.studioSat = Math.max(0, Math.min(1, c.hsvSaturation));
+            root.studioVal = Math.max(0, Math.min(1, c.hsvValue));
+        }
+    }
+
+    function applyStudioHsv(h, s, v) {
+        const nh = Math.max(0, Math.min(1, Number(h) || 0));
+        const ns = Math.max(0, Math.min(1, Number(s) || 0));
+        const nv = Math.max(0, Math.min(1, Number(v) || 0));
+        root.studioHue = nh;
+        root.studioSat = ns;
+        root.studioVal = nv;
+        root.studioHexError = "";
+        const hex = Theme.colorToHex(Qt.hsva(nh, ns, nv, 1.0));
+        root.studioHexInput = hex;
+        if (root.colorStudioSlot === "accent") {
+            root.hueVal = nh;
+            root.satVal = ns;
+            root.valVal = nv;
+            if (root.shellState) root.shellState.applyCustomAccent(nh, ns, nv);
+            else Theme.applyAccentHsv(nh, ns, nv);
+        } else if (root.shellState) {
+            root.shellState.setThemeColor(root.colorStudioSlot, hex);
+        } else {
+            Theme.setPaletteColor(root.colorStudioSlot, hex);
+        }
+    }
+
+    function applyStudioHex(raw, shakeAnim) {
+        const norm = Theme.normalizeHex(raw, "");
+        if (norm === "") {
+            root.studioHexError = "Invalid hex (use #RRGGBB)";
+            if (shakeAnim) shakeAnim.restart();
+            return false;
+        }
+        root.studioHexError = "";
+        root.studioHexInput = norm;
+        if (root.shellState) root.shellState.setThemeColor(root.colorStudioSlot, norm);
+        else Theme.setPaletteColor(root.colorStudioSlot, norm);
+        root.loadStudioSlot(root.colorStudioSlot);
+        return true;
+    }
+
+    function isSlotCustomized(slot) {
+        if (slot === "pillBg") return Theme.hasCustomPillBg;
+        if (slot === "surfaceBg") return Theme.hasCustomSurfaceBg;
+        if (slot === "surfaceRaised") return Theme.hasCustomSurfaceRaised;
+        if (slot === "text") return Theme.hasCustomText;
+        if (slot === "borderColor") return Theme.hasCustomBorderColor;
+        if (slot === "accent") return Theme.customAccentActive;
+        if (slot === "accent2") return Theme.customAccent2Active;
+        return slot === "pillBg2" || slot === "surfaceBg2";
+    }
+
     function syncPersonalizationFromShellState() {
         root.accentMode = Theme.accentMode;
         root.hueVal = Theme.hueVal;
@@ -78,19 +151,21 @@ Item {
         root.masterRatio = Theme.masterRatio;
         root.preserveSplit = Theme.preserveSplit;
         root.shadowRange = Theme.shadowRange;
-        if (!root.shellState) return;
-        root.hideBarFullscreen = root.shellState.hideBarFullscreen;
-        root.islandAutoHide = root.shellState.autoHideOnOverlap || root.shellState.hideBarFullscreen;
-        root.islandCornerRadius = root.shellState.islandCornerRadius;
-        root.barPosition = root.shellState.barPosition;
-        root.topEdgeOffset = root.shellState.topEdgeOffset;
-        root.activeBorderHighlight = root.shellState.activeBorderHighlight;
-        root.globalSurfaceTheme = root.shellState.globalSurfaceTheme;
-        if (root.shellState.activeProfile !== "") {
-            root.profileNameInput = root.shellState.activeProfile;
-        } else if (root.profileNameInput === "") {
-            root.profileNameInput = "default";
+        root.globalSurfaceTheme = Theme.surfaceTheme;
+        if (root.shellState) {
+            root.hideBarFullscreen = root.shellState.hideBarFullscreen;
+            root.islandAutoHide = root.shellState.autoHideOnOverlap || root.shellState.hideBarFullscreen;
+            root.islandCornerRadius = root.shellState.islandCornerRadius;
+            root.barPosition = root.shellState.barPosition;
+            root.topEdgeOffset = root.shellState.topEdgeOffset;
+            root.activeBorderHighlight = root.shellState.activeBorderHighlight;
+            if (root.shellState.activeProfile !== "") {
+                root.profileNameInput = root.shellState.activeProfile;
+            } else if (root.profileNameInput === "") {
+                root.profileNameInput = "default";
+            }
         }
+        root.loadStudioSlot(root.colorStudioSlot);
     }
 
     function applyExternalSearch(query) {
@@ -364,6 +439,30 @@ Item {
     property real satVal: 0.0
     property real valVal: 0.92
     property int gradientAngle: 135
+    property string colorStudioSlot: "accent"
+    property real studioHue: 0.0
+    property real studioSat: 0.0
+    property real studioVal: 0.92
+    property string studioHexInput: "#ffffff"
+    property string studioHexError: ""
+    property bool studioExpanded: false
+    readonly property var studioGroups: [
+        { id: "shell", label: "Shell Chrome", desc: "Dynamic Island, Popover, Context Menu & Sidebars", slot1: "pillBg", slot2: "pillBg2" },
+        { id: "surface", label: "Surface Canvas", desc: "Expanded App Workspace, Detached Window & Modals", slot1: "surfaceBg", slot2: "surfaceBg2" },
+        { id: "accent", label: "Accent & Focus", desc: "Active buttons, switches, sliders & Hyprland border", slot1: "accent", slot2: "accent2" },
+        { id: "raised", label: "Raised Chrome", desc: "Input wells, ghost buttons, drag strips & chips", slot1: "surfaceRaised", slot2: "" },
+        { id: "text", label: "Primary Text", desc: "Headings, labels & derived secondary/muted ink", slot1: "text", slot2: "" },
+        { id: "border", label: "Border Tint", desc: "Subtle 1px hairlines & inactive window borders", slot1: "borderColor", slot2: "" }
+    ]
+
+    function studioGroupForSlot(slot) {
+        for (let i = 0; i < studioGroups.length; ++i) {
+            if (studioGroups[i].slot1 === slot || studioGroups[i].slot2 === slot) {
+                return studioGroups[i];
+            }
+        }
+        return studioGroups[2];
+    }
 
     // Themes
     property bool exportIncHypr: true
@@ -525,6 +624,7 @@ Item {
         border.width: 1
         border.color: Theme.borderSubtle
         clip: true
+        Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         ColumnLayout {
             id: groupCol
@@ -589,7 +689,15 @@ Item {
                     implicitWidth: badgeLbl.implicitWidth + 10
                     height: 18
                     radius: 9
+                    clip: true
                     color: pCard.active ? Theme.accent : Theme.pillBg
+                    ThemeGradientFill {
+                        anchors.fill: parent
+                        enabled: pCard.active && Theme.accentGradientEnabled
+                        color1: Theme.accent
+                        color2: Theme.accent2
+                        cornerRadius: 9
+                    }
                     Text {
                         id: badgeLbl
                         anchors.centerIn: parent
@@ -896,13 +1004,23 @@ Item {
         width: 38
         height: 22
         radius: 11
-        color: checked ? Theme.accent : (swMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(1, 1, 1, 0.14))
+        clip: true
+        color: checked ? Theme.accent : (swMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22) : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14))
         border.width: 1
         border.color: checked ? Theme.accent : (swMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
         scale: swMouse.pressed ? 0.94 : 1.0
         Behavior on color { ColorAnimation { duration: 150 } }
         Behavior on border.color { ColorAnimation { duration: 150 } }
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+
+        ThemeGradientFill {
+            anchors.fill: parent
+            anchors.margins: 1
+            enabled: sw.checked && Theme.accentGradientEnabled
+            color1: Theme.accent
+            color2: Theme.accent2
+            cornerRadius: 10
+        }
 
         Rectangle {
             width: 16; height: 16; radius: 8
@@ -998,7 +1116,15 @@ Item {
                     width: Math.max(0, Math.min(parent.width, sl.visualPosition * parent.width))
                     height: parent.height
                     radius: 3
+                    clip: true
                     color: Theme.accent
+                    ThemeGradientFill {
+                        anchors.fill: parent
+                        enabled: Theme.accentGradientEnabled
+                        color1: Theme.accent
+                        color2: Theme.accent2
+                        cornerRadius: 3
+                    }
                 }
             }
 
@@ -1165,6 +1291,15 @@ Item {
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
+        ThemeGradientFill {
+            anchors.fill: parent
+            anchors.margins: 1
+            enabled: !cBtn.ghost && !cBtn.danger && Theme.accentGradientEnabled
+            color1: Theme.accent
+            color2: Theme.accent2
+            cornerRadius: 7
+        }
+
         RowLayout {
             id: btnRow
             anchors.centerIn: parent
@@ -1205,6 +1340,14 @@ Item {
             Layout.preferredWidth: 248
             Layout.fillHeight: true
             color: Theme.pillBg
+
+            ThemeGradientFill {
+                anchors.fill: parent
+                enabled: Theme.shellGradientEnabled
+                color1: Theme.pillBg
+                color2: Theme.pillBg2
+                cornerRadius: 0
+            }
 
             Rectangle {
                 anchors.right: parent.right
@@ -1348,10 +1491,18 @@ Item {
                                 anchors.left: parent.left
                                 anchors.leftMargin: modelData.sub ? 14 : 3
                                 anchors.verticalCenter: parent.verticalCenter
+                                clip: true
                                 color: Theme.accent
                                 opacity: navDelegate.isActive ? 1.0 : 0.0
                                 Behavior on opacity { NumberAnimation { duration: 160 } }
                                 Behavior on anchors.leftMargin { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                ThemeGradientFill {
+                                    anchors.fill: parent
+                                    enabled: Theme.accentGradientEnabled
+                                    color1: Theme.accent
+                                    color2: Theme.accent2
+                                    cornerRadius: 2
+                                }
                             }
 
                             Rectangle {
@@ -4737,8 +4888,18 @@ Item {
                                             color: Theme.pillBg
                                             border.width: 1
                                             border.color: Theme.borderSubtle
+                                            clip: true
                                             Behavior on radius { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                             Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+                                            ThemeGradientFill {
+                                                anchors.fill: parent
+                                                anchors.margins: 1
+                                                enabled: Theme.shellGradientEnabled
+                                                color1: Theme.pillBg
+                                                color2: Theme.pillBg2
+                                                cornerRadius: Math.max(0, previewIsland.radius - 1)
+                                            }
 
                                             RowLayout {
                                                 anchors.fill: parent
@@ -4792,17 +4953,30 @@ Item {
                                                 Layout.fillHeight: true
                                                 Layout.preferredWidth: CompositorService.layoutName === "master" ? 1.45 : 1.2
                                                 radius: Math.max(0, Math.min(18, CompositorService.cornerRounding * 0.65))
+                                                clip: true
                                                 color: Qt.rgba(Theme.surfaceBg.r, Theme.surfaceBg.g, Theme.surfaceBg.b, CompositorService.blurEnabled ? 0.80 : 0.97)
                                                 border.width: Math.max(0, Math.min(4, CompositorService.borderSize))
                                                 border.color: root.activeBorderHighlight ? Theme.accent : Theme.borderSubtle
                                                 Behavior on radius { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                                ThemeGradientFill {
+                                                    anchors.fill: parent
+                                                    anchors.margins: parent.border.width
+                                                    enabled: Theme.surfaceGradientEnabled
+                                                    color1: Qt.rgba(Theme.surfaceBg.r, Theme.surfaceBg.g, Theme.surfaceBg.b, CompositorService.blurEnabled ? 0.80 : 0.97)
+                                                    color2: Qt.rgba(Theme.surfaceBg2.r, Theme.surfaceBg2.g, Theme.surfaceBg2.b, CompositorService.blurEnabled ? 0.80 : 0.97)
+                                                    cornerRadius: Math.max(0, parent.radius - parent.border.width)
+                                                }
 
                                                 ColumnLayout {
                                                     anchors.fill: parent; anchors.margins: 10; spacing: 6
                                                     RowLayout {
                                                         Layout.fillWidth: true
                                                         Text { text: "Settings • Personalization"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 10; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
-                                                        Rectangle { width: 6; height: 6; radius: 3; color: Theme.accent }
+                                                        Rectangle {
+                                                            width: 6; height: 6; radius: 3; clip: true; color: Theme.accent
+                                                            ThemeGradientFill { anchors.fill: parent; enabled: Theme.accentGradientEnabled; color1: Theme.accent; color2: Theme.accent2; cornerRadius: 3 }
+                                                        }
                                                     }
                                                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 6; radius: 3; color: Theme.cardHover }
                                                     Rectangle { width: 96; height: 6; radius: 3; color: Theme.cardBg }
@@ -5097,38 +5271,299 @@ Item {
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
-                            SectionLabel { text: "Surface & Accent" }
+                            SectionLabel { text: "Surface & Gradients" }
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconName: "palette"; title: "Global Surface Theme"; subtitle: "Contrast & backdrop style synced across apps"
-                                    CtrlSelect { options: ["OLED Pure", "Mica Dark", "Adaptive"]; currentText: root.globalSurfaceTheme; onSelected: (v) => { root.globalSurfaceTheme = v; if (root.shellState) root.shellState.globalSurfaceTheme = v; root.markAppearanceChanged(); } }
+                                    showDivider: false; iconName: "contrast"; title: "Global Surface Theme"; subtitle: "Contrast & backdrop style synced across apps"
+                                    searchKeywords: "surface theme oled mica adaptive contrast"
+                                    CtrlSelect {
+                                        options: ["OLED Pure", "Mica Dark", "Adaptive"]
+                                        currentText: Theme.surfaceTheme
+                                        onSelected: (v) => {
+                                            root.globalSurfaceTheme = v;
+                                            if (root.shellState) root.shellState.applyGlobalSurfaceTheme(v);
+                                            else Theme.applySurfaceTheme(v);
+                                        }
+                                    }
                                 }
                                 SettingRow {
-                                    iconName: "palette"; title: "Accent Style"; subtitle: "Solid monochrome or directional gradient"
-                                    CtrlSelect { options: ["Solid", "Gradient"]; currentText: root.accentMode; onSelected: (v) => { root.accentMode = v; Theme.accentMode = v; root.markAppearanceChanged(); } }
+                                    iconName: "layers"; title: "Shell Gradient"; subtitle: "Directional gradient on Island, Popover, Menu & Sidebars"
+                                    searchKeywords: "shell gradient pillbg island popover sidebar"
+                                    CtrlSwitch {
+                                        checked: Theme.shellGradientEnabled
+                                        onToggled: (v) => {
+                                            if (root.shellState) root.shellState.setThemeGradients(v, Theme.surfaceGradientEnabled, Theme.accentGradientEnabled);
+                                            else Theme.setGradientFlags(v, Theme.surfaceGradientEnabled, Theme.accentGradientEnabled);
+                                            root.loadStudioSlot(root.colorStudioSlot);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "layers"; title: "Surface Gradient"; subtitle: "Directional gradient on Workspace canvas, Detached windows & Modals"
+                                    searchKeywords: "surface gradient background workspace modal"
+                                    CtrlSwitch {
+                                        checked: Theme.surfaceGradientEnabled
+                                        onToggled: (v) => {
+                                            if (root.shellState) root.shellState.setThemeGradients(Theme.shellGradientEnabled, v, Theme.accentGradientEnabled);
+                                            else Theme.setGradientFlags(Theme.shellGradientEnabled, v, Theme.accentGradientEnabled);
+                                            root.loadStudioSlot(root.colorStudioSlot);
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "sparkles"; title: "Accent Gradient"; subtitle: "Directional gradient on active buttons, switches, sliders & Hyprland border"
+                                    searchKeywords: "accent gradient border active control"
+                                    CtrlSwitch {
+                                        checked: Theme.accentGradientEnabled
+                                        onToggled: (v) => {
+                                            if (root.shellState) root.shellState.setThemeGradients(Theme.shellGradientEnabled, Theme.surfaceGradientEnabled, v);
+                                            else Theme.setGradientFlags(Theme.shellGradientEnabled, Theme.surfaceGradientEnabled, v);
+                                            root.loadStudioSlot(root.colorStudioSlot);
+                                        }
+                                    }
+                                }
+                                Item {
+                                    readonly property bool anyGrad: Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled
+                                    Layout.fillWidth: true
+                                    implicitHeight: anyGrad ? angleRow.implicitHeight : 0
+                                    clip: true
+                                    visible: implicitHeight > 0.5
+                                    opacity: anyGrad ? 1.0 : 0.0
+                                    Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    SettingRow {
+                                        id: angleRow
+                                        width: parent.width
+                                        iconName: "sliders"; title: "Gradient Angle"; subtitle: "Shared light direction across shell, workspace & borders"
+                                        searchKeywords: "gradient angle degree direction"
+                                        CtrlSlider {
+                                            from: 0; to: 360; unit: "°"
+                                            value: Theme.gradientAngle
+                                            onMoved: (v) => {
+                                                root.gradientAngle = v;
+                                                if (root.shellState) root.shellState.setThemeGradientAngle(v);
+                                                else Theme.setGradientAngle(v);
+                                            }
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "palette"; title: "Theme Palette"; subtitle: "Click any swatch to customize in Studio"
+                                    searchKeywords: "palette colors shell surface accent raised text border hex"
+                                    RowLayout {
+                                        spacing: 6
+                                        Repeater {
+                                            model: [
+                                                { slot: "pillBg", label: "Shell" },
+                                                { slot: "surfaceBg", label: "Surface" },
+                                                { slot: "accent", label: "Accent" },
+                                                { slot: "surfaceRaised", label: "Raised" },
+                                                { slot: "text", label: "Text" },
+                                                { slot: "borderColor", label: "Border" }
+                                            ]
+                                            delegate: Rectangle {
+                                                id: quickSwatch
+                                                required property var modelData
+                                                readonly property bool isTarget: root.studioExpanded && root.colorStudioSlot === modelData.slot
+                                                width: 24; height: 24; radius: 7; clip: true
+                                                color: Theme.getSlotHex(modelData.slot)
+                                                border.width: isTarget ? 2 : 1
+                                                border.color: isTarget
+                                                    ? Theme.accent
+                                                    : (swHover.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle)
+                                                scale: swHover.pressed ? 0.92 : (swHover.containsMouse ? 1.06 : 1.0)
+                                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                MouseArea {
+                                                    id: swHover
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.loadStudioSlot(quickSwatch.modelData.slot);
+                                                        root.studioExpanded = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        CtrlBtn {
+                                            text: "Reset"
+                                            ghost: true
+                                            onClicked: root.selectThemePreset(Theme.activePreset)
+                                        }
+                                    }
                                 }
                             }
 
                             AdvancedSection {
-                                subtitle: "HSV Accent & Contrast Studio, Hue & Gradient Angle"
+                                id: themeStudioAdv
+                                title: "Theme Color & Gradient Studio"
+                                subtitle: "Shell, Surface, Accent, Raised, Text, Border & Gradient Stops"
+                                onExpandedChanged: {
+                                    if (root.studioExpanded !== expanded) root.studioExpanded = expanded;
+                                }
+                                Connections {
+                                    target: root
+                                    function onStudioExpandedChanged() {
+                                        if (themeStudioAdv.expanded !== root.studioExpanded) {
+                                            themeStudioAdv.expanded = root.studioExpanded;
+                                        }
+                                    }
+                                }
                                 Item {
                                     Layout.fillWidth: true
                                     implicitHeight: hsvStudioCol.implicitHeight + 24
                                     ColumnLayout {
                                         id: hsvStudioCol
+                                        readonly property var curGroup: root.studioGroupForSlot(root.colorStudioSlot)
+                                        readonly property bool hasStop2: curGroup.slot2 !== ""
+                                        readonly property bool isStop2: hasStop2 && root.colorStudioSlot === curGroup.slot2
                                         anchors.fill: parent; anchors.margins: 12; spacing: 10
+
+                                        // 1. Multi-option Layer Selector + Base/End Gradient Stop Segmented Switcher
                                         RowLayout {
-                                            Layout.fillWidth: true
-                                            Text { Layout.fillWidth: true; text: "Accent & Contrast Studio"; color: Theme.text; font.pixelSize: 13; font.weight: Font.DemiBold }
-                                            CtrlBtn { text: "Reset Preset Accent"; ghost: true; onClicked: root.selectThemePreset(Theme.activePreset) }
+                                            Layout.fillWidth: true; spacing: 8
+                                            CtrlSelect {
+                                                id: studioLayerSelect
+                                                implicitWidth: 168
+                                                options: [
+                                                    "Shell Chrome",
+                                                    "Surface Canvas",
+                                                    "Accent & Focus",
+                                                    "Raised Chrome",
+                                                    "Primary Text",
+                                                    "Border Tint"
+                                                ]
+                                                currentText: hsvStudioCol.curGroup.label
+                                                onSelected: (label) => {
+                                                    for (let i = 0; i < root.studioGroups.length; ++i) {
+                                                        if (root.studioGroups[i].label === label) {
+                                                            root.loadStudioSlot(root.studioGroups[i].slot1);
+                                                            return;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            // Segmented Stop Selector (Base vs Gradient End) for Shell / Surface / Accent
+                                            Rectangle {
+                                                id: stopSegmentTrack
+                                                Layout.preferredWidth: hsvStudioCol.hasStop2 ? 156 : 0
+                                                height: 30
+                                                radius: 9
+                                                clip: true
+                                                visible: Layout.preferredWidth > 1
+                                                opacity: hsvStudioCol.hasStop2 ? 1.0 : 0.0
+                                                color: Theme.pillBg
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+                                                Behavior on Layout.preferredWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                                Rectangle {
+                                                    id: stopThumb
+                                                    y: 2
+                                                    x: hsvStudioCol.isStop2 ? (stopSegmentTrack.width / 2) : 2
+                                                    width: Math.max(0, stopSegmentTrack.width / 2 - 2)
+                                                    height: stopSegmentTrack.height - 4
+                                                    radius: 7
+                                                    color: Theme.surfaceRaised
+                                                    border.width: 1
+                                                    border.color: Theme.borderSubtle
+                                                    Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                }
+
+                                                Row {
+                                                    anchors.fill: parent
+                                                    Item {
+                                                        width: stopSegmentTrack.width / 2
+                                                        height: stopSegmentTrack.height
+                                                        scale: stop1Mouse.pressed ? 0.94 : 1.0
+                                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                        RowLayout {
+                                                            anchors.centerIn: parent; spacing: 5
+                                                            Rectangle {
+                                                                width: 9; height: 9; radius: 4.5
+                                                                color: Theme.getSlotHex(hsvStudioCol.curGroup.slot1)
+                                                                border.width: 1; border.color: Theme.borderSubtle
+                                                            }
+                                                            Text {
+                                                                text: "Base"
+                                                                color: !hsvStudioCol.isStop2 ? Theme.text : Theme.textSub
+                                                                font.family: Theme.fontSans; font.pixelSize: 11
+                                                                font.weight: !hsvStudioCol.isStop2 ? Font.DemiBold : Font.Medium
+                                                            }
+                                                        }
+                                                        MouseArea {
+                                                            id: stop1Mouse
+                                                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                            onClicked: root.loadStudioSlot(hsvStudioCol.curGroup.slot1)
+                                                        }
+                                                    }
+                                                    Item {
+                                                        width: stopSegmentTrack.width / 2
+                                                        height: stopSegmentTrack.height
+                                                        scale: stop2Mouse.pressed ? 0.94 : 1.0
+                                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                        RowLayout {
+                                                            anchors.centerIn: parent; spacing: 5
+                                                            Rectangle {
+                                                                width: 9; height: 9; radius: 4.5
+                                                                color: hsvStudioCol.hasStop2 ? Theme.getSlotHex(hsvStudioCol.curGroup.slot2) : "transparent"
+                                                                border.width: 1; border.color: Theme.borderSubtle
+                                                            }
+                                                            Text {
+                                                                text: "End"
+                                                                color: hsvStudioCol.isStop2 ? Theme.text : Theme.textSub
+                                                                font.family: Theme.fontSans; font.pixelSize: 11
+                                                                font.weight: hsvStudioCol.isStop2 ? Font.DemiBold : Font.Medium
+                                                            }
+                                                        }
+                                                        MouseArea {
+                                                            id: stop2Mouse
+                                                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                            onClicked: if (hsvStudioCol.hasStop2) root.loadStudioSlot(hsvStudioCol.curGroup.slot2)
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Item { Layout.fillWidth: true }
+
+                                            CtrlBtn {
+                                                text: "Auto"
+                                                ghost: true
+                                                enabled: root.isSlotCustomized(root.colorStudioSlot)
+                                                onClicked: {
+                                                    if (root.shellState) root.shellState.clearThemeColorOverride(root.colorStudioSlot);
+                                                    else Theme.clearPaletteOverride(root.colorStudioSlot);
+                                                    root.loadStudioSlot(root.colorStudioSlot);
+                                                }
+                                            }
+                                            CtrlBtn {
+                                                text: "Reset"
+                                                ghost: true
+                                                onClicked: root.selectThemePreset(Theme.activePreset)
+                                            }
                                         }
 
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            text: hsvStudioCol.curGroup.desc + (hsvStudioCol.isStop2 ? " • Gradient End Stop" : (hsvStudioCol.hasStop2 ? " • Base Stop" : ""))
+                                            color: Theme.textSub
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
+
+                                        // 2. HSV Canvas + Hue Slider + Single Hex Input + Gradient Pair Strip
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 14
                                             Rectangle {
                                                 id: svBox
-                                                width: 130; height: 130; radius: 8
-                                                color: Qt.hsva(root.hueVal, 1.0, 1.0, 1.0)
+                                                width: 128; height: 128; radius: 8; clip: true
+                                                color: Qt.hsva(root.studioHue, 1.0, 1.0, 1.0)
                                                 border.width: 1; border.color: Theme.borderSubtle
                                                 Rectangle {
                                                     anchors.fill: parent; radius: 8
@@ -5148,33 +5583,230 @@ Item {
                                                 }
                                                 Rectangle {
                                                     width: 10; height: 10; radius: 5
-                                                    x: root.satVal * (svBox.width - 10)
-                                                    y: (1.0 - root.valVal) * (svBox.height - 10)
+                                                    x: root.studioSat * (svBox.width - 10)
+                                                    y: (1.0 - root.studioVal) * (svBox.height - 10)
                                                     color: "transparent"; border.width: 2; border.color: "#ffffff"
                                                 }
                                                 MouseArea {
                                                     anchors.fill: parent
-                                                    onPositionChanged: (m) => { if (pressed) { root.satVal = Math.max(0, Math.min(1, m.x / width)); root.valVal = Math.max(0, Math.min(1, 1.0 - m.y / height)); if (root.shellState) root.shellState.applyCustomAccent(root.hueVal, root.satVal, root.valVal); else Theme.applyAccentHsv(root.hueVal, root.satVal, root.valVal); } }
-                                                    onClicked: (m) => { root.satVal = Math.max(0, Math.min(1, m.x / width)); root.valVal = Math.max(0, Math.min(1, 1.0 - m.y / height)); if (root.shellState) root.shellState.applyCustomAccent(root.hueVal, root.satVal, root.valVal); else Theme.applyAccentHsv(root.hueVal, root.satVal, root.valVal); }
+                                                    cursorShape: Qt.CrossCursor
+                                                    onPositionChanged: (m) => { if (pressed) root.applyStudioHsv(root.studioHue, m.x / width, 1.0 - m.y / height); }
+                                                    onClicked: (m) => { root.applyStudioHsv(root.studioHue, m.x / width, 1.0 - m.y / height); }
                                                 }
                                             }
 
                                             ColumnLayout {
-                                                Layout.fillWidth: true; spacing: 8
-                                                Text { text: "Hue"; color: Theme.textSub; font.pixelSize: 11 }
-                                                HueSlider { Layout.fillWidth: true; value: root.hueVal; onMoved: { root.hueVal = value; if (root.shellState) root.shellState.applyCustomAccent(root.hueVal, root.satVal, root.valVal); else Theme.applyAccentHsv(root.hueVal, root.satVal, root.valVal); } }
-                                                Text { text: "Gradient Angle: " + root.gradientAngle + "°"; color: Theme.textSub; font.pixelSize: 11 }
-                                                CtrlSlider { Layout.fillWidth: true; fillSlider: true; showValue: false; from: 0; to: 360; value: root.gradientAngle; onMoved: (v) => { root.gradientAngle = v; Theme.gradientAngle = v; root.markAppearanceChanged(); } }
+                                                Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 8
+                                                Text { text: "Hue"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                                HueSlider {
+                                                    Layout.fillWidth: true
+                                                    value: root.studioHue
+                                                    onMoved: root.applyStudioHsv(value, root.studioSat, root.studioVal)
+                                                }
+
+                                                Text { text: "Hex Code"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                                RowLayout {
+                                                    Layout.fillWidth: true; spacing: 8
+                                                    Rectangle {
+                                                        id: studioHexBox
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0; height: 32; radius: 8; clip: true
+                                                        color: Theme.pillBg
+                                                        border.width: 1
+                                                        border.color: root.studioHexError !== "" ? Theme.danger : (studioHexField.activeFocus ? Theme.accent : Theme.borderSubtle)
+                                                        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                                        transform: Translate { id: hexShakeTrans; x: 0 }
+                                                        SequentialAnimation {
+                                                            id: hexShake
+                                                            NumberAnimation { target: hexShakeTrans; property: "x"; to: -8; duration: 45 }
+                                                            NumberAnimation { target: hexShakeTrans; property: "x"; to: 8; duration: 45 }
+                                                            NumberAnimation { target: hexShakeTrans; property: "x"; to: -6; duration: 45 }
+                                                            NumberAnimation { target: hexShakeTrans; property: "x"; to: 0; duration: 45 }
+                                                        }
+
+                                                        RowLayout {
+                                                            anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8; spacing: 8
+                                                            Rectangle {
+                                                                width: 16; height: 16; radius: 5
+                                                                color: Theme.getSlotHex(root.colorStudioSlot)
+                                                                border.width: 1; border.color: Theme.borderSubtle
+                                                            }
+                                                            AnimatedTextInput {
+                                                                id: studioHexField
+                                                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                                verticalAlignment: TextInput.AlignVCenter
+                                                                textColor: Theme.text
+                                                                font.family: Theme.fontMono; font.pixelSize: 12
+                                                                maximumLength: 7; clip: true
+                                                                Component.onCompleted: text = root.studioHexInput
+                                                                Connections {
+                                                                    target: root
+                                                                    function onStudioHexInputChanged() {
+                                                                        if (studioHexField.text !== root.studioHexInput) {
+                                                                            studioHexField.text = root.studioHexInput;
+                                                                        }
+                                                                    }
+                                                                }
+                                                                onTextChanged: {
+                                                                    if (root.studioHexError !== "") root.studioHexError = "";
+                                                                    root.studioHexInput = text;
+                                                                }
+                                                                Keys.onEscapePressed: (event) => {
+                                                                    focus = false;
+                                                                    root.forceActiveFocus();
+                                                                    event.accepted = true;
+                                                                }
+                                                                onAccepted: root.applyStudioHex(text, hexShake)
+                                                                Text {
+                                                                    anchors.fill: parent; verticalAlignment: Text.AlignVCenter
+                                                                    text: "#rrggbb"
+                                                                    color: Theme.textMuted; font: parent.font
+                                                                    visible: parent.text === ""
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    CtrlBtn {
+                                                        text: "Apply"
+                                                        onClicked: root.applyStudioHex(studioHexField.text, hexShake)
+                                                    }
+                                                }
+                                                Text {
+                                                    visible: root.studioHexError !== ""
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                    text: root.studioHexError
+                                                    color: Theme.dangerText
+                                                    font.family: Theme.fontSans; font.pixelSize: 11
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                // Live Gradient Pair Strip (only for gradient-capable layers)
                                                 Rectangle {
-                                                    Layout.fillWidth: true; height: 28; radius: 14
-                                                    color: Theme.pillBg; border.width: 1; border.color: Theme.borderSubtle
+                                                    Layout.fillWidth: true
+                                                    Layout.preferredHeight: hsvStudioCol.hasStop2 ? 24 : 0
+                                                    radius: 7; clip: true
+                                                    visible: Layout.preferredHeight > 1
+                                                    opacity: hsvStudioCol.hasStop2 ? 1.0 : 0.0
+                                                    color: Theme.getSlotHex(hsvStudioCol.curGroup.slot1)
+                                                    border.width: 1; border.color: Theme.borderSubtle
+                                                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                                    ThemeGradientFill {
+                                                        anchors.fill: parent; anchors.margins: 1
+                                                        enabled: hsvStudioCol.hasStop2
+                                                        color1: Theme.getSlotHex(hsvStudioCol.curGroup.slot1)
+                                                        color2: hsvStudioCol.hasStop2 ? Theme.getSlotHex(hsvStudioCol.curGroup.slot2) : color1
+                                                        angle: 90
+                                                        cornerRadius: 6
+                                                    }
                                                     RowLayout {
-                                                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12
-                                                        Text { text: "27°C"; color: Theme.text; font.pixelSize: 11; font.weight: Font.Bold }
+                                                        anchors.fill: parent; anchors.leftMargin: 8; anchors.rightMargin: 8
+                                                        Text {
+                                                            text: "Base " + Theme.getSlotHex(hsvStudioCol.curGroup.slot1)
+                                                            color: Theme.contrastFg(Theme.getSlotHex(hsvStudioCol.curGroup.slot1))
+                                                            font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
+                                                        }
                                                         Item { Layout.fillWidth: true }
-                                                        Rectangle { width: 42; height: 14; radius: 7; color: Qt.hsva(root.hueVal, root.satVal, root.valVal, 1.0) }
+                                                        Text {
+                                                            text: "End " + (hsvStudioCol.hasStop2 ? Theme.getSlotHex(hsvStudioCol.curGroup.slot2) : "")
+                                                            color: hsvStudioCol.hasStop2 ? Theme.contrastFg(Theme.getSlotHex(hsvStudioCol.curGroup.slot2)) : Theme.textSub
+                                                            font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.Medium
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // 3. Dedicated Live Preview (clearly separated from Hex input)
+                                        Rectangle { Layout.fillWidth: true; height: 1; color: Theme.borderSubtle }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true; spacing: 8
+                                            Text {
+                                                text: "LIVE PREVIEW"
+                                                color: Theme.textMuted
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 10
+                                                font.weight: Font.Bold
+                                                font.letterSpacing: 0.6
+                                            }
+                                            Item { Layout.fillWidth: true }
+                                            Text {
+                                                text: (Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled)
+                                                    ? ("Gradient • " + Theme.gradientAngle + "°")
+                                                    : "Solid Palette"
+                                                color: Theme.textMuted
+                                                font.family: Theme.fontMono
+                                                font.pixelSize: 10
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            Layout.fillWidth: true; height: 54; radius: 10; clip: true
+                                            color: Theme.surfaceBg
+                                            border.width: 1; border.color: Theme.borderSubtle
+                                            ThemeGradientFill {
+                                                anchors.fill: parent; anchors.margins: 1
+                                                enabled: Theme.surfaceGradientEnabled
+                                                color1: Theme.surfaceBg; color2: Theme.surfaceBg2
+                                                cornerRadius: 9
+                                            }
+                                            RowLayout {
+                                                anchors.fill: parent; anchors.margins: 10; spacing: 10
+                                                Rectangle {
+                                                    height: 32; radius: 16; clip: true
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                    color: Theme.pillBg
+                                                    border.width: 1; border.color: Theme.borderSubtle
+                                                    ThemeGradientFill {
+                                                        anchors.fill: parent; anchors.margins: 1
+                                                        enabled: Theme.shellGradientEnabled
+                                                        color1: Theme.pillBg; color2: Theme.pillBg2
+                                                        cornerRadius: 15
+                                                    }
+                                                    RowLayout {
+                                                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 12; spacing: 8
+                                                        Text {
+                                                            text: "24°C"
+                                                            color: Theme.text
+                                                            font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.Bold
+                                                        }
                                                         Item { Layout.fillWidth: true }
-                                                        Text { text: "09:12"; color: Theme.text; font.pixelSize: 11 }
+                                                        Rectangle {
+                                                            implicitWidth: badgePreviewTxt.implicitWidth + 16; height: 20; radius: 10; clip: true
+                                                            color: Theme.accent
+                                                            ThemeGradientFill {
+                                                                anchors.fill: parent
+                                                                enabled: Theme.accentGradientEnabled
+                                                                color1: Theme.accent; color2: Theme.accent2
+                                                                cornerRadius: 10
+                                                            }
+                                                            Text {
+                                                                id: badgePreviewTxt
+                                                                anchors.centerIn: parent
+                                                                text: "Accent"
+                                                                color: Theme.accentFg
+                                                                font.family: Theme.fontSans; font.pixelSize: 10; font.weight: Font.DemiBold
+                                                            }
+                                                        }
+                                                        Item { Layout.fillWidth: true }
+                                                        Text {
+                                                            text: "09:41"
+                                                            color: Theme.textSub
+                                                            font.family: Theme.fontMono; font.pixelSize: 11; font.weight: Font.Medium
+                                                        }
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    width: 64; height: 32; radius: 8
+                                                    color: Theme.surfaceRaised
+                                                    border.width: 1; border.color: Theme.borderSubtle
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        text: "Raised"
+                                                        color: Theme.textSub
+                                                        font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.Medium
                                                     }
                                                 }
                                             }

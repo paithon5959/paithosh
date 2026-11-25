@@ -51,6 +51,15 @@ FloatingWindow {
         border.width: 1
         border.color: Theme.borderSubtle
 
+        ThemeGradientFill {
+            anchors.fill: parent
+            anchors.margins: 1
+            enabled: Theme.surfaceGradientEnabled
+            color1: Theme.surfaceBg
+            color2: Theme.surfaceBg2
+            cornerRadius: 13
+        }
+
         ColumnLayout {
             anchors.fill: parent
             spacing: 0

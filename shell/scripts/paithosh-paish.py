@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Paithosh Theme Codec (paish: schema v2, bit-packed Base64URL).
+"""Paithosh Theme Codec (paish: schema v3, bit-packed Base64URL, v2-compatible).
 
-Pure v2 encoder/decoder with no v1 legacy fallback.
+Supports v3 encoding/decoding and backward-compatible v2 decoding.
 Versioning (4 bits) and profile/preset name (5 + 6*L bits) are packed
 directly inside the binary payload under the lowercase `paish:` prefix.
 """
@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 PREFIX = "paish:"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+SUPPORTED_DECODE_VERSIONS = (2, 3)
 
 B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 B64URL_MAP = {ch: idx for idx, ch in enumerate(B64URL)}
@@ -92,6 +93,13 @@ def _normalize_hex_rgb(val: Any) -> int:
     raw = re.sub(r"[^0-9a-fA-F]", "", str(val or "ffffff")).lower()
     if len(raw) != 6:
         raw = "ffffff"
+    return int(raw, 16)
+
+
+def _opt_hex_rgb(val: Any) -> int | None:
+    raw = re.sub(r"[^0-9a-fA-F]", "", str(val or "").strip()).lower()
+    if len(raw) != 6:
+        return None
     return int(raw, 16)
 
 
@@ -234,6 +242,39 @@ def encode_state(state: dict[str, Any]) -> str:
     for ch in clean_name:
         bw.write(NAME_MAP[ch], 6)
 
+    # 7. Extended Colors & Gradients (v3)
+    shell_grad = _to_bool(state.get("shellGradientEnabled"), False)
+    bw.write(1 if shell_grad else 0, 1)
+    if shell_grad:
+        bw.write(_normalize_hex_rgb(state.get("pillBg2")), 24)
+
+    surf_grad = _to_bool(state.get("surfaceGradientEnabled"), False)
+    bw.write(1 if surf_grad else 0, 1)
+    if surf_grad:
+        bw.write(_normalize_hex_rgb(state.get("surfaceBg2")), 24)
+
+    custom_acc2 = _to_bool(state.get("customAccent2Active"), False)
+    bw.write(1 if custom_acc2 else 0, 1)
+    if custom_acc2:
+        bw.write(_normalize_hex_rgb(state.get("accent2")), 24)
+
+    palette_slots = [
+        _opt_hex_rgb(state.get("customPillBg")),
+        _opt_hex_rgb(state.get("customSurfaceBg")),
+        _opt_hex_rgb(state.get("customSurfaceRaised")),
+        _opt_hex_rgb(state.get("customText")),
+        _opt_hex_rgb(state.get("customBorderColor")),
+    ]
+    has_palette = any(x is not None for x in palette_slots)
+    bw.write(1 if has_palette else 0, 1)
+    if has_palette:
+        for slot_rgb in palette_slots:
+            if slot_rgb is not None:
+                bw.write(1, 1)
+                bw.write(slot_rgb, 24)
+            else:
+                bw.write(0, 1)
+
     return PREFIX + bw.to_b64url()
 
 
@@ -249,7 +290,7 @@ def decode_code(code: str) -> dict[str, Any]:
 
     # 0. Header (4 bits)
     version = br.read(4)
-    if version != SCHEMA_VERSION:
+    if version not in SUPPORTED_DECODE_VERSIONS:
         raise ValueError(f"Unsupported paish schema version: {version}")
 
     # 1. Theme & Accent (48 bits)
@@ -320,6 +361,40 @@ def decode_code(code: str) -> dict[str, Any]:
             name_chars.append(NAME_ALPHABET[c_idx])
     profile_name = "".join(name_chars)
 
+    # 7. Extended Colors & Gradients (v3; clean defaults for v2)
+    shell_grad = False
+    pill_bg2 = ""
+    surf_grad = False
+    surf_bg2 = ""
+    custom_acc2 = False
+    accent2 = ""
+    custom_palette = False
+    c_pill = ""
+    c_surf = ""
+    c_raised = ""
+    c_text = ""
+    c_border = ""
+
+    if version >= 3 and br.remaining() >= 4:
+        shell_grad = br.read(1) == 1
+        if shell_grad:
+            pill_bg2 = f"#{br.read(24):06x}"
+        surf_grad = br.read(1) == 1
+        if surf_grad:
+            surf_bg2 = f"#{br.read(24):06x}"
+        custom_acc2 = br.read(1) == 1
+        if custom_acc2:
+            accent2 = f"#{br.read(24):06x}"
+        custom_palette = br.read(1) == 1
+        if custom_palette:
+            decoded_slots: list[str] = []
+            for _ in range(5):
+                if br.read(1) == 1:
+                    decoded_slots.append(f"#{br.read(24):06x}")
+                else:
+                    decoded_slots.append("")
+            c_pill, c_surf, c_raised, c_text, c_border = decoded_slots
+
     return {
         "version": version,
         "presetName": PRESET_NAMES[preset_idx],
@@ -372,6 +447,18 @@ def decode_code(code: str) -> dict[str, Any]:
         "lockAmbientVolume": lock_volume,
         "lockDimOpacity": lock_dim,
         "profileName": profile_name,
+        "shellGradientEnabled": shell_grad,
+        "pillBg2": pill_bg2,
+        "surfaceGradientEnabled": surf_grad,
+        "surfaceBg2": surf_bg2,
+        "customAccent2Active": custom_acc2,
+        "accent2": accent2,
+        "customPaletteActive": custom_palette,
+        "customPillBg": c_pill,
+        "customSurfaceBg": c_surf,
+        "customSurfaceRaised": c_raised,
+        "customText": c_text,
+        "customBorderColor": c_border,
     }
 
 
@@ -433,6 +520,18 @@ def _self_test() -> None:
             "lockAmbientVolume": 5,
             "lockDimOpacity": 15,
             "profileName": "min",
+            "shellGradientEnabled": False,
+            "pillBg2": "",
+            "surfaceGradientEnabled": False,
+            "surfaceBg2": "",
+            "customAccent2Active": False,
+            "accent2": "",
+            "customPaletteActive": False,
+            "customPillBg": "",
+            "customSurfaceBg": "",
+            "customSurfaceRaised": "",
+            "customText": "",
+            "customBorderColor": "",
         },
         # Max bounds
         {
@@ -486,11 +585,30 @@ def _self_test() -> None:
             "lockAmbientVolume": 100,
             "lockDimOpacity": 75,
             "profileName": "max-profile_1.0",
+            "shellGradientEnabled": True,
+            "pillBg2": "#1a2233",
+            "surfaceGradientEnabled": True,
+            "surfaceBg2": "#222c40",
+            "customAccent2Active": True,
+            "accent2": "#88c0d0",
+            "customPaletteActive": True,
+            "customPillBg": "#0a0d14",
+            "customSurfaceBg": "#111622",
+            "customSurfaceRaised": "#1c2436",
+            "customText": "#eef4ff",
+            "customBorderColor": "#7da6d9",
         },
     ]
 
     rng = random.Random(42)
     for idx in range(25):
+        sh_grad = rng.choice([True, False])
+        sf_grad = rng.choice([True, False])
+        ac2_on = rng.choice([True, False])
+        slot_vals = [
+            f"#{rng.randint(0, 0xFFFFFF):06x}" if rng.choice([True, False]) else ""
+            for _ in range(5)
+        ]
         cases.append(
             {
                 "presetName": rng.choice(PRESET_NAMES),
@@ -543,6 +661,18 @@ def _self_test() -> None:
                 "lockAmbientVolume": rng.randint(5, 100),
                 "lockDimOpacity": rng.randint(15, 75),
                 "profileName": f"rnd-{idx}",
+                "shellGradientEnabled": sh_grad,
+                "pillBg2": f"#{rng.randint(0, 0xFFFFFF):06x}" if sh_grad else "",
+                "surfaceGradientEnabled": sf_grad,
+                "surfaceBg2": f"#{rng.randint(0, 0xFFFFFF):06x}" if sf_grad else "",
+                "customAccent2Active": ac2_on,
+                "accent2": f"#{rng.randint(0, 0xFFFFFF):06x}" if ac2_on else "",
+                "customPaletteActive": any(x != "" for x in slot_vals),
+                "customPillBg": slot_vals[0],
+                "customSurfaceBg": slot_vals[1],
+                "customSurfaceRaised": slot_vals[2],
+                "customText": slot_vals[3],
+                "customBorderColor": slot_vals[4],
             }
         )
 
@@ -551,15 +681,25 @@ def _self_test() -> None:
         assert code.startswith("paish:"), f"case {i}: bad prefix {code}"
         assert "=" not in code, f"case {i}: unexpected padding in {code}"
         decoded = decode_code(code)
-        assert decoded["version"] == 2
+        assert decoded["version"] == 3
         reencoded = encode_state(decoded)
         assert reencoded == code, f"case {i}: round-trip mismatch\n  {code}\n  {reencoded}"
         if i >= 2:
             for k, v in sample.items():
                 assert decoded[k] == v, f"case {i} key {k}: expected {v!r}, got {decoded[k]!r}"
 
-    # Verify v1 is rejected (strict v2-only)
-    for bad in ("PAISH1:abc", "1;0;0;26", "paish:"):
+    # Verify v2 backward compatibility with real existing v2 code
+    legacy_v2 = "paish:Iz0t1iUEqGSKZCNBJGYxiqBB___-FtkeVOGIKAoWm"
+    dec_v2 = decode_code(legacy_v2)
+    assert dec_v2["version"] == 2
+    assert dec_v2["shellGradientEnabled"] is False
+    assert dec_v2["customPaletteActive"] is False
+    assert dec_v2["customPillBg"] == ""
+
+    # Verify v1 & unsupported versions are rejected
+    bad_v4_bw = BitWriter()
+    bad_v4_bw.write(4, 4)
+    for bad in ("PAISH1:abc", "1;0;0;26", "paish:", PREFIX + bad_v4_bw.to_b64url()):
         try:
             decode_code(bad)
             raise AssertionError(f"Expected failure for {bad!r}")
@@ -568,7 +708,8 @@ def _self_test() -> None:
 
     c0 = encode_state(cases[0])
     c1 = encode_state(cases[1])
-    print(f"OK ({len(cases)} round-trip cases passed)")
+    assert len(c0) <= 48, f"Expected compact default code <=48 chars, got {len(c0)}: {c0}"
+    print(f"OK ({len(cases)} v3 round-trip + v2 compat passed)")
     print(f"  unnamed ({len(c0)} chars): {c0}")
     print(f"  named   ({len(c1)} chars): {c1}")
 

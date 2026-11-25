@@ -48,6 +48,18 @@ CURSOR_ENV_KEYS = (
 
 MONITOR_MANAGED_KEYS = {"output", "mode", "position", "scale", "transform"}
 
+MANAGED_COLOR_KEYS = (
+    "pill_bg",
+    "surface_bg",
+    "surface_raised",
+    "text",
+    "text_sub",
+    "text_muted",
+    "border_active_a",
+    "border_active_b",
+    "border_inactive",
+)
+
 
 def _strip_lua_strings_and_comments(line):
     out = []
@@ -182,6 +194,15 @@ def _normalize_appearance_line(line, state):
     line = re.sub(r'(\blayout\s*=\s*)"[^"]+"', r'\g<1>"<SETTINGS:layout>"', line, count=1)
     line = re.sub(r"(\brounding\s*=\s*)\d+", r"\g<1><SETTINGS:rounding>", line, count=1)
     line = re.sub(r"(\binactive_opacity\s*=\s*)[0-9.]+", r"\g<1><SETTINGS:inactive_opacity>", line, count=1)
+    line = re.sub(r"(active_border\s*=\s*\{[^\n]*?\bangle\s*=\s*)\d+", r"\g<1><SETTINGS:active_border.angle>", line, count=1)
+    return line
+
+
+def _normalize_colors_line(line):
+    for key in MANAGED_COLOR_KEYS:
+        pat = rf'(\b{key}\s*=\s*)"[^"]*"'
+        if re.search(pat, line):
+            return re.sub(pat, rf'\g<1>"<SETTINGS:colors.{key}>"', line, count=1)
     return line
 
 
@@ -328,6 +349,8 @@ def normalize_entries(rel, text):
             norm = _normalize_env_line(raw)
         elif rel == "config/autostart.lua":
             norm = _normalize_autostart_line(raw)
+        elif rel == "theme/colors.lua":
+            norm = _normalize_colors_line(raw)
         else:
             norm = raw
         out.append((idx + 1, norm, raw))
@@ -460,6 +483,23 @@ def reapply_settings(rel, old_cur_text, new_src_text):
                         count=1,
                         flags=re.DOTALL,
                     )
+        m_ang = re.search(r"active_border\s*=\s*\{(?:[^{}]|\{[^{}]*\})*?\bangle\s*=\s*(\d+)", old_cur_text)
+        if m_ang:
+            out = re.sub(
+                r"(active_border\s*=\s*\{(?:[^{}]|\{[^{}]*\})*?\bangle\s*=\s*)\d+",
+                r"\g<1>" + m_ang.group(1),
+                out,
+                count=1,
+            )
+        return out
+
+    if rel == "theme/colors.lua":
+        out = new_src_text
+        for key in MANAGED_COLOR_KEYS:
+            pat = rf'(\b{key}\s*=\s*)"([^"]*)"'
+            m = re.search(pat, old_cur_text)
+            if m:
+                out = re.sub(pat, lambda mm, v=m.group(2): mm.group(1) + f'"{v}"', out, count=1)
         return out
 
     if rel == "config/env.lua":

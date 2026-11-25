@@ -544,13 +544,28 @@ print(json.dumps(res))
 
     property bool _dirtyAppearance: false
     property bool _dirtyAnimations: false
+    property bool _dirtyColors: false
     property bool _pendingReload: false
     property bool _flushAgain: false
     property bool _writerNeedsReload: false
+    property var _pendingThemeColors: null
+
+    Timer {
+        id: hyprColorEvalTimer
+        interval: 50
+        repeat: false
+        onTriggered: {
+            const c = root._pendingThemeColors;
+            if (!c) return;
+            root._hyprEval(
+                'hl.config({ general = { col = { active_border = { colors = { "' + c.border_active_a + '", "' + c.border_active_b + '" }, angle = ' + c.activeBorderAngle + ' }, inactive_border = "' + c.border_inactive + '" } }, misc = { background_color = "' + c.pill_bg + '" } })'
+            );
+        }
+    }
 
     Timer {
         id: hyprConfigFlushTimer
-        interval: 120
+        interval: 180
         repeat: false
         onTriggered: root._flushHyprConfig()
     }
@@ -593,6 +608,22 @@ with open(lock_path, "w") as lf:
 
         stage_update(os.path.expanduser("~/.config/hypr/config/animations.lua"), update_animations)
 
+    if cfg.get("colors") and cfg.get("themeColors"):
+        tc = cfg["themeColors"]
+        def update_colors(txt):
+            for key in ("pill_bg", "surface_bg", "surface_raised", "text", "text_sub", "text_muted", "border_active_a", "border_active_b", "border_inactive"):
+                val = tc.get(key)
+                if val:
+                    txt = re.sub(
+                        rf'(\\b{key}\\s*=\\s*)"[^"]*"',
+                        lambda m, v=val: m.group(1) + f'"{v}"',
+                        txt,
+                        count=1,
+                    )
+            return txt
+
+        stage_update(os.path.expanduser("~/.config/hypr/theme/colors.lua"), update_colors)
+
     if cfg.get("appearance"):
         def update_appearance(txt):
             txt = re.sub(r"(gaps_in\\s*=\\s*)\\d+", r"\\g<1>" + str(cfg["gapsIn"]), txt, count=1)
@@ -613,6 +644,9 @@ with open(lock_path, "w") as lf:
                 "        }"
             )
             txt = re.sub(r"blur\\s*=\\s*\\{[^}]*\\}", new_blk, txt, count=1, flags=re.DOTALL)
+            tc = cfg.get("themeColors")
+            if tc and "activeBorderAngle" in tc:
+                txt = re.sub(r"(active_border\\s*=\\s*\\{(?:[^{}]|\\{[^{}]*\\})*?\\bangle\\s*=\\s*)\\d+", r"\\g<1>" + str(int(tc["activeBorderAngle"])), txt, count=1)
             return txt
 
         stage_update(os.path.expanduser("~/.config/hypr/config/appearance.lua"), update_appearance)
@@ -645,7 +679,7 @@ with open(lock_path, "w") as lf:
     }
 
     function _flushHyprConfig() {
-        if (!_dirtyAppearance && !_dirtyAnimations) return;
+        if (!_dirtyAppearance && !_dirtyAnimations && !_dirtyColors) return;
         if (hyprConfigWriter.running) {
             _flushAgain = true;
             return;
@@ -653,6 +687,8 @@ with open(lock_path, "w") as lf:
         const payloadJson = JSON.stringify({
             appearance: _dirtyAppearance,
             animations: _dirtyAnimations,
+            colors: _dirtyColors,
+            themeColors: _pendingThemeColors,
             gapsIn: gapsIn,
             gapsOut: gapsOut,
             borderSize: borderSize,
@@ -671,9 +707,53 @@ with open(lock_path, "w") as lf:
         _writerNeedsReload = _pendingReload;
         _dirtyAppearance = false;
         _dirtyAnimations = false;
+        _dirtyColors = false;
         _pendingReload = false;
         hyprConfigWriter.command = ["python3", "-c", root._hyprWriterPy, payloadJson];
         hyprConfigWriter.running = true;
+    }
+
+    function _stripHex(hex) {
+        const m = String(hex || "").trim().match(/^#?([0-9a-fA-F]{6})$/);
+        return m ? m[1].toLowerCase() : "000000";
+    }
+
+    function _byteHex(val) {
+        const clamped = Math.max(0, Math.min(255, Math.round(val)));
+        const s = clamped.toString(16);
+        return s.length < 2 ? "0" + s : s;
+    }
+
+    function syncThemeColors(cfg) {
+        if (!cfg) return;
+        const pill = _stripHex(cfg.pillBg);
+        const surf = _stripHex(cfg.surfaceBg);
+        const raised = _stripHex(cfg.surfaceRaised);
+        const txt = _stripHex(cfg.text);
+        const acc = _stripHex(cfg.accent);
+        const acc2 = _stripHex(cfg.accent2);
+        const bdr = _stripHex(cfg.borderColor || cfg.text);
+        const bAlpha = Math.max(0.08, Math.min(0.60, Number(cfg.borderAlpha) || 0.14));
+        const bAlphaHex = _byteHex(bAlpha * 255);
+        const activeHi = cfg.activeBorderHighlight !== false;
+        const gradAcc = Boolean(cfg.accentGradientEnabled);
+        const angle = Math.max(0, Math.min(360, Math.round(Number(cfg.gradientAngle) || 45)));
+
+        _pendingThemeColors = {
+            pill_bg: "rgb(" + pill + ")",
+            surface_bg: "rgb(" + surf + ")",
+            surface_raised: "rgb(" + raised + ")",
+            text: "rgb(" + txt + ")",
+            text_sub: "rgba(" + txt + "99)",
+            text_muted: "rgba(" + txt + "73)",
+            border_inactive: "rgba(" + bdr + bAlphaHex + ")",
+            border_active_a: activeHi ? ("rgba(" + acc + "ee)") : ("rgba(" + bdr + "44)"),
+            border_active_b: activeHi ? (gradAcc ? ("rgba(" + acc2 + "cc)") : ("rgba(" + acc + "55)")) : ("rgba(" + bdr + "24)"),
+            activeBorderAngle: angle
+        };
+        hyprColorEvalTimer.restart();
+        _dirtyColors = true;
+        _scheduleHyprWrite(true, false, false);
     }
 
     property var _evalQueue: []

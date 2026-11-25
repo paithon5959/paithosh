@@ -329,9 +329,18 @@ QtObject {
             id: "app-accent-style",
             page: "appearance",
             pageLabel: "Appearance",
-            title: "Accent Style",
-            subtitle: "Solid monochrome or directional gradient & HSV studio",
-            keywords: "accent color hue saturation gradient",
+            title: "Surface & Gradients",
+            subtitle: "Per-tier Shell, Surface & Accent gradient switches, angle & palette swatches",
+            keywords: "accent color hue saturation gradient shell surface pillbg surfacebg angle",
+            icon: "sparkles"
+        },
+        {
+            id: "app-theme-studio",
+            page: "appearance",
+            pageLabel: "Appearance",
+            title: "Theme Color & Gradient Studio",
+            subtitle: "Edit shell, surface, accent, raised, text & border colors with HSV & hex",
+            keywords: "shell color pillbg surfacebg surface raised text border palette hex studio",
             icon: "palette"
         },
         {
