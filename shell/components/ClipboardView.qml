@@ -15,7 +15,7 @@ Item {
     property var filteredEntries: []
     property int sel: 0
 
-    readonly property var filterTabs: ["All", "Pinned", "Text", "Links", "Images"]
+    readonly property var filterTabs: ["All", "Pinned", "Text", "Links", "Media"]
 
     implicitWidth: 580
     implicitHeight: {
@@ -269,8 +269,24 @@ Item {
                     required property int index
 
                     property bool removing: false
+                    property string thumbUrl: ""
                     readonly property bool selected: index === root.sel
                     readonly property bool pinned: ClipboardService.isPinned(modelData.id)
+                    readonly property bool isMedia: modelData.kind === "image" || modelData.kind === "video"
+
+                    function loadThumb() {
+                        thumbUrl = "";
+                        if (!isMedia || !modelData) return;
+                        const targetId = modelData.id;
+                        ClipboardService.requestThumbnail(modelData, function(url) {
+                            if (rowWrapper && rowWrapper.modelData && rowWrapper.modelData.id === targetId) {
+                                rowWrapper.thumbUrl = url;
+                            }
+                        });
+                    }
+
+                    Component.onCompleted: loadThumb()
+                    onModelDataChanged: loadThumb()
 
                     width: listView.width
                     height: removing ? 0 : 56
@@ -321,24 +337,25 @@ Item {
                             anchors.rightMargin: 10
                             spacing: 10
 
-                            // Kind badge or color swatch
+                            // Media thumbnail (image / video first frame) or kind badge / color swatch
                             Rectangle {
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 24
-                                radius: 8
+                                Layout.preferredWidth: rowWrapper.isMedia ? 64 : 36
+                                Layout.preferredHeight: rowWrapper.isMedia ? 40 : 24
+                                radius: rowWrapper.isMedia ? 9 : 8
                                 clip: true
                                 color: rowWrapper.modelData.kind === "color"
                                     ? rowWrapper.modelData.preview.trim()
-                                    : Qt.rgba(1, 1, 1, 0.08)
+                                    : (rowWrapper.isMedia ? Theme.surfaceRaised : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08))
                                 border.color: Theme.borderSubtle
                                 border.width: 1
 
                                 Text {
-                                    visible: rowWrapper.modelData.kind !== "color"
+                                    visible: rowWrapper.modelData.kind !== "color" && (!rowWrapper.isMedia || thumbImg.status !== Image.Ready)
                                     anchors.centerIn: parent
                                     text: {
                                         const k = rowWrapper.modelData.kind;
                                         if (k === "image") return "IMG";
+                                        if (k === "video") return "VID";
                                         if (k === "url") return "URL";
                                         if (k === "code") return "CODE";
                                         return "TXT";
@@ -347,6 +364,45 @@ Item {
                                     font.family: Theme.fontMono
                                     font.pixelSize: 10
                                     font.weight: Font.DemiBold
+                                }
+
+                                Image {
+                                    id: thumbImg
+                                    visible: rowWrapper.isMedia && rowWrapper.thumbUrl !== ""
+                                    anchors.fill: parent
+                                    source: rowWrapper.isMedia ? rowWrapper.thumbUrl : ""
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    smooth: true
+                                    sourceSize.width: 128
+                                    sourceSize.height: 80
+                                    opacity: status === Image.Ready ? 1 : 0
+
+                                    Behavior on opacity {
+                                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                    }
+                                }
+
+                                // Subtle play indicator on video thumbnails
+                                Rectangle {
+                                    visible: rowWrapper.modelData.kind === "video" && thumbImg.status === Image.Ready
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    anchors.margins: 3
+                                    width: 16
+                                    height: 16
+                                    radius: 5
+                                    color: Theme.pillBg
+                                    opacity: 0.88
+                                    border.color: Theme.borderSubtle
+                                    border.width: 1
+
+                                    SvgIcon {
+                                        anchors.centerIn: parent
+                                        sourceName: "play"
+                                        iconSize: 8
+                                        color: Theme.text
+                                    }
                                 }
                             }
 
@@ -359,7 +415,9 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: 0
-                                    text: rowWrapper.modelData.preview.replace(/\s+/g, " ").trim()
+                                    text: rowWrapper.modelData.displayTitle
+                                        ? rowWrapper.modelData.displayTitle
+                                        : rowWrapper.modelData.preview.replace(/\s+/g, " ").trim()
                                     color: Theme.text
                                     font.family: rowWrapper.modelData.kind === "code" ? Theme.fontMono : Theme.fontSans
                                     font.pixelSize: 12
@@ -370,11 +428,13 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     Layout.minimumWidth: 0
-                                    text: (rowWrapper.pinned ? "Pinned • " : "") + "#" + rowWrapper.modelData.id
+                                    text: (rowWrapper.pinned ? "Pinned • " : "")
+                                        + "#" + rowWrapper.modelData.id
+                                        + (rowWrapper.modelData.displayLocation ? (" • " + rowWrapper.modelData.displayLocation) : "")
                                     color: Theme.textMuted
                                     font.family: Theme.fontMono
                                     font.pixelSize: 10
-                                    elide: Text.ElideRight
+                                    elide: Text.ElideMiddle
                                 }
                             }
 
