@@ -72,7 +72,7 @@ ColumnLayout {
 
     function copySystemSummary() {
         const lines = [
-            "Paithosh Shell v" + root.shellVersion + " (" + root.gitBranch + "@" + root.gitCommit + ")",
+            "Paithosh v" + root.shellVersion + " (" + root.gitBranch + "@" + root.gitCommit + ")",
             "Runtime: " + root.qsVersion + " • " + root.qtVersion,
             "OS: " + TelemetryService.osName + " (" + TelemetryService.arch + ")",
             "Kernel: " + TelemetryService.kernel,
@@ -609,7 +609,7 @@ ColumnLayout {
                     spacing: 8
                     Text {
                         Layout.alignment: Qt.AlignBaseline
-                        text: "Paithosh Shell"
+                        text: "Paithosh"
                         color: Theme.text
                         font.family: Theme.fontSans
                         font.pixelSize: 15
