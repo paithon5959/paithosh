@@ -330,6 +330,7 @@ PanelWindow {
                 anchors.margins: 1
                 enabled: Theme.surfaceGradientEnabled
                 color1: Theme.surfaceBg
+                colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
                 cornerRadius: 19
             }

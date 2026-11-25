@@ -80,12 +80,13 @@ ShellRoot {
     Binding {
         target: DiscordRpcService
         property: "themeName"
-        value: Theme.activePreset
+        value: Theme.wallpaperColorEnabled ? ("Wallpaper (" + Theme.wallpaperColorMode + ")") : Theme.activePreset
     }
 
     property string profileDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh"
     property string settingsPath: profileDir + "/settings.json"
     readonly property string paishScript: Quickshell.shellDir + "/scripts/paithosh-paish.py"
+    readonly property string wallpaperColorScript: Quickshell.shellDir + "/scripts/paithosh-wallpaper-color.py"
 
     FileView {
         id: settingsFile
@@ -131,9 +132,10 @@ ShellRoot {
                     if (typeof obj.activeBorderHighlight === "boolean") stateObj.activeBorderHighlight = obj.activeBorderHighlight;
                     if (typeof obj.globalSurfaceTheme === "string") stateObj.globalSurfaceTheme = obj.globalSurfaceTheme;
                     if (typeof obj.activeProfile === "string") stateObj.activeProfile = obj.activeProfile;
-                    if (typeof obj.themePreset === "string") Theme.applyPreset(obj.themePreset);
-                    Theme.applySurfaceTheme(stateObj.globalSurfaceTheme);
-                    Theme.applyPaletteState(obj);
+                    if (typeof obj.themePreset === "string") Theme.applyPreset(obj.themePreset, Boolean(obj.wallpaperColorEnabled));
+                    if (!obj.wallpaperColorEnabled) Theme.applySurfaceTheme(stateObj.globalSurfaceTheme);
+                    else Theme.surfaceTheme = stateObj.globalSurfaceTheme;
+                    Theme.applyPaletteState(obj, false);
                     if (typeof obj.masterRatio === "number") Theme.masterRatio = obj.masterRatio;
                     if (typeof obj.preserveSplit === "boolean") Theme.preserveSplit = obj.preserveSplit;
                     if (typeof obj.shadowRange === "number") Theme.shadowRange = obj.shadowRange;
@@ -178,6 +180,9 @@ ShellRoot {
                 stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
+                if (Theme.wallpaperColorEnabled && bgLayer.currentWallpaperPath !== "") {
+                    stateObj.syncWallpaperColors(false, false);
+                }
                 cursorBootApplyTimer.restart();
             });
         }
@@ -321,9 +326,9 @@ ShellRoot {
                 } catch (e) {
                     decoded = null;
                 }
-                if (!decoded || (decoded.version !== 2 && decoded.version !== 3)) {
+                if (!decoded || (decoded.version !== 2 && decoded.version !== 3 && decoded.version !== 4)) {
                     if (!paishReader.silentOnMissing) {
-                        stateObj.lastProfileStatus = "Invalid .paish v2/v3 format in " + paishReader.profileName + ".paish";
+                        stateObj.lastProfileStatus = "Invalid .paish format in " + paishReader.profileName + ".paish";
                         stateObj.lastProfileOk = false;
                     }
                     return;
@@ -350,7 +355,7 @@ ShellRoot {
                 } catch (e) {
                     decoded = null;
                 }
-                if (!decoded || (decoded.version !== 2 && decoded.version !== 3)) {
+                if (!decoded || (decoded.version !== 2 && decoded.version !== 3 && decoded.version !== 4)) {
                     stateObj.themeCodeImported(false, "Invalid paish: code or format");
                     return;
                 }
@@ -386,6 +391,56 @@ ShellRoot {
                     stateObj.activeProfile = "";
                     stateObj.saveSettings();
                 }
+            }
+        }
+    }
+
+    Process {
+        id: wallpaperColorProc
+        property string requestedPath: ""
+        property string requestedMode: "Solid"
+        property int requestSeq: 0
+        property bool animateOnApply: true
+        property string errBuf: ""
+        command: ["python3", root.wallpaperColorScript, requestedPath, "--mode", requestedMode.toLowerCase()]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const seq = wallpaperColorProc.requestSeq;
+                const reqPath = wallpaperColorProc.requestedPath;
+                const reqMode = wallpaperColorProc.requestedMode;
+                const anim = wallpaperColorProc.animateOnApply;
+                if (seq !== stateObj._wpColorSeq || !Theme.wallpaperColorEnabled) {
+                    if (seq === stateObj._wpColorSeq) Theme.wallpaperColorBusy = false;
+                    return;
+                }
+                const raw = (this.text || "").trim();
+                let parsed = null;
+                try {
+                    if (raw !== "") parsed = JSON.parse(raw);
+                } catch (e) {
+                    parsed = null;
+                }
+                if (!parsed || !parsed.ok) {
+                    Theme.wallpaperColorBusy = false;
+                    if (raw !== "" || wallpaperColorProc.errBuf !== "") {
+                        console.warn("[paithosh] Wallpaper color analysis failed:", raw || wallpaperColorProc.errBuf);
+                    }
+                    return;
+                }
+                stateObj.cacheWallpaperColors(reqPath, reqMode, parsed);
+                if (reqPath === bgLayer.currentWallpaperPath && reqMode === Theme.wallpaperColorMode) {
+                    Theme.applyWallpaperPalette(parsed, reqPath, anim);
+                } else {
+                    Theme.wallpaperColorBusy = false;
+                }
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: wallpaperColorProc.errBuf = (this.text || "").trim()
+        }
+        onExited: function(code) {
+            if (code !== 0 && !wallpaperColorProc.running && wallpaperColorProc.requestSeq === stateObj._wpColorSeq) {
+                Theme.wallpaperColorBusy = false;
             }
         }
     }
@@ -445,6 +500,9 @@ ShellRoot {
                 reloadState.lastWallpaperPath = bgLayer.currentWallpaperPath;
             }
             if (!stateObj._applyingExternalState) stateObj.saveSettings();
+            if (stateObj.settingsLoaded && Theme.wallpaperColorEnabled && bgLayer.currentWallpaperPath !== "") {
+                stateObj.syncWallpaperColors(true, false);
+            }
         }
         function onTransitionModeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
@@ -456,7 +514,75 @@ ShellRoot {
             return meta ? meta.compositorKey : "oled";
         }
 
+        property var _wpColorCache: ({})
+        property var _wpColorCacheOrder: []
+        property int _wpColorSeq: 0
+
+        function cacheWallpaperColors(path, mode, parsed) {
+            const key = String(path || "") + "|" + String(mode || "Solid");
+            const next = Object.assign({}, _wpColorCache);
+            if (next[key] === undefined) {
+                const order = _wpColorCacheOrder.slice();
+                order.push(key);
+                if (order.length > 32) {
+                    const drop = order.shift();
+                    delete next[drop];
+                }
+                _wpColorCacheOrder = order;
+            }
+            next[key] = parsed;
+            _wpColorCache = next;
+        }
+
+        function syncWallpaperColors(animate, force) {
+            if (!Theme.wallpaperColorEnabled) return;
+            const path = bgLayer.currentWallpaperPath;
+            if (!path || path === "") return;
+            const mode = Theme.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid";
+            const key = path + "|" + mode;
+            const anim = (animate !== false);
+
+            if (!force && _wpColorCache[key] !== undefined) {
+                _wpColorSeq += 1;
+                Theme.applyWallpaperPalette(_wpColorCache[key], path, anim);
+                return;
+            }
+
+            const nextSeq = ++_wpColorSeq;
+            Theme.wallpaperColorBusy = true;
+            wallpaperColorProc.running = false;
+            wallpaperColorProc.errBuf = "";
+            wallpaperColorProc.requestedPath = path;
+            wallpaperColorProc.requestedMode = mode;
+            wallpaperColorProc.animateOnApply = anim;
+            wallpaperColorProc.requestSeq = nextSeq;
+            wallpaperColorProc.running = true;
+        }
+
+        function setWallpaperColorEnabled(enabled) {
+            const next = Boolean(enabled);
+            if (Theme.wallpaperColorEnabled === next) return;
+            Theme.setWallpaperColorEnabled(next);
+            if (Theme.wallpaperColorEnabled) {
+                syncWallpaperColors(true, false);
+            }
+            if (!_applyingExternalState) markAppearanceCustomized();
+            saveSettings();
+        }
+
+        function setWallpaperColorMode(mode) {
+            const next = (String(mode || "").trim().toLowerCase() === "gradient") ? "Gradient" : "Solid";
+            if (Theme.wallpaperColorMode === next) return;
+            Theme.setWallpaperColorMode(next);
+            if (Theme.wallpaperColorEnabled) {
+                syncWallpaperColors(true, false);
+            }
+            if (!_applyingExternalState) markAppearanceCustomized();
+            saveSettings();
+        }
+
         function selectPreset(name) {
+            if (Theme.wallpaperColorEnabled) return false;
             const meta = Theme.presetMeta(name);
             if (!meta) return false;
             autoForkSaveTimer.stop();
@@ -475,46 +601,50 @@ ShellRoot {
         }
 
         function syncHyprThemeColors() {
-            const p = Theme.presetMeta(Theme.activePreset);
-            const al = Theme.surfaceAlphas(Theme.surfaceTheme, p);
+            const t = Theme.exportTargetRenderColors();
             CompositorService.syncThemeColors({
-                pillBg: Theme.colorToHex(Theme.pillBg),
-                surfaceBg: Theme.colorToHex(Theme.surfaceBg),
-                surfaceRaised: Theme.colorToHex(Theme.surfaceRaised),
-                text: Theme.colorToHex(Theme.text),
-                accent: Theme.colorToHex(Theme.accent),
-                accent2: Theme.colorToHex(Theme.accent2),
-                borderColor: Theme.getSlotHex("borderColor"),
-                borderAlpha: al.border,
-                accentGradientEnabled: Theme.accentGradientEnabled,
-                gradientAngle: Theme.gradientAngle,
+                pillBg: t.pillBg,
+                surfaceBg: t.surfaceBg,
+                surfaceRaised: t.surfaceRaised,
+                text: t.text,
+                accent: t.accent,
+                accent2: t.accent2,
+                borderColor: t.borderColor,
+                borderAlpha: t.borderAlpha,
+                accentGradientEnabled: t.accentGradientEnabled,
+                gradientAngle: t.gradientAngle,
                 activeBorderHighlight: activeBorderHighlight
             });
         }
 
         function setThemeColor(slot, hex) {
+            if (Theme.wallpaperColorEnabled) return false;
             if (!Theme.setPaletteColor(slot, hex)) return false;
             if (!_applyingExternalState) markAppearanceCustomized();
             return true;
         }
 
         function clearThemeColorOverride(slot) {
+            if (Theme.wallpaperColorEnabled) return false;
             if (!Theme.clearPaletteOverride(slot)) return false;
             if (!_applyingExternalState) markAppearanceCustomized();
             return true;
         }
 
         function setThemeGradients(shellOn, surfaceOn, accentOn) {
+            if (Theme.wallpaperColorEnabled) return;
             Theme.setGradientFlags(shellOn, surfaceOn, accentOn);
             if (!_applyingExternalState) markAppearanceCustomized();
         }
 
         function setThemeGradientAngle(deg) {
+            if (Theme.wallpaperColorEnabled) return;
             Theme.setGradientAngle(deg);
             if (!_applyingExternalState) markAppearanceCustomized();
         }
 
         function applyGlobalSurfaceTheme(mode) {
+            if (Theme.wallpaperColorEnabled) return;
             Theme.applySurfaceTheme(mode);
             globalSurfaceTheme = Theme.surfaceTheme;
             if (!_applyingExternalState) markAppearanceCustomized();
@@ -528,6 +658,18 @@ ShellRoot {
             let idx = 2;
             while (list.indexOf(base + "-" + idx) !== -1) idx++;
             return base + "-" + idx;
+        }
+
+        function notifyStatus(message) {
+            kdeText = message;
+            kdeSlotOpen = true;
+            statusHideTimer.restart();
+            const lower = (message || "").toLowerCase();
+            if (lower.indexOf("screenshot") !== -1 || lower.indexOf("region") !== -1 || lower.indexOf("window") !== -1) {
+                SoundService.playShutter();
+            } else {
+                SoundService.playNotify();
+            }
         }
 
         function markAppearanceCustomized() {
@@ -547,6 +689,7 @@ ShellRoot {
         }
 
         function applyCustomAccent(h, s, v) {
+            if (Theme.wallpaperColorEnabled) return;
             Theme.applyAccentHsv(h, s, v);
             if (!_applyingExternalState) {
                 markAppearanceCustomized();
@@ -774,12 +917,18 @@ ShellRoot {
             if (!d) return false;
             autoForkSaveTimer.stop();
             _autoForkTarget = "";
+            const prevWpEnabled = Theme.wallpaperColorEnabled;
+            const wpOn = Boolean(d.wallpaperColorEnabled);
             _applyingExternalState = true;
             activeProfile = profileName ? sanitizeProfileName(profileName) : "";
-            Theme.applyPreset(d.presetName);
+            Theme.applyPreset(d.presetName, wpOn);
             globalSurfaceTheme = d.globalSurfaceTheme || "OLED Pure";
-            Theme.applySurfaceTheme(globalSurfaceTheme);
-            Theme.applyPaletteState(d);
+            if (!wpOn) Theme.applySurfaceTheme(globalSurfaceTheme);
+            else Theme.surfaceTheme = globalSurfaceTheme;
+            Theme.applyPaletteState(d, wpOn);
+            if (!wpOn && prevWpEnabled) {
+                Theme.rebuildPalette(false, true);
+            }
             Theme.masterRatio = d.masterRatio;
             Theme.preserveSplit = d.preserveSplit;
             Theme.shadowRange = d.shadowRange;
@@ -822,6 +971,9 @@ ShellRoot {
 
             _applyingExternalState = false;
             themeImportSeq += 1;
+            if (Theme.wallpaperColorEnabled) {
+                syncWallpaperColors(true, false);
+            }
             saveSettings();
             syncHyprThemeColors();
             CursorService.applyNow(true);
@@ -1776,6 +1928,11 @@ ShellRoot {
             bgLayer.setWallpaper(path);
         }
 
+        function setWallpaperColor(enabled: bool, mode: string): void {
+            if (mode === "Solid" || mode === "Gradient") stateObj.setWallpaperColorMode(mode);
+            stateObj.setWallpaperColorEnabled(enabled);
+        }
+
         function detachApp(appKind: string): void {
             stateObj.detachIslandApp(appKind !== "" ? appKind : stateObj.islandApp);
         }
@@ -1847,15 +2004,7 @@ ShellRoot {
         }
 
         function notifyStatus(message: string): void {
-            stateObj.kdeText = message;
-            stateObj.kdeSlotOpen = true;
-            statusHideTimer.restart();
-            const lower = (message || "").toLowerCase();
-            if (lower.indexOf("screenshot") !== -1 || lower.indexOf("region") !== -1 || lower.indexOf("window") !== -1) {
-                SoundService.playShutter();
-            } else {
-                SoundService.playNotify();
-            }
+            stateObj.notifyStatus(message);
         }
 
         function toggleScreenRecord(): void {

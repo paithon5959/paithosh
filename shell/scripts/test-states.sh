@@ -107,6 +107,20 @@ ipc triggerPackageUpdate 0
 sleep 0.25
 ipc openSettings "appearance"
 sleep 0.35
+ipc openSettings "personalization"
+sleep 0.35
+ipc setWallpaperColor true "Solid"
+sleep 0.55
+ipc nextWallpaper
+sleep 0.65
+ipc setWallpaperColor true "Gradient"
+sleep 0.55
+ipc nextWallpaper
+sleep 0.65
+ipc openSettings "appearance"
+sleep 0.45
+ipc setWallpaperColor false "Solid"
+sleep 0.55
 ipc openSettings "cursor"
 sleep 0.45
 ipc openSettings "layout"

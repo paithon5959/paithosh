@@ -177,6 +177,7 @@ PanelWindow {
             anchors.margins: 1
             enabled: Theme.shellGradientEnabled
             color1: Theme.pillBg
+            colorMid: Theme.pillBgMid
             color2: Theme.pillBg2
             cornerRadius: Math.max(0, cardBox.radius - 1)
         }

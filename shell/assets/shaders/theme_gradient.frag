@@ -10,6 +10,7 @@ layout(std140, binding = 0) uniform buf {
     float cornerRadius;
     float angleRad;
     vec4 color1;
+    vec4 colorMid;
     vec4 color2;
 };
 
@@ -39,7 +40,8 @@ void main() {
     float halfSpan = 0.5 * (abs(dir.x) + abs(dir.y));
     float t = clamp(dot(uv, dir) / max(0.0001, halfSpan) * 0.5 + 0.5, 0.0, 1.0);
 
-    vec4 col = mix(color1, color2, t);
+    float omt = 1.0 - t;
+    vec4 col = omt * omt * color1 + 2.0 * omt * t * colorMid + t * t * color2;
     col.rgb = clamp(col.rgb + vec3(ditherNoise(gl_FragCoord.xy) / 255.0), 0.0, 1.0);
 
     float outAlpha = shapeAlpha * qt_Opacity * col.a;

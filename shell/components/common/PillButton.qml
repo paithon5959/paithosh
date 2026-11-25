@@ -78,6 +78,7 @@ Item {
             anchors.fill: parent
             enabled: root.active && !root.danger && Theme.accentGradientEnabled
             color1: Theme.accent
+            colorMid: Theme.accentMid
             color2: Theme.accent2
             cornerRadius: root.radius
         }

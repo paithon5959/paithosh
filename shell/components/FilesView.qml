@@ -1345,6 +1345,7 @@ FocusScope {
                 anchors.fill: parent
                 enabled: Theme.shellGradientEnabled
                 color1: Theme.pillBg
+                colorMid: Theme.pillBgMid
                 color2: Theme.pillBg2
                 cornerRadius: 0
             }
@@ -3057,6 +3058,7 @@ FocusScope {
                 anchors.fill: parent
                 enabled: Theme.shellGradientEnabled
                 color1: Theme.pillBg
+                colorMid: Theme.pillBgMid
                 color2: Theme.pillBg2
                 cornerRadius: 0
             }
@@ -3254,6 +3256,7 @@ FocusScope {
                 anchors.margins: 1
                 enabled: Theme.surfaceGradientEnabled
                 color1: Theme.surfaceBg
+                colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
                 cornerRadius: 13
             }
@@ -3344,6 +3347,7 @@ FocusScope {
                 anchors.margins: 1
                 enabled: Theme.surfaceGradientEnabled
                 color1: Theme.surfaceBg
+                colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
                 cornerRadius: 13
             }
@@ -3443,6 +3447,7 @@ FocusScope {
                 anchors.margins: 1
                 enabled: Theme.surfaceGradientEnabled
                 color1: Theme.surfaceBg
+                colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
                 cornerRadius: 13
             }
@@ -3513,6 +3518,7 @@ FocusScope {
                 anchors.margins: 1
                 enabled: Theme.surfaceGradientEnabled
                 color1: Theme.surfaceBg
+                colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
                 cornerRadius: 13
             }

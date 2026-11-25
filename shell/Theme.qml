@@ -5,9 +5,11 @@ import Quickshell
 Singleton {
     id: root
 
-    // Core Monochrome OLED Palette
+    // Core Monochrome OLED Palette (live rendered tokens — smoothly blended in OKLab)
     property color pillBg: "#000000"
+    property color pillBgMid: "#000000"
     property color surfaceBg: "#0b0b0c"
+    property color surfaceBgMid: "#0b0b0c"
     property color surfaceRaised: "#101012"
     property color cardBg: Qt.rgba(1, 1, 1, 0.08)
     property color cardHover: Qt.rgba(1, 1, 1, 0.14)
@@ -16,6 +18,7 @@ Singleton {
     property color textSub: Qt.rgba(1, 1, 1, 0.60)
     property color textMuted: Qt.rgba(1, 1, 1, 0.45)
     property color accent: "#ffffff"
+    property color accentMid: "#ffffff"
     property color accentFg: "#000000"
 
     // Semantic Status Accents
@@ -47,10 +50,10 @@ Singleton {
     property bool gooeyEnabled: true
     property string activePreset: "OLED Pure"
 
-    // Extended Personalization State (shared across SettingsView & .paish profiles)
+    // Extended Personalization State (manual backing state — preserved across wallpaper mode & .paish)
     property string surfaceTheme: "OLED Pure"
     property string accentMode: "Solid"
-    readonly property bool accentGradientEnabled: accentMode === "Gradient"
+    property bool accentGradientEnabled: false
     property real hueVal: 0.0
     property real satVal: 0.0
     property real valVal: 0.92
@@ -60,7 +63,7 @@ Singleton {
     property int shadowRange: 24
     property bool customAccentActive: false
 
-    // Custom Palette & Gradient State
+    // Custom Palette & Gradient State (manual backing state)
     property bool customPaletteActive: false
     property bool hasCustomPillBg: false
     property string customPillBg: ""
@@ -79,7 +82,73 @@ Singleton {
     property color surfaceBg2: "#18181a"
     property bool customAccent2Active: false
     property color accent2: "#cccccc"
+
+    // Preserved Manual Backing Fields (never overwritten by wallpaper color extraction)
+    property bool manualShellGradientEnabled: false
+    property bool manualSurfaceGradientEnabled: false
+    property string manualAccentMode: "Solid"
+    property color manualPillBg2: "#0e0e0e"
+    property color manualSurfaceBg2: "#18181a"
+    property color manualAccent2: "#cccccc"
+    property int manualGradientAngle: 135
+
+    // Experimental: "Adjust color based on what's you see" (Wallpaper-Adaptive Theme)
+    property bool wallpaperColorEnabled: false
+    property string wallpaperColorMode: "Solid" // "Solid" | "Gradient"
+    property string wallpaperColorSourcePath: ""
+    property var wallpaperExtractedColors: []
+    property var wallpaperRefinedPalette: []
+    property bool wallpaperColorBusy: false
+    property var _wallpaperPaletteObj: null
+
+    // Internal OKLab Blender State
     property bool _suppressColorSignal: false
+    property real blendProgress: 1.0
+    property var _fromLab: null
+    property var _toLab: null
+    property var _targetPalette: null
+    property color _liveBorderBase: "#ffffff"
+    property real _liveCardAlpha: 0.08
+    property real _liveHoverAlpha: 0.14
+    property real _liveBorderAlpha: 0.14
+
+    property NumberAnimation _blendAnim: NumberAnimation {
+        target: root
+        property: "blendProgress"
+        from: 0.0
+        to: 1.0
+        duration: Math.max(260, Math.round(540 / Math.max(0.5, root.speedMultiplier)))
+        easing.type: Easing.InOutCubic
+        onFinished: root._finishBlend()
+    }
+
+    onBlendProgressChanged: {
+        if (!_fromLab || !_toLab) return;
+        const t = blendProgress;
+        const f = _fromLab;
+        const g = _toLab;
+
+        root.pillBg = _lerpLabColor(f.pillBg, g.pillBg, t);
+        root.pillBgMid = _lerpLabColor(f.pillBgMid, g.pillBgMid, t);
+        root.pillBg2 = _lerpLabColor(f.pillBg2, g.pillBg2, t);
+        root.surfaceBg = _lerpLabColor(f.surfaceBg, g.surfaceBg, t);
+        root.surfaceBgMid = _lerpLabColor(f.surfaceBgMid, g.surfaceBgMid, t);
+        root.surfaceBg2 = _lerpLabColor(f.surfaceBg2, g.surfaceBg2, t);
+        root.surfaceRaised = _lerpLabColor(f.surfaceRaised, g.surfaceRaised, t);
+        root.text = _lerpLabColor(f.text, g.text, t);
+        root.accent = _lerpLabColor(f.accent, g.accent, t);
+        root.accentMid = _lerpLabColor(f.accentMid, g.accentMid, t);
+        root.accent2 = _lerpLabColor(f.accent2, g.accent2, t);
+        root.accentFg = _lerpLabColor(f.accentFg, g.accentFg, t);
+        root._liveBorderBase = _lerpLabColor(f.borderBase, g.borderBase, t);
+
+        root._liveCardAlpha = f.cardAlpha + (g.cardAlpha - f.cardAlpha) * t;
+        root._liveHoverAlpha = f.hoverAlpha + (g.hoverAlpha - f.hoverAlpha) * t;
+        root._liveBorderAlpha = f.borderAlpha + (g.borderAlpha - f.borderAlpha) * t;
+        root.gradientAngle = _lerpAngle(f.gradientAngle, g.gradientAngle, t);
+
+        _refreshDerivedTokens();
+    }
 
     readonly property var presetNames: ["OLED Pure", "Mica Dark", "Adaptive", "Nord Frost", "Mica Monochrome", "Catppuccin Mocha"]
     readonly property var surfaceThemeNames: ["OLED Pure", "Mica Dark", "Adaptive"]
@@ -233,7 +302,7 @@ Singleton {
     signal presetApplied(string name)
     signal themeColorsChanged()
 
-    Component.onCompleted: rebuildPalette(false)
+    Component.onCompleted: rebuildPalette(false, false)
 
     function presetMeta(name) {
         for (let i = 0; i < presetCatalog.length; ++i) {
@@ -267,6 +336,67 @@ Singleton {
         const g = parseInt(norm.slice(3, 5), 16) / 255.0;
         const b = parseInt(norm.slice(5, 7), 16) / 255.0;
         return Qt.rgba(r, g, b, 1.0);
+    }
+
+    function _midColor(c1, c2) {
+        const a = Qt.color(c1);
+        const b = Qt.color(c2);
+        return Qt.rgba((a.r + b.r) * 0.5, (a.g + b.g) * 0.5, (a.b + b.b) * 0.5, 1.0);
+    }
+
+    function _srgbToLin(u) {
+        const c = Math.max(0, Math.min(1, u));
+        return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    function _linToSrgb(u) {
+        const c = Math.max(0, Math.min(1, u));
+        return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1.0 / 2.4) - 0.055;
+    }
+
+    function _cbrt(x) {
+        return x < 0 ? -Math.pow(-x, 1.0 / 3.0) : Math.pow(x, 1.0 / 3.0);
+    }
+
+    function _colorToOklab(c) {
+        const col = Qt.color(c);
+        const lr = _srgbToLin(col.r);
+        const lg = _srgbToLin(col.g);
+        const lb = _srgbToLin(col.b);
+        const l = _cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+        const m = _cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+        const s = _cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+        return [
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+        ];
+    }
+
+    function _oklabToColor(L, a, b) {
+        const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+        const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+        const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+        const l = l_ * l_ * l_;
+        const m = m_ * m_ * m_;
+        const s = s_ * s_ * s_;
+        const lr = +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+        const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+        const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+        return Qt.rgba(_linToSrgb(lr), _linToSrgb(lg), _linToSrgb(lb), 1.0);
+    }
+
+    function _lerpLabColor(lab0, lab1, t) {
+        return _oklabToColor(
+            lab0[0] + (lab1[0] - lab0[0]) * t,
+            lab0[1] + (lab1[1] - lab0[1]) * t,
+            lab0[2] + (lab1[2] - lab0[2]) * t
+        );
+    }
+
+    function _lerpAngle(a0, a1, t) {
+        const delta = ((a1 - a0 + 540) % 360) - 180;
+        return Math.round((a0 + delta * t + 360) % 360);
     }
 
     function computeLuminance(c) {
@@ -309,7 +439,15 @@ Singleton {
         return { card: 0.08, hover: 0.14, border: 0.14 };
     }
 
-    function rebuildPalette(emitSignal) {
+    function _refreshDerivedTokens() {
+        root.textSub = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.62);
+        root.textMuted = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.45);
+        root.cardBg = Qt.rgba(root.text.r, root.text.g, root.text.b, root._liveCardAlpha);
+        root.cardHover = Qt.rgba(root.text.r, root.text.g, root.text.b, root._liveHoverAlpha);
+        root.borderSubtle = Qt.rgba(root._liveBorderBase.r, root._liveBorderBase.g, root._liveBorderBase.b, root._liveBorderAlpha);
+    }
+
+    function _computeManualTargetPalette() {
         const p = presetMeta(root.activePreset) || root.presetCatalog[0];
         const normPill = root.hasCustomPillBg ? normalizeHex(root.customPillBg, "") : "";
         const normSurf = root.hasCustomSurfaceBg ? normalizeHex(root.customSurfaceBg, "") : "";
@@ -317,54 +455,317 @@ Singleton {
         const normText = root.hasCustomText ? normalizeHex(root.customText, "") : "";
         const normBorder = root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "";
 
-        root.pillBg = normPill !== "" ? hexToColor(normPill) : hexToColor(p.pillBg);
-        root.surfaceBg = normSurf !== "" ? hexToColor(normSurf) : hexToColor(p.surfaceBg);
-        root.surfaceRaised = normRaised !== ""
+        const tPill = normPill !== "" ? hexToColor(normPill) : hexToColor(p.pillBg);
+        const tSurf = normSurf !== "" ? hexToColor(normSurf) : hexToColor(p.surfaceBg);
+        const tRaised = normRaised !== ""
             ? hexToColor(normRaised)
-            : (normSurf !== "" ? deriveRaised(root.surfaceBg) : hexToColor(p.surfaceRaised));
-        root.text = normText !== "" ? hexToColor(normText) : hexToColor(p.text);
+            : (normSurf !== "" ? deriveRaised(tSurf) : hexToColor(p.surfaceRaised));
+        const tText = normText !== "" ? hexToColor(normText) : hexToColor(p.text);
 
-        if (root.customAccentActive) {
-            root.accent = Qt.hsva(root.hueVal, root.satVal, root.valVal, 1.0);
-        } else {
-            root.accent = hexToColor(p.accent);
-        }
+        const tAcc = root.customAccentActive
+            ? Qt.hsva(root.hueVal, root.satVal, root.valVal, 1.0)
+            : hexToColor(p.accent);
+        const tAcc2 = root.customAccent2Active
+            ? root.manualAccent2
+            : ((!root.customAccentActive && p.accent2) ? hexToColor(p.accent2) : deriveHarmonyStop(tAcc, 32, 0.0));
 
-        if (!root.customAccent2Active) {
-            root.accent2 = (!root.customAccentActive && p.accent2)
-                ? hexToColor(p.accent2)
-                : deriveHarmonyStop(root.accent, 32, 0.0);
-        }
-
-        if (root.accentGradientEnabled) {
-            const a1 = Qt.color(root.accent);
-            const a2 = Qt.color(root.accent2);
-            const mid = Qt.rgba((a1.r + a2.r) * 0.5, (a1.g + a2.g) * 0.5, (a1.b + a2.b) * 0.5, 1.0);
-            root.accentFg = contrastFg(mid);
+        const accGradOn = root.manualAccentMode === "Gradient";
+        let tAccFg;
+        if (accGradOn) {
+            const mid = _midColor(tAcc, tAcc2);
+            tAccFg = hexToColor(contrastFg(mid));
         } else if (root.customAccentActive) {
-            root.accentFg = contrastFg(root.accent);
+            tAccFg = hexToColor(contrastFg(tAcc));
         } else {
-            root.accentFg = hexToColor(p.accentFg);
+            tAccFg = hexToColor(p.accentFg);
         }
 
+        const tPill2 = root.manualPillBg2;
+        const tSurf2 = root.manualSurfaceBg2;
         const al = surfaceAlphas(root.surfaceTheme, p);
-        root.textSub = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.62);
-        root.textMuted = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.45);
-        root.cardBg = Qt.rgba(root.text.r, root.text.g, root.text.b, al.card);
-        root.cardHover = Qt.rgba(root.text.r, root.text.g, root.text.b, al.hover);
-        const borderBase = normBorder !== "" ? hexToColor(normBorder) : root.text;
-        root.borderSubtle = Qt.rgba(borderBase.r, borderBase.g, borderBase.b, al.border);
+        const tBorderBase = normBorder !== "" ? hexToColor(normBorder) : tText;
+
         root.customPaletteActive = (normPill !== "" || normSurf !== "" || normRaised !== "" || normText !== "" || normBorder !== "");
+
+        return {
+            pillBg: tPill,
+            pillBgMid: _midColor(tPill, tPill2),
+            pillBg2: tPill2,
+            surfaceBg: tSurf,
+            surfaceBgMid: _midColor(tSurf, tSurf2),
+            surfaceBg2: tSurf2,
+            surfaceRaised: tRaised,
+            text: tText,
+            accent: tAcc,
+            accentMid: _midColor(tAcc, tAcc2),
+            accent2: tAcc2,
+            accentFg: tAccFg,
+            borderBase: tBorderBase,
+            cardAlpha: al.card,
+            hoverAlpha: al.hover,
+            borderAlpha: al.border,
+            shellGradientEnabled: Boolean(root.manualShellGradientEnabled),
+            surfaceGradientEnabled: Boolean(root.manualSurfaceGradientEnabled),
+            accentGradientEnabled: Boolean(accGradOn),
+            gradientAngle: Math.max(0, Math.min(360, Math.round(root.manualGradientAngle)))
+        };
+    }
+
+    function _computeWallpaperTargetPalette() {
+        const pal = root._wallpaperPaletteObj;
+        const tPill = hexToColor(pal.pillBg);
+        const tPillMid = hexToColor(pal.pillBgMid || pal.pillBg);
+        const tPill2 = hexToColor(pal.pillBg2 || pal.pillBg);
+        const tSurf = hexToColor(pal.surfaceBg);
+        const tSurfMid = hexToColor(pal.surfaceBgMid || pal.surfaceBg);
+        const tSurf2 = hexToColor(pal.surfaceBg2 || pal.surfaceBg);
+        const tRaised = hexToColor(pal.surfaceRaised);
+        const tText = hexToColor(pal.text);
+        const tAcc = hexToColor(pal.accent);
+        const tAccMid = hexToColor(pal.accentMid || pal.accent);
+        const tAcc2 = hexToColor(pal.accent2 || pal.accent);
+        const tAccFg = hexToColor(pal.accentFg || contrastFg(tAcc));
+        const tBorder = hexToColor(pal.borderColor || pal.text);
+
+        return {
+            pillBg: tPill,
+            pillBgMid: tPillMid,
+            pillBg2: tPill2,
+            surfaceBg: tSurf,
+            surfaceBgMid: tSurfMid,
+            surfaceBg2: tSurf2,
+            surfaceRaised: tRaised,
+            text: tText,
+            accent: tAcc,
+            accentMid: tAccMid,
+            accent2: tAcc2,
+            accentFg: tAccFg,
+            borderBase: tBorder,
+            cardAlpha: typeof pal.cardAlpha === "number" ? pal.cardAlpha : 0.09,
+            hoverAlpha: typeof pal.hoverAlpha === "number" ? pal.hoverAlpha : 0.15,
+            borderAlpha: typeof pal.borderAlpha === "number" ? pal.borderAlpha : 0.17,
+            shellGradientEnabled: Boolean(pal.shellGradientEnabled),
+            surfaceGradientEnabled: Boolean(pal.surfaceGradientEnabled),
+            accentGradientEnabled: Boolean(pal.accentGradientEnabled),
+            gradientAngle: typeof pal.gradientAngle === "number" ? Math.max(0, Math.min(360, Math.round(pal.gradientAngle))) : 135
+        };
+    }
+
+    function _applyPaletteImmediate(target) {
+        root.pillBg = target.pillBg;
+        root.pillBgMid = target.pillBgMid;
+        root.pillBg2 = target.pillBg2;
+        root.surfaceBg = target.surfaceBg;
+        root.surfaceBgMid = target.surfaceBgMid;
+        root.surfaceBg2 = target.surfaceBg2;
+        root.surfaceRaised = target.surfaceRaised;
+        root.text = target.text;
+        root.accent = target.accent;
+        root.accentMid = target.accentMid;
+        root.accent2 = target.accent2;
+        root.accentFg = target.accentFg;
+        root._liveBorderBase = target.borderBase;
+        root._liveCardAlpha = target.cardAlpha;
+        root._liveHoverAlpha = target.hoverAlpha;
+        root._liveBorderAlpha = target.borderAlpha;
+        root.shellGradientEnabled = target.shellGradientEnabled;
+        root.surfaceGradientEnabled = target.surfaceGradientEnabled;
+        root.accentGradientEnabled = target.accentGradientEnabled;
+        root.gradientAngle = target.gradientAngle;
+        _refreshDerivedTokens();
+    }
+
+    function _finishBlend() {
+        root._fromLab = null;
+        root._toLab = null;
+        if (root._targetPalette) {
+            _applyPaletteImmediate(root._targetPalette);
+        }
+    }
+
+    function _commitPalette(target, animate) {
+        root._targetPalette = target;
+        if (!animate) {
+            _blendAnim.stop();
+            root._fromLab = null;
+            root._toLab = null;
+            _applyPaletteImmediate(target);
+            root.blendProgress = 1.0;
+            return;
+        }
+
+        const wasShellGrad = root.shellGradientEnabled;
+        const wasSurfGrad = root.surfaceGradientEnabled;
+        const wasAccGrad = root.accentGradientEnabled;
+
+        // Snapshot current mid-blend colors cleanly for retargeting
+        const curPill = root.pillBg;
+        const curPillMid = wasShellGrad ? root.pillBgMid : curPill;
+        const curPill2 = wasShellGrad ? root.pillBg2 : curPill;
+
+        const curSurf = root.surfaceBg;
+        const curSurfMid = wasSurfGrad ? root.surfaceBgMid : curSurf;
+        const curSurf2 = wasSurfGrad ? root.surfaceBg2 : curSurf;
+
+        const curAcc = root.accent;
+        const curAccMid = wasAccGrad ? root.accentMid : curAcc;
+        const curAcc2 = wasAccGrad ? root.accent2 : curAcc;
+
+        const toPillMid = target.shellGradientEnabled ? target.pillBgMid : target.pillBg;
+        const toPill2 = target.shellGradientEnabled ? target.pillBg2 : target.pillBg;
+
+        const toSurfMid = target.surfaceGradientEnabled ? target.surfaceBgMid : target.surfaceBg;
+        const toSurf2 = target.surfaceGradientEnabled ? target.surfaceBg2 : target.surfaceBg;
+
+        const toAccMid = target.accentGradientEnabled ? target.accentMid : target.accent;
+        const toAcc2 = target.accentGradientEnabled ? target.accent2 : target.accent;
+
+        // Keep shader active across any Solid <-> Gradient transition; _finishBlend disables it when converging to Solid
+        if (target.shellGradientEnabled || wasShellGrad) root.shellGradientEnabled = true;
+        if (target.surfaceGradientEnabled || wasSurfGrad) root.surfaceGradientEnabled = true;
+        if (target.accentGradientEnabled || wasAccGrad) root.accentGradientEnabled = true;
+
+        _blendAnim.stop();
+        root._fromLab = {
+            pillBg: _colorToOklab(curPill),
+            pillBgMid: _colorToOklab(curPillMid),
+            pillBg2: _colorToOklab(curPill2),
+            surfaceBg: _colorToOklab(curSurf),
+            surfaceBgMid: _colorToOklab(curSurfMid),
+            surfaceBg2: _colorToOklab(curSurf2),
+            surfaceRaised: _colorToOklab(root.surfaceRaised),
+            text: _colorToOklab(root.text),
+            accent: _colorToOklab(curAcc),
+            accentMid: _colorToOklab(curAccMid),
+            accent2: _colorToOklab(curAcc2),
+            accentFg: _colorToOklab(root.accentFg),
+            borderBase: _colorToOklab(root._liveBorderBase),
+            cardAlpha: root._liveCardAlpha,
+            hoverAlpha: root._liveHoverAlpha,
+            borderAlpha: root._liveBorderAlpha,
+            gradientAngle: root.gradientAngle
+        };
+        root._toLab = {
+            pillBg: _colorToOklab(target.pillBg),
+            pillBgMid: _colorToOklab(toPillMid),
+            pillBg2: _colorToOklab(toPill2),
+            surfaceBg: _colorToOklab(target.surfaceBg),
+            surfaceBgMid: _colorToOklab(toSurfMid),
+            surfaceBg2: _colorToOklab(toSurf2),
+            surfaceRaised: _colorToOklab(target.surfaceRaised),
+            text: _colorToOklab(target.text),
+            accent: _colorToOklab(target.accent),
+            accentMid: _colorToOklab(toAccMid),
+            accent2: _colorToOklab(toAcc2),
+            accentFg: _colorToOklab(target.accentFg),
+            borderBase: _colorToOklab(target.borderBase),
+            cardAlpha: target.cardAlpha,
+            hoverAlpha: target.hoverAlpha,
+            borderAlpha: target.borderAlpha,
+            gradientAngle: target.gradientAngle
+        };
+        root.blendProgress = 0.0;
+        _blendAnim.start();
+    }
+
+    function rebuildPalette(emitSignal, animate) {
+        const manualTarget = _computeManualTargetPalette();
+        const target = (root.wallpaperColorEnabled && root._wallpaperPaletteObj)
+            ? _computeWallpaperTargetPalette()
+            : manualTarget;
+        _commitPalette(target, Boolean(animate));
 
         if (emitSignal !== false && !root._suppressColorSignal) {
             root.themeColorsChanged();
         }
     }
 
+    function exportTargetRenderColors() {
+        const t = root._targetPalette;
+        if (!t) {
+            return {
+                pillBg: colorToHex(root.pillBg),
+                pillBgMid: colorToHex(root.pillBgMid),
+                pillBg2: colorToHex(root.pillBg2),
+                surfaceBg: colorToHex(root.surfaceBg),
+                surfaceBgMid: colorToHex(root.surfaceBgMid),
+                surfaceBg2: colorToHex(root.surfaceBg2),
+                surfaceRaised: colorToHex(root.surfaceRaised),
+                text: colorToHex(root.text),
+                borderColor: getSlotHex("borderColor"),
+                accent: colorToHex(root.accent),
+                accentMid: colorToHex(root.accentMid),
+                accent2: colorToHex(root.accent2),
+                accentFg: colorToHex(root.accentFg),
+                shellGradientEnabled: Boolean(root.shellGradientEnabled),
+                surfaceGradientEnabled: Boolean(root.surfaceGradientEnabled),
+                accentGradientEnabled: Boolean(root.accentGradientEnabled),
+                gradientAngle: Math.round(root.gradientAngle),
+                borderAlpha: root._liveBorderAlpha
+            };
+        }
+        return {
+            pillBg: colorToHex(t.pillBg),
+            pillBgMid: colorToHex(t.pillBgMid),
+            pillBg2: colorToHex(t.pillBg2),
+            surfaceBg: colorToHex(t.surfaceBg),
+            surfaceBgMid: colorToHex(t.surfaceBgMid),
+            surfaceBg2: colorToHex(t.surfaceBg2),
+            surfaceRaised: colorToHex(t.surfaceRaised),
+            text: colorToHex(t.text),
+            borderColor: colorToHex(t.borderBase),
+            accent: colorToHex(t.accent),
+            accentMid: colorToHex(t.accentMid),
+            accent2: colorToHex(t.accent2),
+            accentFg: colorToHex(t.accentFg),
+            shellGradientEnabled: Boolean(t.shellGradientEnabled),
+            surfaceGradientEnabled: Boolean(t.surfaceGradientEnabled),
+            accentGradientEnabled: Boolean(t.accentGradientEnabled),
+            gradientAngle: Math.round(t.gradientAngle),
+            borderAlpha: t.borderAlpha
+        };
+    }
+
+    function setWallpaperColorEnabled(enabled) {
+        const next = Boolean(enabled);
+        if (root.wallpaperColorEnabled === next) return;
+        root.wallpaperColorEnabled = next;
+        if (!next) {
+            root.wallpaperColorBusy = false;
+            rebuildPalette(true, true);
+        } else if (root._wallpaperPaletteObj && root._wallpaperPaletteObj.mode === root.wallpaperColorMode) {
+            rebuildPalette(true, true);
+        } else if (!root._suppressColorSignal) {
+            root.themeColorsChanged();
+        }
+    }
+
+    function setWallpaperColorMode(mode) {
+        const next = (String(mode || "").trim().toLowerCase() === "gradient") ? "Gradient" : "Solid";
+        if (root.wallpaperColorMode === next) return;
+        root.wallpaperColorMode = next;
+    }
+
+    function applyWallpaperPalette(resultObj, sourcePath, animate) {
+        root.wallpaperColorBusy = false;
+        if (!resultObj || !resultObj.ok || !resultObj.palette) return false;
+        const ext = Array.isArray(resultObj.extractedColors) ? resultObj.extractedColors : [];
+        const ref = Array.isArray(resultObj.refinedPalette) ? resultObj.refinedPalette : [];
+        root.wallpaperExtractedColors = ext;
+        root.wallpaperRefinedPalette = ref;
+        root.wallpaperColorSourcePath = String(sourcePath || "");
+        const copyPal = Object.assign({}, resultObj.palette, { mode: resultObj.mode || root.wallpaperColorMode });
+        root._wallpaperPaletteObj = copyPal;
+        if (root.wallpaperColorEnabled) {
+            rebuildPalette(true, animate !== false);
+        }
+        return true;
+    }
+
     function applySurfaceTheme(name) {
         const valid = (name === "OLED Pure" || name === "Mica Dark" || name === "Adaptive") ? name : "OLED Pure";
         root.surfaceTheme = valid;
-        rebuildPalette(true);
+        rebuildPalette(true, false);
     }
 
     function applyAccentHsv(h, s, v) {
@@ -372,7 +773,7 @@ Singleton {
         root.satVal = Math.max(0, Math.min(1, Number(s) || 0));
         root.valVal = Math.max(0, Math.min(1, Number(v) || 0));
         root.customAccentActive = true;
-        rebuildPalette(true);
+        rebuildPalette(true, false);
     }
 
     function setPaletteColor(slot, hexOrColor) {
@@ -384,25 +785,26 @@ Singleton {
         if (slot === "pillBg") {
             root.hasCustomPillBg = true;
             root.customPillBg = hex;
-            if (!root.shellGradientEnabled) root.pillBg2 = deriveHarmonyStop(c, 16, 0.055);
+            if (!root.manualShellGradientEnabled) root.manualPillBg2 = deriveHarmonyStop(c, 16, 0.055);
         } else if (slot === "pillBg2") {
-            root.pillBg2 = c;
-            root.shellGradientEnabled = true;
+            root.manualPillBg2 = c;
+            root.manualShellGradientEnabled = true;
         } else if (slot === "surfaceBg") {
             root.hasCustomSurfaceBg = true;
             root.customSurfaceBg = hex;
-            if (!root.surfaceGradientEnabled) root.surfaceBg2 = deriveHarmonyStop(c, 14, 0.05);
+            if (!root.manualSurfaceGradientEnabled) root.manualSurfaceBg2 = deriveHarmonyStop(c, 14, 0.05);
         } else if (slot === "surfaceBg2") {
-            root.surfaceBg2 = c;
-            root.surfaceGradientEnabled = true;
+            root.manualSurfaceBg2 = c;
+            root.manualSurfaceGradientEnabled = true;
         } else if (slot === "accent") {
             root.hueVal = c.hsvHue >= 0 ? c.hsvHue : 0;
             root.satVal = c.hsvSaturation;
             root.valVal = c.hsvValue;
             root.customAccentActive = true;
         } else if (slot === "accent2") {
-            root.accent2 = c;
+            root.manualAccent2 = c;
             root.customAccent2Active = true;
+            root.manualAccentMode = "Gradient";
             root.accentMode = "Gradient";
         } else if (slot === "surfaceRaised") {
             root.hasCustomSurfaceRaised = true;
@@ -416,11 +818,12 @@ Singleton {
         } else {
             return false;
         }
-        rebuildPalette(true);
+        rebuildPalette(true, false);
         return true;
     }
 
     function clearPaletteOverride(slot) {
+        const p = presetMeta(root.activePreset) || root.presetCatalog[0];
         if (slot === "pillBg") {
             root.hasCustomPillBg = false;
             root.customPillBg = "";
@@ -444,13 +847,15 @@ Singleton {
         } else if (slot === "accent2") {
             root.customAccent2Active = false;
         } else if (slot === "pillBg2") {
-            root.pillBg2 = deriveHarmonyStop(root.pillBg, 16, 0.055);
+            const baseP = root.hasCustomPillBg ? hexToColor(root.customPillBg) : hexToColor(p.pillBg);
+            root.manualPillBg2 = deriveHarmonyStop(baseP, 16, 0.055);
         } else if (slot === "surfaceBg2") {
-            root.surfaceBg2 = deriveHarmonyStop(root.surfaceBg, 14, 0.05);
+            const baseS = root.hasCustomSurfaceBg ? hexToColor(root.customSurfaceBg) : hexToColor(p.surfaceBg);
+            root.manualSurfaceBg2 = deriveHarmonyStop(baseS, 14, 0.05);
         } else {
             return false;
         }
-        rebuildPalette(true);
+        rebuildPalette(true, false);
         return true;
     }
 
@@ -458,23 +863,27 @@ Singleton {
         const sOn = Boolean(shellOn);
         const fOn = Boolean(surfaceOn);
         const aOn = Boolean(accentOn);
-        if (sOn && !root.shellGradientEnabled && colorToHex(root.pillBg2) === colorToHex(root.pillBg)) {
-            root.pillBg2 = deriveHarmonyStop(root.pillBg, 16, 0.055);
+        const p = presetMeta(root.activePreset) || root.presetCatalog[0];
+        const baseP = root.hasCustomPillBg ? hexToColor(root.customPillBg) : hexToColor(p.pillBg);
+        const baseS = root.hasCustomSurfaceBg ? hexToColor(root.customSurfaceBg) : hexToColor(p.surfaceBg);
+        if (sOn && !root.manualShellGradientEnabled && colorToHex(root.manualPillBg2) === colorToHex(baseP)) {
+            root.manualPillBg2 = deriveHarmonyStop(baseP, 16, 0.055);
         }
-        if (fOn && !root.surfaceGradientEnabled && colorToHex(root.surfaceBg2) === colorToHex(root.surfaceBg)) {
-            root.surfaceBg2 = deriveHarmonyStop(root.surfaceBg, 14, 0.05);
+        if (fOn && !root.manualSurfaceGradientEnabled && colorToHex(root.manualSurfaceBg2) === colorToHex(baseS)) {
+            root.manualSurfaceBg2 = deriveHarmonyStop(baseS, 14, 0.05);
         }
-        root.shellGradientEnabled = sOn;
-        root.surfaceGradientEnabled = fOn;
-        root.accentMode = aOn ? "Gradient" : "Solid";
-        rebuildPalette(true);
+        root.manualShellGradientEnabled = sOn;
+        root.manualSurfaceGradientEnabled = fOn;
+        root.manualAccentMode = aOn ? "Gradient" : "Solid";
+        root.accentMode = root.manualAccentMode;
+        rebuildPalette(true, false);
     }
 
     function setGradientAngle(deg) {
         const next = Math.max(0, Math.min(360, Math.round(Number(deg) || 0)));
-        if (root.gradientAngle === next) return;
-        root.gradientAngle = next;
-        rebuildPalette(true);
+        if (root.manualGradientAngle === next) return;
+        root.manualGradientAngle = next;
+        rebuildPalette(true, false);
     }
 
     function getSlotHex(slot) {
@@ -487,20 +896,24 @@ Singleton {
         if (slot === "surfaceRaised") return colorToHex(root.surfaceRaised);
         if (slot === "text") return colorToHex(root.text);
         if (slot === "borderColor") {
-            const norm = root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "";
-            return norm !== "" ? norm : colorToHex(root.text);
+            if (!root.wallpaperColorEnabled) {
+                const norm = root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "";
+                return norm !== "" ? norm : colorToHex(root.text);
+            }
+            return colorToHex(root._liveBorderBase);
         }
         return "#ffffff";
     }
 
-    function applyPreset(name) {
+    function applyPreset(name, skipLiveCommit) {
         const p = presetMeta(name);
         if (!p) return false;
         root.activePreset = name;
         root.surfaceTheme = p.surfaceTheme;
         root.customAccentActive = false;
         root.customAccent2Active = false;
-        root.accentMode = p.accentGradient ? "Gradient" : "Solid";
+        root.manualAccentMode = p.accentGradient ? "Gradient" : "Solid";
+        root.accentMode = root.manualAccentMode;
         root.hueVal = 0;
         root.satVal = 0;
         root.valVal = 0.92;
@@ -515,15 +928,17 @@ Singleton {
         root.hasCustomBorderColor = false;
         root.customBorderColor = "";
         root.customPaletteActive = false;
-        root.shellGradientEnabled = Boolean(p.shellGradient);
-        root.surfaceGradientEnabled = Boolean(p.surfaceGradient);
-        root.gradientAngle = (p.gradientAngle !== undefined) ? p.gradientAngle : 135;
-        root.pillBg2 = p.pillBg2 ? hexToColor(p.pillBg2) : deriveHarmonyStop(p.pillBg, 16, 0.055);
-        root.surfaceBg2 = p.surfaceBg2 ? hexToColor(p.surfaceBg2) : deriveHarmonyStop(p.surfaceBg, 14, 0.05);
-        root.accent2 = p.accent2 ? hexToColor(p.accent2) : deriveHarmonyStop(p.accent, 32, 0.0);
-        rebuildPalette(false);
+        root.manualShellGradientEnabled = Boolean(p.shellGradient);
+        root.manualSurfaceGradientEnabled = Boolean(p.surfaceGradient);
+        root.manualGradientAngle = (p.gradientAngle !== undefined) ? p.gradientAngle : 135;
+        root.manualPillBg2 = p.pillBg2 ? hexToColor(p.pillBg2) : deriveHarmonyStop(p.pillBg, 16, 0.055);
+        root.manualSurfaceBg2 = p.surfaceBg2 ? hexToColor(p.surfaceBg2) : deriveHarmonyStop(p.surfaceBg, 14, 0.05);
+        root.manualAccent2 = p.accent2 ? hexToColor(p.accent2) : deriveHarmonyStop(p.accent, 32, 0.0);
+        if (!skipLiveCommit) {
+            rebuildPalette(false, false);
+        }
         root.presetApplied(name);
-        if (!root._suppressColorSignal) root.themeColorsChanged();
+        if (!skipLiveCommit && !root._suppressColorSignal) root.themeColorsChanged();
         return true;
     }
 
@@ -531,17 +946,17 @@ Singleton {
         return {
             surfaceTheme: root.surfaceTheme,
             customAccentActive: Boolean(root.customAccentActive),
-            accentMode: root.accentMode,
+            accentMode: root.manualAccentMode,
             hueVal: root.hueVal,
             satVal: root.satVal,
             valVal: root.valVal,
-            gradientAngle: Math.round(root.gradientAngle),
-            shellGradientEnabled: Boolean(root.shellGradientEnabled),
-            pillBg2: colorToHex(root.pillBg2),
-            surfaceGradientEnabled: Boolean(root.surfaceGradientEnabled),
-            surfaceBg2: colorToHex(root.surfaceBg2),
+            gradientAngle: Math.round(root.manualGradientAngle),
+            shellGradientEnabled: Boolean(root.manualShellGradientEnabled),
+            pillBg2: colorToHex(root.manualPillBg2),
+            surfaceGradientEnabled: Boolean(root.manualSurfaceGradientEnabled),
+            surfaceBg2: colorToHex(root.manualSurfaceBg2),
             customAccent2Active: Boolean(root.customAccent2Active),
-            accent2: colorToHex(root.accent2),
+            accent2: colorToHex(root.manualAccent2),
             customPaletteActive: Boolean(root.customPaletteActive),
             hasCustomPillBg: Boolean(root.hasCustomPillBg),
             customPillBg: root.hasCustomPillBg ? normalizeHex(root.customPillBg, "") : "",
@@ -552,11 +967,13 @@ Singleton {
             hasCustomText: Boolean(root.hasCustomText),
             customText: root.hasCustomText ? normalizeHex(root.customText, "") : "",
             hasCustomBorderColor: Boolean(root.hasCustomBorderColor),
-            customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : ""
+            customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "",
+            wallpaperColorEnabled: Boolean(root.wallpaperColorEnabled),
+            wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid"
         };
     }
 
-    function applyPaletteState(obj) {
+    function applyPaletteState(obj, deferLiveIfWallpaper) {
         if (!obj || typeof obj !== "object") return false;
         const prevSuppress = root._suppressColorSignal;
         root._suppressColorSignal = true;
@@ -565,8 +982,13 @@ Singleton {
         if (typeof surfTheme === "string" && (surfTheme === "OLED Pure" || surfTheme === "Mica Dark" || surfTheme === "Adaptive")) {
             root.surfaceTheme = surfTheme;
         }
-        if (typeof obj.accentMode === "string") root.accentMode = obj.accentMode === "Gradient" ? "Gradient" : "Solid";
-        if (typeof obj.gradientAngle === "number") root.gradientAngle = Math.max(0, Math.min(360, Math.round(obj.gradientAngle)));
+        if (typeof obj.accentMode === "string") {
+            root.manualAccentMode = obj.accentMode === "Gradient" ? "Gradient" : "Solid";
+            root.accentMode = root.manualAccentMode;
+        }
+        if (typeof obj.gradientAngle === "number") {
+            root.manualGradientAngle = Math.max(0, Math.min(360, Math.round(obj.gradientAngle)));
+        }
 
         if (obj.customAccentActive === true) {
             root.hueVal = Math.max(0, Math.min(1, Number(obj.hueVal) || 0));
@@ -600,25 +1022,38 @@ Singleton {
         root.hasCustomBorderColor = (obj.hasCustomBorderColor !== undefined ? Boolean(obj.hasCustomBorderColor) : cBorder !== "") && cBorder !== "";
         root.customBorderColor = root.hasCustomBorderColor ? cBorder : "";
 
-        root.shellGradientEnabled = Boolean(obj.shellGradientEnabled);
+        root.manualShellGradientEnabled = Boolean(obj.shellGradientEnabled);
         const p2 = normalizeHex(obj.pillBg2, "");
-        if (p2 !== "") root.pillBg2 = hexToColor(p2);
+        if (p2 !== "") root.manualPillBg2 = hexToColor(p2);
 
-        root.surfaceGradientEnabled = Boolean(obj.surfaceGradientEnabled);
+        root.manualSurfaceGradientEnabled = Boolean(obj.surfaceGradientEnabled);
         const s2 = normalizeHex(obj.surfaceBg2, "");
-        if (s2 !== "") root.surfaceBg2 = hexToColor(s2);
+        if (s2 !== "") root.manualSurfaceBg2 = hexToColor(s2);
 
         const a2 = normalizeHex(obj.accent2, "");
         root.customAccent2Active = Boolean(obj.customAccent2Active) && a2 !== "";
-        if (root.customAccent2Active) root.accent2 = hexToColor(a2);
+        if (root.customAccent2Active) root.manualAccent2 = hexToColor(a2);
 
-        rebuildPalette(false);
+        root.wallpaperColorEnabled = Boolean(obj.wallpaperColorEnabled);
+        root.wallpaperColorMode = (typeof obj.wallpaperColorMode === "string" && obj.wallpaperColorMode.toLowerCase() === "gradient")
+            ? "Gradient"
+            : "Solid";
 
-        if (p2 === "" || (!root.shellGradientEnabled && obj.pillBg2 === undefined)) {
-            root.pillBg2 = deriveHarmonyStop(root.pillBg, 16, 0.055);
+        if (p2 === "" || (!root.manualShellGradientEnabled && obj.pillBg2 === undefined)) {
+            const p = presetMeta(root.activePreset) || root.presetCatalog[0];
+            const baseP = root.hasCustomPillBg ? hexToColor(root.customPillBg) : hexToColor(p.pillBg);
+            root.manualPillBg2 = deriveHarmonyStop(baseP, 16, 0.055);
         }
-        if (s2 === "" || (!root.surfaceGradientEnabled && obj.surfaceBg2 === undefined)) {
-            root.surfaceBg2 = deriveHarmonyStop(root.surfaceBg, 14, 0.05);
+        if (s2 === "" || (!root.manualSurfaceGradientEnabled && obj.surfaceBg2 === undefined)) {
+            const p = presetMeta(root.activePreset) || root.presetCatalog[0];
+            const baseS = root.hasCustomSurfaceBg ? hexToColor(root.customSurfaceBg) : hexToColor(p.surfaceBg);
+            root.manualSurfaceBg2 = deriveHarmonyStop(baseS, 14, 0.05);
+        }
+
+        if (!(deferLiveIfWallpaper && root.wallpaperColorEnabled)) {
+            rebuildPalette(false, false);
+        } else {
+            _computeManualTargetPalette();
         }
 
         root._suppressColorSignal = prevSuppress;
@@ -655,15 +1090,15 @@ Singleton {
             ? String(profileName)
             : (stateObj && stateObj.activeProfile ? String(stateObj.activeProfile) : "");
         return {
-            // 1. Theme & Accent
+            // 1. Theme & Accent (always exports User A's preserved manual color settings)
             presetName: root.activePreset,
             globalSurfaceTheme: stateObj ? stateObj.globalSurfaceTheme : root.surfaceTheme,
             customAccentActive: Boolean(root.customAccentActive),
-            accentMode: root.accentMode,
+            accentMode: root.manualAccentMode,
             hueVal: root.hueVal,
             satVal: root.satVal,
             valVal: root.valVal,
-            gradientAngle: Math.round(root.gradientAngle),
+            gradientAngle: Math.round(root.manualGradientAngle),
             gooeyEnabled: Boolean(root.gooeyEnabled),
             speedMultiplier: root.speedMultiplier,
             // 2. Decoration, Motion & Blur
@@ -711,19 +1146,22 @@ Singleton {
             lockDimOpacity: lockSvc ? Math.round(lockSvc.dimOpacity) : 36,
             // 6. Embedded Profile / Preset Name
             profileName: effectiveName,
-            // 7. v3 Extended Colors & Gradients
-            shellGradientEnabled: Boolean(root.shellGradientEnabled),
-            pillBg2: colorToHex(root.pillBg2),
-            surfaceGradientEnabled: Boolean(root.surfaceGradientEnabled),
-            surfaceBg2: colorToHex(root.surfaceBg2),
+            // 7. v3 Extended Colors & Gradients (manual backing state)
+            shellGradientEnabled: Boolean(root.manualShellGradientEnabled),
+            pillBg2: colorToHex(root.manualPillBg2),
+            surfaceGradientEnabled: Boolean(root.manualSurfaceGradientEnabled),
+            surfaceBg2: colorToHex(root.manualSurfaceBg2),
             customAccent2Active: Boolean(root.customAccent2Active),
-            accent2: colorToHex(root.accent2),
+            accent2: colorToHex(root.manualAccent2),
             customPaletteActive: Boolean(root.customPaletteActive),
             customPillBg: root.hasCustomPillBg ? normalizeHex(root.customPillBg, "") : "",
             customSurfaceBg: root.hasCustomSurfaceBg ? normalizeHex(root.customSurfaceBg, "") : "",
             customSurfaceRaised: root.hasCustomSurfaceRaised ? normalizeHex(root.customSurfaceRaised, "") : "",
             customText: root.hasCustomText ? normalizeHex(root.customText, "") : "",
-            customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : ""
+            customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "",
+            // 8. v4 Adaptive Wallpaper Color Mode ("Adjust color based on what's you see")
+            wallpaperColorEnabled: Boolean(root.wallpaperColorEnabled),
+            wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid"
         };
     }
 

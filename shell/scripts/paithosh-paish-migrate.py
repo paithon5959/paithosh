@@ -194,7 +194,7 @@ def _self_test() -> None:
     assert v2_from_code.startswith("paish:")
 
     decoded = paish_v2.decode_code(v2_from_code)
-    assert decoded["version"] == 3
+    assert decoded["version"] == paish_v2.SCHEMA_VERSION
     assert decoded["presetName"] == "Nord Frost"
     assert decoded["globalSurfaceTheme"] == "Adaptive"
     assert decoded["islandCornerRadius"] == "18px"

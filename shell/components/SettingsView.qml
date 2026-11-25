@@ -55,6 +55,7 @@ Item {
     property string maxDisplayRes: "1920 × 1080"
 
     function isPresetActive(name) {
+        if (Theme.wallpaperColorEnabled) return false;
         const meta = Theme.presetMeta(name);
         return Theme.activePreset === name
             && !Theme.customAccentActive
@@ -67,6 +68,7 @@ Item {
     }
 
     function selectThemePreset(name) {
+        if (Theme.wallpaperColorEnabled) return;
         if (root.shellState) root.shellState.selectPreset(name);
         else Theme.applyPreset(name);
     }
@@ -189,6 +191,13 @@ Item {
         function onSettingsSpotlightChanged() {
             if (!root.shellState) return;
             root.applyExternalSearch(root.shellState.settingsSpotlight || "");
+        }
+    }
+
+    Connections {
+        target: Theme
+        function onWallpaperColorEnabledChanged() {
+            root.loadStudioSlot(root.colorStudioSlot);
         }
     }
 
@@ -652,10 +661,10 @@ Item {
         opacity: spotMatched ? 1.0 : 0.28
         color: (spotActive && spotMatched)
             ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
-            : (active ? Theme.cardHover : (pMouse.containsMouse ? Theme.cardHover : Theme.cardBg))
+            : (active ? Theme.cardHover : ((pCard.enabled && pMouse.containsMouse) ? Theme.cardHover : Theme.cardBg))
         border.width: (active || (spotActive && spotMatched)) ? 2 : 1
-        border.color: (active || (spotActive && spotMatched)) ? Theme.accent : (pMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-        scale: pMouse.pressed ? 0.98 : 1.0
+        border.color: (active || (spotActive && spotMatched)) ? Theme.accent : ((pCard.enabled && pMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
+        scale: (pCard.enabled && pMouse.pressed) ? 0.98 : 1.0
         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -695,6 +704,7 @@ Item {
                         anchors.fill: parent
                         enabled: pCard.active && Theme.accentGradientEnabled
                         color1: Theme.accent
+                        colorMid: Theme.accentMid
                         color2: Theme.accent2
                         cornerRadius: 9
                     }
@@ -722,8 +732,9 @@ Item {
         MouseArea {
             id: pMouse
             anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            enabled: pCard.enabled
+            hoverEnabled: pCard.enabled
+            cursorShape: pCard.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: pCard.triggered()
         }
     }
@@ -740,8 +751,8 @@ Item {
         radius: 12
         color: Theme.cardBg
         border.width: 1
-        border.color: advMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.40) : Theme.borderSubtle
-        scale: advMouse.pressed ? 0.99 : 1.0
+        border.color: (advRoot.enabled && advMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.40) : Theme.borderSubtle
+        scale: (advRoot.enabled && advMouse.pressed) ? 0.99 : 1.0
         clip: true
         Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -751,7 +762,7 @@ Item {
             id: advHeader
             width: parent.width
             height: 50
-            color: advMouse.containsMouse ? Theme.cardHover : "transparent"
+            color: (advRoot.enabled && advMouse.containsMouse) ? Theme.cardHover : "transparent"
             Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
 
             RowLayout {
@@ -762,7 +773,7 @@ Item {
                 SvgIcon {
                     sourceName: "settings"
                     iconSize: 15
-                    color: advMouse.containsMouse ? Theme.text : Theme.textMuted
+                    color: (advRoot.enabled && advMouse.containsMouse) ? Theme.text : Theme.textMuted
                     Behavior on color { ColorAnimation { duration: 140 } }
                 }
                 ColumnLayout {
@@ -775,16 +786,16 @@ Item {
                     implicitWidth: advToggleLbl.implicitWidth + 16
                     height: 24
                     radius: 12
-                    color: advMouse.containsMouse ? Theme.surfaceRaised : Theme.pillBg
+                    color: (advRoot.enabled && advMouse.containsMouse) ? Theme.surfaceRaised : Theme.pillBg
                     border.width: 1
-                    border.color: advMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                    border.color: (advRoot.enabled && advMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
                     Behavior on color { ColorAnimation { duration: 140 } }
                     Behavior on border.color { ColorAnimation { duration: 140 } }
                     Text {
                         id: advToggleLbl
                         anchors.centerIn: parent
                         text: advRoot.expanded ? "Hide ▴" : "Show ▾"
-                        color: advMouse.containsMouse ? Theme.text : Theme.textSub
+                        color: (advRoot.enabled && advMouse.containsMouse) ? Theme.text : Theme.textSub
                         font.family: Theme.fontSans
                         font.pixelSize: 11
                         font.weight: Font.Medium
@@ -796,8 +807,9 @@ Item {
             MouseArea {
                 id: advMouse
                 anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
+                enabled: advRoot.enabled
+                hoverEnabled: advRoot.enabled
+                cursorShape: advRoot.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                 onClicked: advRoot.expanded = !advRoot.expanded
             }
         }
@@ -1005,10 +1017,10 @@ Item {
         height: 22
         radius: 11
         clip: true
-        color: checked ? Theme.accent : (swMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22) : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14))
+        color: checked ? Theme.accent : ((sw.enabled && swMouse.containsMouse) ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22) : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14))
         border.width: 1
-        border.color: checked ? Theme.accent : (swMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-        scale: swMouse.pressed ? 0.94 : 1.0
+        border.color: checked ? Theme.accent : ((sw.enabled && swMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
+        scale: (sw.enabled && swMouse.pressed) ? 0.94 : 1.0
         Behavior on color { ColorAnimation { duration: 150 } }
         Behavior on border.color { ColorAnimation { duration: 150 } }
         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
@@ -1018,6 +1030,7 @@ Item {
             anchors.margins: 1
             enabled: sw.checked && Theme.accentGradientEnabled
             color1: Theme.accent
+            colorMid: Theme.accentMid
             color2: Theme.accent2
             cornerRadius: 10
         }
@@ -1033,8 +1046,9 @@ Item {
         MouseArea {
             id: swMouse
             anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            enabled: sw.enabled
+            hoverEnabled: sw.enabled
+            cursorShape: sw.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: sw.toggled(!sw.checked)
         }
     }
@@ -1098,7 +1112,7 @@ Item {
             onMoved: cSlider.moved(cSlider.stepSize > 0 && cSlider.stepSize < 1 ? value : Math.round(value))
 
             HoverHandler {
-                cursorShape: Qt.PointingHandCursor
+                cursorShape: cSlider.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             }
 
             background: Rectangle {
@@ -1122,6 +1136,7 @@ Item {
                         anchors.fill: parent
                         enabled: Theme.accentGradientEnabled
                         color1: Theme.accent
+                        colorMid: Theme.accentMid
                         color2: Theme.accent2
                         cornerRadius: 3
                     }
@@ -1162,7 +1177,7 @@ Item {
         padding: 0
 
         HoverHandler {
-            cursorShape: Qt.PointingHandCursor
+            cursorShape: hsl.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         }
 
         background: Rectangle {
@@ -1213,7 +1228,7 @@ Item {
         height: 30
         implicitWidth: Math.max(126, selLbl.implicitWidth + 32)
         radius: 8
-        color: selMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised
+        color: (cSel.enabled && selMouse.containsMouse) ? Theme.cardHover : Theme.surfaceRaised
         border.width: 1
         border.color: Theme.borderSubtle
 
@@ -1237,8 +1252,9 @@ Item {
         MouseArea {
             id: selMouse
             anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            enabled: cSel.enabled
+            hoverEnabled: cSel.enabled
+            cursorShape: cSel.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
             onClicked: {
                 const mw = Math.max(196, cSel.width);
                 const pt = cSel.mapToItem(root, cSel.width - mw, cSel.height + 4);
@@ -1260,6 +1276,312 @@ Item {
     ContextMenu {
         id: settingsSelectMenu
         z: 250
+    }
+
+    component WallpaperLockBanner: Item {
+        id: lockBanner
+        property bool active: Theme.wallpaperColorEnabled
+        property string message: ""
+
+        Layout.fillWidth: true
+        implicitHeight: active ? lockBox.implicitHeight : 0
+        opacity: active ? 1.0 : 0.0
+        visible: implicitHeight > 0.5
+        clip: true
+
+        Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+        Rectangle {
+            id: lockBox
+            width: parent.width
+            implicitHeight: lockRow.implicitHeight + 20
+            radius: 10
+            color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.38)
+            clip: true
+
+            RowLayout {
+                id: lockRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: 10
+                spacing: 8
+
+                SvgIcon {
+                    sourceName: "lock"
+                    iconSize: 14
+                    color: Theme.info
+                    Layout.alignment: Qt.AlignTop
+                    Layout.topMargin: 1
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    text: lockBanner.message
+                    color: Theme.text
+                    font.family: Theme.fontSans
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+    }
+
+    component WallpaperColorCard: SettingGroup {
+        id: wpColorCard
+        readonly property var paletteSwatches: Theme.wallpaperColorMode === "Gradient"
+            ? Theme.wallpaperRefinedPalette
+            : Theme.wallpaperExtractedColors
+
+        SettingRow {
+            showDivider: false
+            iconName: "eye"
+            title: "Adjust color based on what's you see"
+            subtitle: Theme.wallpaperColorEnabled
+                ? (Theme.wallpaperColorBusy
+                    ? "Analyzing active wallpaper palette..."
+                    : (Theme.wallpaperColorMode === "Gradient"
+                        ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
+                        : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast"))
+                : "Match interface colors automatically to your active wallpaper"
+            searchKeywords: "adjust color based on what you see wallpaper adaptive dynamic experimental solid gradient match palette"
+
+            RowLayout {
+                spacing: 10
+                Rectangle {
+                    height: 20
+                    implicitWidth: wpExpLbl.implicitWidth + 12
+                    radius: 6
+                    clip: true
+                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                    border.width: 1
+                    border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42)
+                    Text {
+                        id: wpExpLbl
+                        anchors.centerIn: parent
+                        text: "Experimental"
+                        color: Theme.warn
+                        font.family: Theme.fontMono
+                        font.pixelSize: 10
+                        font.weight: Font.DemiBold
+                    }
+                }
+                CtrlSwitch {
+                    checked: Theme.wallpaperColorEnabled
+                    onToggled: (v) => {
+                        if (root.shellState) root.shellState.setWallpaperColorEnabled(v);
+                        else Theme.setWallpaperColorEnabled(v);
+                    }
+                }
+            }
+        }
+
+        Item {
+            Layout.fillWidth: true
+            implicitHeight: Theme.wallpaperColorEnabled ? wpExpandCol.implicitHeight : 0
+            opacity: Theme.wallpaperColorEnabled ? 1.0 : 0.0
+            visible: implicitHeight > 0.5
+            clip: true
+
+            Behavior on implicitHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+            ColumnLayout {
+                id: wpExpandCol
+                width: parent.width
+                spacing: 0
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderSubtle
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: wpModeRow.implicitHeight + 20
+
+                    RowLayout {
+                        id: wpModeRow
+                        anchors.fill: parent
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        anchors.topMargin: 10
+                        anchors.bottomMargin: 10
+                        spacing: 12
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            spacing: 2
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: "Color Style"
+                                color: Theme.text
+                                font.family: Theme.fontSans
+                                font.pixelSize: 12
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: Theme.wallpaperColorMode === "Gradient"
+                                    ? "10–12 balanced light/dark spectrum stops"
+                                    : "3–5 prominent colors analyzed for solid UI roles"
+                                color: Theme.textSub
+                                font.family: Theme.fontSans
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        Rectangle {
+                            id: wpSegTrack
+                            width: 176
+                            height: 30
+                            radius: 9
+                            clip: true
+                            color: Theme.pillBg
+                            border.width: 1
+                            border.color: Theme.borderSubtle
+
+                            Rectangle {
+                                y: 2
+                                x: Theme.wallpaperColorMode === "Gradient" ? (wpSegTrack.width / 2) : 2
+                                width: wpSegTrack.width / 2 - 2
+                                height: wpSegTrack.height - 4
+                                radius: 7
+                                color: Theme.surfaceRaised
+                                border.width: 1
+                                border.color: Theme.borderSubtle
+                                Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            }
+
+                            Row {
+                                anchors.fill: parent
+                                Item {
+                                    width: wpSegTrack.width / 2
+                                    height: wpSegTrack.height
+                                    clip: true
+                                    scale: wpSolidMouse.pressed ? 0.94 : 1.0
+                                    Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "Solid"
+                                        color: Theme.wallpaperColorMode === "Solid" ? Theme.text : (wpSolidMouse.containsMouse ? Theme.text : Theme.textSub)
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        font.weight: Theme.wallpaperColorMode === "Solid" ? Font.DemiBold : Font.Medium
+                                        Behavior on color { ColorAnimation { duration: 140 } }
+                                    }
+                                    MouseArea {
+                                        id: wpSolidMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (root.shellState) root.shellState.setWallpaperColorMode("Solid");
+                                            else Theme.setWallpaperColorMode("Solid");
+                                        }
+                                    }
+                                }
+                                Item {
+                                    width: wpSegTrack.width / 2
+                                    height: wpSegTrack.height
+                                    clip: true
+                                    scale: wpGradMouse.pressed ? 0.94 : 1.0
+                                    Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "Gradient"
+                                        color: Theme.wallpaperColorMode === "Gradient" ? Theme.text : (wpGradMouse.containsMouse ? Theme.text : Theme.textSub)
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        font.weight: Theme.wallpaperColorMode === "Gradient" ? Font.DemiBold : Font.Medium
+                                        Behavior on color { ColorAnimation { duration: 140 } }
+                                    }
+                                    MouseArea {
+                                        id: wpGradMouse
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (root.shellState) root.shellState.setWallpaperColorMode("Gradient");
+                                            else Theme.setWallpaperColorMode("Gradient");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item {
+                    Layout.fillWidth: true
+                    implicitHeight: wpSwatchStrip.implicitHeight + 12
+
+                    Rectangle {
+                        id: wpSwatchStrip
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        implicitHeight: 34
+                        radius: 9
+                        clip: true
+                        color: Theme.pillBg
+                        border.width: 1
+                        border.color: Theme.borderSubtle
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 10
+                            anchors.rightMargin: 10
+                            spacing: 6
+
+                            Row {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                clip: true
+                                spacing: 3
+                                Repeater {
+                                    model: wpColorCard.paletteSwatches
+                                    delegate: Rectangle {
+                                        required property string modelData
+                                        width: Theme.wallpaperColorMode === "Gradient" ? 14 : 22
+                                        height: 18
+                                        radius: 5
+                                        clip: true
+                                        color: modelData
+                                        border.width: 1
+                                        border.color: Theme.borderSubtle
+                                        Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.minimumWidth: 0
+                                text: Theme.wallpaperColorBusy
+                                    ? "Analyzing..."
+                                    : (wpColorCard.paletteSwatches.length + " tones" + (Theme.wallpaperColorMode === "Gradient" ? (" • " + Math.round(Theme.gradientAngle) + "°") : ""))
+                                color: Theme.textSub
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                elide: Text.ElideRight
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     component CtrlBtn: Rectangle {
@@ -1296,6 +1618,7 @@ Item {
             anchors.margins: 1
             enabled: !cBtn.ghost && !cBtn.danger && Theme.accentGradientEnabled
             color1: Theme.accent
+            colorMid: Theme.accentMid
             color2: Theme.accent2
             cornerRadius: 7
         }
@@ -1345,6 +1668,7 @@ Item {
                 anchors.fill: parent
                 enabled: Theme.shellGradientEnabled
                 color1: Theme.pillBg
+                colorMid: Theme.pillBgMid
                 color2: Theme.pillBg2
                 cornerRadius: 0
             }
@@ -1500,6 +1824,7 @@ Item {
                                     anchors.fill: parent
                                     enabled: Theme.accentGradientEnabled
                                     color1: Theme.accent
+                                    colorMid: Theme.accentMid
                                     color2: Theme.accent2
                                     cornerRadius: 2
                                 }
@@ -1710,16 +2035,19 @@ Item {
                             SectionLabel { text: "Quick Settings & Theme" }
                             GridLayout {
                                 Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
+                                enabled: !Theme.wallpaperColorEnabled
+                                opacity: Theme.wallpaperColorEnabled ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 Repeater {
                                     model: Theme.presetCatalog
                                     delegate: Rectangle {
                                         required property var modelData
                                         readonly property bool active: root.isPresetActive(modelData.name)
                                         Layout.fillWidth: true; height: 74; radius: 10
-                                        color: (themeMouse.containsMouse || active) ? Theme.cardHover : Theme.cardBg
+                                        color: ((!Theme.wallpaperColorEnabled && themeMouse.containsMouse) || active) ? Theme.cardHover : Theme.cardBg
                                         border.width: active ? 2 : 1
-                                        border.color: active ? Theme.accent : (themeMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-                                        scale: themeMouse.pressed ? 0.97 : 1.0
+                                        border.color: active ? Theme.accent : ((!Theme.wallpaperColorEnabled && themeMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
+                                        scale: (!Theme.wallpaperColorEnabled && themeMouse.pressed) ? 0.97 : 1.0
                                         clip: true
                                         Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                         Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -1737,14 +2065,18 @@ Item {
                                         MouseArea {
                                             id: themeMouse
                                             anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
+                                            enabled: !Theme.wallpaperColorEnabled
+                                            hoverEnabled: !Theme.wallpaperColorEnabled
+                                            cursorShape: !Theme.wallpaperColorEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                             onClicked: {
                                                 root.selectThemePreset(modelData.name);
                                             }
                                         }
                                     }
                                 }
+                            }
+                            WallpaperLockBanner {
+                                message: "Theme presets are disabled while \"Adjust color based on what's you see\" is active — Paithosh is matching colors automatically to your wallpaper."
                             }
 
                             SettingGroup {
@@ -4832,7 +5164,7 @@ Item {
                                             Layout.fillWidth: true; spacing: 2
                                             Text { text: "Desktop Preview"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
                                             Text {
-                                                text: Theme.activePreset + " • Rounding " + CompositorService.cornerRounding + "px • Gaps " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px • " + (CompositorService.blurEnabled ? ("Blur " + CompositorService.blurSize + "px") : "Blur Off")
+                                                text: (Theme.wallpaperColorEnabled ? ("Wallpaper Match (" + Theme.wallpaperColorMode + ")") : Theme.activePreset) + " • Rounding " + CompositorService.cornerRounding + "px • Gaps " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px • " + (CompositorService.blurEnabled ? ("Blur " + CompositorService.blurSize + "px") : "Blur Off")
                                                 color: Theme.textSub
                                                 font.family: Theme.fontSans
                                                 font.pixelSize: 11
@@ -4897,6 +5229,7 @@ Item {
                                                 anchors.margins: 1
                                                 enabled: Theme.shellGradientEnabled
                                                 color1: Theme.pillBg
+                                                colorMid: Theme.pillBgMid
                                                 color2: Theme.pillBg2
                                                 cornerRadius: Math.max(0, previewIsland.radius - 1)
                                             }
@@ -4964,6 +5297,7 @@ Item {
                                                     anchors.margins: parent.border.width
                                                     enabled: Theme.surfaceGradientEnabled
                                                     color1: Qt.rgba(Theme.surfaceBg.r, Theme.surfaceBg.g, Theme.surfaceBg.b, CompositorService.blurEnabled ? 0.80 : 0.97)
+                                                    colorMid: Qt.rgba(Theme.surfaceBgMid.r, Theme.surfaceBgMid.g, Theme.surfaceBgMid.b, CompositorService.blurEnabled ? 0.80 : 0.97)
                                                     color2: Qt.rgba(Theme.surfaceBg2.r, Theme.surfaceBg2.g, Theme.surfaceBg2.b, CompositorService.blurEnabled ? 0.80 : 0.97)
                                                     cornerRadius: Math.max(0, parent.radius - parent.border.width)
                                                 }
@@ -4975,7 +5309,7 @@ Item {
                                                         Text { text: "Settings • Personalization"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 10; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
                                                         Rectangle {
                                                             width: 6; height: 6; radius: 3; clip: true; color: Theme.accent
-                                                            ThemeGradientFill { anchors.fill: parent; enabled: Theme.accentGradientEnabled; color1: Theme.accent; color2: Theme.accent2; cornerRadius: 3 }
+                                                            ThemeGradientFill { anchors.fill: parent; enabled: Theme.accentGradientEnabled; color1: Theme.accent; colorMid: Theme.accentMid; color2: Theme.accent2; cornerRadius: 3 }
                                                         }
                                                     }
                                                     Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 6; radius: 3; color: Theme.cardHover }
@@ -5012,10 +5346,13 @@ Item {
                                 }
                             }
 
-                            // 2. Theme Presets (Pre-configured + Local .paish + Share Code)
+                            // 2. Theme Presets (Pre-configured + Adaptive Wallpaper + Local .paish + Share Code)
                             SectionLabel { text: "Theme presets" }
                             GridLayout {
                                 Layout.fillWidth: true; columns: 2; columnSpacing: 10; rowSpacing: 10
+                                enabled: !Theme.wallpaperColorEnabled
+                                opacity: Theme.wallpaperColorEnabled ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 Repeater {
                                     model: Theme.presetCatalog
                                     delegate: PresetCard {
@@ -5026,6 +5363,12 @@ Item {
                                         onTriggered: root.selectThemePreset(modelData.name)
                                     }
                                 }
+                            }
+
+                            WallpaperColorCard {}
+
+                            WallpaperLockBanner {
+                                message: "Theme presets are disabled while \"Adjust color based on what's you see\" is active so Paithosh can match colors directly to your wallpaper. Your manual preset and custom palette remain preserved."
                             }
 
                             SectionLabel { text: "Quick Share Code (Personalization + Advanced)" }
@@ -5245,7 +5588,7 @@ Item {
 
                             // 4. Customize by Area
                             SectionLabel { text: "Customize by area" }
-                            HubCard { iconName: "palette"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: Theme.activePreset + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
+                            HubCard { iconName: "palette"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: (Theme.wallpaperColorEnabled ? ("Wallpaper (" + Theme.wallpaperColorMode + ")") : Theme.activePreset) + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
                             HubCard { iconName: "keyboard"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconName: "layout"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                             HubCard {
@@ -5271,8 +5614,17 @@ Item {
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
+                            WallpaperColorCard {}
+
+                            WallpaperLockBanner {
+                                message: "Manual color, surface, gradient, and studio controls below are disabled while \"Adjust color based on what's you see\" is enabled — Paithosh is automatically matching interface colors to your active wallpaper. Turn it off above to resume manual tuning (your previous setup is preserved)."
+                            }
+
                             SectionLabel { text: "Surface & Gradients" }
                             SettingGroup {
+                                enabled: !Theme.wallpaperColorEnabled
+                                opacity: Theme.wallpaperColorEnabled ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 SettingRow {
                                     showDivider: false; iconName: "contrast"; title: "Global Surface Theme"; subtitle: "Contrast & backdrop style synced across apps"
                                     searchKeywords: "surface theme oled mica adaptive contrast"
@@ -5290,10 +5642,10 @@ Item {
                                     iconName: "layers"; title: "Shell Gradient"; subtitle: "Directional gradient on Island, Popover, Menu & Sidebars"
                                     searchKeywords: "shell gradient pillbg island popover sidebar"
                                     CtrlSwitch {
-                                        checked: Theme.shellGradientEnabled
+                                        checked: Theme.wallpaperColorEnabled ? Theme.manualShellGradientEnabled : Theme.shellGradientEnabled
                                         onToggled: (v) => {
-                                            if (root.shellState) root.shellState.setThemeGradients(v, Theme.surfaceGradientEnabled, Theme.accentGradientEnabled);
-                                            else Theme.setGradientFlags(v, Theme.surfaceGradientEnabled, Theme.accentGradientEnabled);
+                                            if (root.shellState) root.shellState.setThemeGradients(v, Theme.manualSurfaceGradientEnabled, Theme.manualAccentMode === "Gradient");
+                                            else Theme.setGradientFlags(v, Theme.manualSurfaceGradientEnabled, Theme.manualAccentMode === "Gradient");
                                             root.loadStudioSlot(root.colorStudioSlot);
                                         }
                                     }
@@ -5302,10 +5654,10 @@ Item {
                                     iconName: "layers"; title: "Surface Gradient"; subtitle: "Directional gradient on Workspace canvas, Detached windows & Modals"
                                     searchKeywords: "surface gradient background workspace modal"
                                     CtrlSwitch {
-                                        checked: Theme.surfaceGradientEnabled
+                                        checked: Theme.wallpaperColorEnabled ? Theme.manualSurfaceGradientEnabled : Theme.surfaceGradientEnabled
                                         onToggled: (v) => {
-                                            if (root.shellState) root.shellState.setThemeGradients(Theme.shellGradientEnabled, v, Theme.accentGradientEnabled);
-                                            else Theme.setGradientFlags(Theme.shellGradientEnabled, v, Theme.accentGradientEnabled);
+                                            if (root.shellState) root.shellState.setThemeGradients(Theme.manualShellGradientEnabled, v, Theme.manualAccentMode === "Gradient");
+                                            else Theme.setGradientFlags(Theme.manualShellGradientEnabled, v, Theme.manualAccentMode === "Gradient");
                                             root.loadStudioSlot(root.colorStudioSlot);
                                         }
                                     }
@@ -5314,16 +5666,18 @@ Item {
                                     iconName: "sparkles"; title: "Accent Gradient"; subtitle: "Directional gradient on active buttons, switches, sliders & Hyprland border"
                                     searchKeywords: "accent gradient border active control"
                                     CtrlSwitch {
-                                        checked: Theme.accentGradientEnabled
+                                        checked: Theme.wallpaperColorEnabled ? (Theme.manualAccentMode === "Gradient") : Theme.accentGradientEnabled
                                         onToggled: (v) => {
-                                            if (root.shellState) root.shellState.setThemeGradients(Theme.shellGradientEnabled, Theme.surfaceGradientEnabled, v);
-                                            else Theme.setGradientFlags(Theme.shellGradientEnabled, Theme.surfaceGradientEnabled, v);
+                                            if (root.shellState) root.shellState.setThemeGradients(Theme.manualShellGradientEnabled, Theme.manualSurfaceGradientEnabled, v);
+                                            else Theme.setGradientFlags(Theme.manualShellGradientEnabled, Theme.manualSurfaceGradientEnabled, v);
                                             root.loadStudioSlot(root.colorStudioSlot);
                                         }
                                     }
                                 }
                                 Item {
-                                    readonly property bool anyGrad: Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled
+                                    readonly property bool anyGrad: Theme.wallpaperColorEnabled
+                                        ? (Theme.manualShellGradientEnabled || Theme.manualSurfaceGradientEnabled || Theme.manualAccentMode === "Gradient")
+                                        : (Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled)
                                     Layout.fillWidth: true
                                     implicitHeight: anyGrad ? angleRow.implicitHeight : 0
                                     clip: true
@@ -5338,7 +5692,7 @@ Item {
                                         searchKeywords: "gradient angle degree direction"
                                         CtrlSlider {
                                             from: 0; to: 360; unit: "°"
-                                            value: Theme.gradientAngle
+                                            value: Theme.wallpaperColorEnabled ? Theme.manualGradientAngle : Theme.gradientAngle
                                             onMoved: (v) => {
                                                 root.gradientAngle = v;
                                                 if (root.shellState) root.shellState.setThemeGradientAngle(v);
@@ -5364,21 +5718,22 @@ Item {
                                             delegate: Rectangle {
                                                 id: quickSwatch
                                                 required property var modelData
-                                                readonly property bool isTarget: root.studioExpanded && root.colorStudioSlot === modelData.slot
+                                                readonly property bool isTarget: !Theme.wallpaperColorEnabled && root.studioExpanded && root.colorStudioSlot === modelData.slot
                                                 width: 24; height: 24; radius: 7; clip: true
                                                 color: Theme.getSlotHex(modelData.slot)
                                                 border.width: isTarget ? 2 : 1
                                                 border.color: isTarget
                                                     ? Theme.accent
-                                                    : (swHover.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle)
-                                                scale: swHover.pressed ? 0.92 : (swHover.containsMouse ? 1.06 : 1.0)
+                                                    : ((!Theme.wallpaperColorEnabled && swHover.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle)
+                                                scale: (!Theme.wallpaperColorEnabled && swHover.pressed) ? 0.92 : ((!Theme.wallpaperColorEnabled && swHover.containsMouse) ? 1.06 : 1.0)
                                                 Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
                                                 MouseArea {
                                                     id: swHover
                                                     anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
+                                                    enabled: !Theme.wallpaperColorEnabled
+                                                    hoverEnabled: !Theme.wallpaperColorEnabled
+                                                    cursorShape: !Theme.wallpaperColorEnabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                                     onClicked: {
                                                         root.loadStudioSlot(quickSwatch.modelData.slot);
                                                         root.studioExpanded = true;
@@ -5389,6 +5744,7 @@ Item {
                                         CtrlBtn {
                                             text: "Reset"
                                             ghost: true
+                                            enabled: !Theme.wallpaperColorEnabled
                                             onClicked: root.selectThemePreset(Theme.activePreset)
                                         }
                                     }
@@ -5399,6 +5755,9 @@ Item {
                                 id: themeStudioAdv
                                 title: "Theme Color & Gradient Studio"
                                 subtitle: "Shell, Surface, Accent, Raised, Text, Border & Gradient Stops"
+                                enabled: !Theme.wallpaperColorEnabled
+                                opacity: Theme.wallpaperColorEnabled ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 onExpandedChanged: {
                                     if (root.studioExpanded !== expanded) root.studioExpanded = expanded;
                                 }
@@ -5810,7 +6169,7 @@ Item {
                                             ThemeGradientFill {
                                                 anchors.fill: parent; anchors.margins: 1
                                                 enabled: Theme.surfaceGradientEnabled
-                                                color1: Theme.surfaceBg; color2: Theme.surfaceBg2
+                                                color1: Theme.surfaceBg; colorMid: Theme.surfaceBgMid; color2: Theme.surfaceBg2
                                                 cornerRadius: 9
                                             }
                                             RowLayout {
@@ -5823,7 +6182,7 @@ Item {
                                                     ThemeGradientFill {
                                                         anchors.fill: parent; anchors.margins: 1
                                                         enabled: Theme.shellGradientEnabled
-                                                        color1: Theme.pillBg; color2: Theme.pillBg2
+                                                        color1: Theme.pillBg; colorMid: Theme.pillBgMid; color2: Theme.pillBg2
                                                         cornerRadius: 15
                                                     }
                                                     RowLayout {
@@ -5840,7 +6199,7 @@ Item {
                                                             ThemeGradientFill {
                                                                 anchors.fill: parent
                                                                 enabled: Theme.accentGradientEnabled
-                                                                color1: Theme.accent; color2: Theme.accent2
+                                                                color1: Theme.accent; colorMid: Theme.accentMid; color2: Theme.accent2
                                                                 cornerRadius: 10
                                                             }
                                                             Text {

@@ -321,6 +321,7 @@ PanelWindow {
                 property real threshold: 0.46
                 property real softness: 0.06
                 property color pillColor: Theme.pillBg
+                property color pillColorMid: Theme.pillBgMid
                 property color pillColor2: Theme.pillBg2
                 property real angleRad: Theme.gradientAngle * Math.PI / 180.0
                 property real gradEnabled: Theme.shellGradientEnabled ? 1.0 : 0.0
@@ -338,6 +339,7 @@ PanelWindow {
                     anchors.fill: parent
                     enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
                     color1: Theme.pillBg
+                    colorMid: Theme.pillBgMid
                     color2: Theme.pillBg2
                     cornerRadius: mainBg.radius
                 }
@@ -358,6 +360,7 @@ PanelWindow {
                     anchors.fill: parent
                     enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
                     color1: Theme.pillBg
+                    colorMid: Theme.pillBgMid
                     color2: Theme.pillBg2
                     cornerRadius: mediaBg.radius
                 }
@@ -378,6 +381,7 @@ PanelWindow {
                     anchors.fill: parent
                     enabled: Theme.shellGradientEnabled && !gooSource.layer.enabled
                     color1: Theme.pillBg
+                    colorMid: Theme.pillBgMid
                     color2: Theme.pillBg2
                     cornerRadius: alertBg.radius
                 }
@@ -1232,6 +1236,7 @@ PanelWindow {
                         anchors.fill: parent
                         enabled: Theme.surfaceGradientEnabled
                         color1: Theme.surfaceBg
+                        colorMid: Theme.surfaceBgMid
                         color2: Theme.surfaceBg2
                         cornerRadius: 0
                     }

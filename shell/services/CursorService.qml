@@ -108,7 +108,7 @@ Singleton {
     }
 
     function targetFillColor() {
-        if (colorMode === "theme") return normalizeHex(String(Theme.accent));
+        if (colorMode === "theme") return normalizeHex(String(Theme.exportTargetRenderColors().accent));
         if (colorMode === "fixed") return normalizeHex(fixedColor);
         return activeContrastTone === "dark" ? "#111113" : "#ffffff";
     }
@@ -272,7 +272,7 @@ Singleton {
 
     Connections {
         target: Theme
-        function onAccentChanged() {
+        function onThemeColorsChanged() {
             if (root.colorMode === "theme" && root._initialApplied) {
                 root._scheduleApply(200);
             }

@@ -10,6 +10,7 @@ layout(std140, binding = 0) uniform buf {
     float threshold;
     float softness;
     vec4 pillColor;
+    vec4 pillColorMid;
     vec4 pillColor2;
     float angleRad;
     float gradEnabled;
@@ -44,7 +45,8 @@ void main() {
         vec2 uv = qt_TexCoord0 - vec2(0.5);
         float halfSpan = 0.5 * (abs(dir.x) + abs(dir.y));
         float t = clamp(dot(uv, dir) / max(0.0001, halfSpan) * 0.5 + 0.5, 0.0, 1.0);
-        fillCol = mix(pillColor, pillColor2, t);
+        float omt = 1.0 - t;
+        fillCol = omt * omt * pillColor + 2.0 * omt * t * pillColorMid + t * t * pillColor2;
         fillCol.rgb = clamp(fillCol.rgb + vec3(ditherNoise(gl_FragCoord.xy) / 255.0), 0.0, 1.0);
     }
     float outAlpha = mask * qt_Opacity * fillCol.a;
