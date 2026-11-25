@@ -5557,16 +5557,19 @@ Item {
                                             elide: Text.ElideRight
                                         }
 
-                                        // 2. HSV Canvas + Hue Slider + Single Hex Input + Gradient Pair Strip
+                                        // 2. HSV Canvas + Hue Slider + Hex Input + Quick Swatches + Gradient Pair Strip
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 14
                                             Rectangle {
                                                 id: svBox
-                                                width: 128; height: 128; radius: 8; clip: true
+                                                Layout.preferredWidth: 152
+                                                Layout.preferredHeight: 152
+                                                Layout.alignment: Qt.AlignTop
+                                                radius: 10; clip: true
                                                 color: Qt.hsva(root.studioHue, 1.0, 1.0, 1.0)
                                                 border.width: 1; border.color: Theme.borderSubtle
                                                 Rectangle {
-                                                    anchors.fill: parent; radius: 8
+                                                    anchors.fill: parent; radius: 10
                                                     gradient: Gradient {
                                                         orientation: Gradient.Horizontal
                                                         GradientStop { position: 0.0; color: "#ffffff" }
@@ -5574,7 +5577,7 @@ Item {
                                                     }
                                                 }
                                                 Rectangle {
-                                                    anchors.fill: parent; radius: 8
+                                                    anchors.fill: parent; radius: 10
                                                     gradient: Gradient {
                                                         orientation: Gradient.Vertical
                                                         GradientStop { position: 0.0; color: "transparent" }
@@ -5582,29 +5585,53 @@ Item {
                                                     }
                                                 }
                                                 Rectangle {
-                                                    width: 10; height: 10; radius: 5
-                                                    x: root.studioSat * (svBox.width - 10)
-                                                    y: (1.0 - root.studioVal) * (svBox.height - 10)
-                                                    color: "transparent"; border.width: 2; border.color: "#ffffff"
+                                                    width: 12; height: 12; radius: 6
+                                                    x: Math.max(0, Math.min(svBox.width - width, root.studioSat * (svBox.width - width)))
+                                                    y: Math.max(0, Math.min(svBox.height - height, (1.0 - root.studioVal) * (svBox.height - height)))
+                                                    color: "transparent"
+                                                    border.width: 2; border.color: "#ffffff"
+                                                    scale: svMouse.pressed ? 1.22 : 1.0
+                                                    Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                    Rectangle {
+                                                        anchors.fill: parent; anchors.margins: 2; radius: 4
+                                                        color: "transparent"
+                                                        border.width: 1; border.color: Qt.rgba(0, 0, 0, 0.55)
+                                                    }
                                                 }
                                                 MouseArea {
+                                                    id: svMouse
                                                     anchors.fill: parent
+                                                    preventStealing: true
                                                     cursorShape: Qt.CrossCursor
+                                                    onPressed: (m) => { root.applyStudioHsv(root.studioHue, m.x / width, 1.0 - m.y / height); }
                                                     onPositionChanged: (m) => { if (pressed) root.applyStudioHsv(root.studioHue, m.x / width, 1.0 - m.y / height); }
-                                                    onClicked: (m) => { root.applyStudioHsv(root.studioHue, m.x / width, 1.0 - m.y / height); }
                                                 }
                                             }
 
                                             ColumnLayout {
                                                 Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 8
-                                                Text { text: "Hue"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    Text { text: "Hue"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; Layout.fillWidth: true }
+                                                    Text {
+                                                        text: Math.round(root.studioHue * 360) + "°"
+                                                        color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
+                                                    }
+                                                }
                                                 HueSlider {
                                                     Layout.fillWidth: true
                                                     value: root.studioHue
                                                     onMoved: root.applyStudioHsv(value, root.studioSat, root.studioVal)
                                                 }
 
-                                                Text { text: "Hex Code"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    Text { text: "Hex Code"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; Layout.fillWidth: true }
+                                                    Text {
+                                                        text: "S " + Math.round(root.studioSat * 100) + "% • V " + Math.round(root.studioVal * 100) + "%"
+                                                        color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
+                                                    }
+                                                }
                                                 RowLayout {
                                                     Layout.fillWidth: true; spacing: 8
                                                     Rectangle {
@@ -5678,6 +5705,40 @@ Item {
                                                     color: Theme.dangerText
                                                     font.family: Theme.fontSans; font.pixelSize: 11
                                                     elide: Text.ElideRight
+                                                }
+
+                                                // Curated Quick Swatches (context-aware: dark surfaces vs bright accents)
+                                                RowLayout {
+                                                    Layout.fillWidth: true; spacing: 6
+                                                    Text {
+                                                        text: "Swatches"
+                                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11
+                                                    }
+                                                    Item { Layout.fillWidth: true }
+                                                    Repeater {
+                                                        model: (hsvStudioCol.curGroup.id === "shell" || hsvStudioCol.curGroup.id === "surface" || hsvStudioCol.curGroup.id === "raised")
+                                                            ? ["#000000", "#0b0b0c", "#141416", "#1a1f29", "#1e1e2e", "#0d1216", "#182436", "#232136"]
+                                                            : ["#ffffff", "#eceff4", "#88c0d0", "#a8c7fa", "#cba6f7", "#80cbc4", "#f5c2e7", "#f9e2af"]
+                                                        delegate: Rectangle {
+                                                            id: pickSwatch
+                                                            required property string modelData
+                                                            readonly property bool matched: Theme.getSlotHex(root.colorStudioSlot) === modelData
+                                                            width: 20; height: 20; radius: 6; clip: true
+                                                            color: modelData
+                                                            border.width: matched ? 2 : 1
+                                                            border.color: matched
+                                                                ? Theme.accent
+                                                                : (psMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle)
+                                                            scale: psMouse.pressed ? 0.88 : (psMouse.containsMouse ? 1.08 : 1.0)
+                                                            Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                                                            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                                                            MouseArea {
+                                                                id: psMouse
+                                                                anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                                                onClicked: root.applyStudioHex(pickSwatch.modelData, null)
+                                                            }
+                                                        }
+                                                    }
                                                 }
 
                                                 // Live Gradient Pair Strip (only for gradient-capable layers)
