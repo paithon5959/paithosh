@@ -11,6 +11,8 @@ PanelWindow {
     required property var shellState
     property var modelData
 
+    reloadableId: "paithoshTransition-" + (modelData && modelData.name ? modelData.name : "primary")
+
     screen: modelData
     anchors {
         top: true
@@ -19,13 +21,9 @@ PanelWindow {
         right: true
     }
     color: "transparent"
-
-    WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "paithosh-session-transition"
-    WlrLayershell.keyboardFocus: isActiveScreen && !isReloadMode && shellState.sessionPhase === "fading"
-        ? WlrKeyboardFocus.Exclusive
-        : WlrKeyboardFocus.None
+    // Keep Wayland surface mapped across soft reload so it never unmaps/flashes windows underneath;
+    // when idle, input mask is 0x0 (100% click-through) and child rectangles are visible: false.
+    visible: true
 
     readonly property bool isActiveScreen: !shellState.activeScreen || shellState.activeScreen === modelData
     readonly property bool isReloadMode: shellState.sessionPhase === "idle" && shellState.reloadOverlayActive
@@ -33,15 +31,38 @@ PanelWindow {
     readonly property string phase: isReloadMode ? shellState.reloadPhase : shellState.sessionPhase
 
     readonly property bool curtainVisible: isReloadMode
-        ? (phase === "exiting" || phase === "revealing")
+        ? (phase === "exiting" || phase === "committing" || phase === "revealing")
         : (phase === "fading" || phase === "executing")
     readonly property bool capsuleVisible: isReloadMode
         ? (phase === "exiting" || phase === "revealing")
         : (phase === "fading")
+    readonly property bool overlayActive: shellState.sessionTransitionActive || shellState.reloadOverlayActive || curtain.opacity > 0.002
+
+    WlrLayershell.exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.namespace: "paithosh-session-transition"
+    WlrLayershell.keyboardFocus: overlayActive && isActiveScreen && !isReloadMode && shellState.sessionPhase === "fading"
+        ? WlrKeyboardFocus.Exclusive
+        : WlrKeyboardFocus.None
+
+    Item {
+        id: emptyMask
+        width: 0
+        height: 0
+    }
+
+    Item {
+        id: fullMask
+        anchors.fill: parent
+    }
+
+    mask: Region {
+        item: root.overlayActive ? fullMask : emptyMask
+    }
 
     readonly property bool isShutdown: action === "shutdown"
     readonly property bool isReboot: action === "reboot"
-    readonly property bool isReloadDone: isReloadMode && phase === "revealing"
+    readonly property bool isReloadDone: isReloadMode && (phase === "revealing" || phase === "clearing")
     readonly property color accentTint: isShutdown
         ? Theme.dangerText
         : (isReloadDone ? Theme.ok : Theme.accent)
@@ -67,19 +88,10 @@ PanelWindow {
         return shellState.sessionDryRun ? "Preview • Press Esc to cancel" : "Press Esc to cancel";
     }
 
-    // Start opaque without fade-in flash when seamlessly taking over right after Quickshell.reload()
-    property bool _entered: shellState.reloadPhase === "revealing"
-
-    Component.onCompleted: {
-        if (!_entered) {
-            Qt.callLater(() => { root._entered = true; });
-        }
-    }
-
     Item {
         id: keyTrap
         anchors.fill: parent
-        focus: root.isActiveScreen && !root.isReloadMode
+        focus: root.overlayActive && root.isActiveScreen && !root.isReloadMode
         Keys.onEscapePressed: (event) => {
             if (!root.isReloadMode && root.phase === "fading") {
                 root.shellState.cancelSessionAction();
@@ -88,18 +100,20 @@ PanelWindow {
         }
     }
 
-    // Fullscreen OLED dark veil over all windows & monitors
+    // Fullscreen OLED dark veil over all windows & monitors (stays opaque seamlessly across soft reload)
     Rectangle {
         id: curtain
         anchors.fill: parent
         color: Theme.pillBg
-        opacity: (root._entered && root.curtainVisible) ? 1.0 : 0.0
+        opacity: root.curtainVisible ? 1.0 : 0.0
+        visible: opacity > 0.002
 
         Behavior on opacity {
+            enabled: !root.shellState.reloadInstantOpaque
             NumberAnimation {
                 duration: root.curtainVisible
                     ? Math.max(150, Math.round((root.isReloadMode ? 280 : (root.isShutdown ? 460 : 400)) / Math.max(0.5, Theme.speedMultiplier)))
-                    : Math.max(140, Math.round((root.isReloadMode ? 360 : 280) / Math.max(0.5, Theme.speedMultiplier)))
+                    : Math.max(200, Math.round((root.isReloadMode ? 440 : 280) / Math.max(0.5, Theme.speedMultiplier)))
                 easing.type: root.curtainVisible ? Easing.InOutCubic : Easing.OutCubic
             }
         }
@@ -108,7 +122,7 @@ PanelWindow {
     // Minimal monochrome center capsule (primary/active screen only)
     Rectangle {
         id: statusCard
-        visible: root.isActiveScreen
+        visible: root.isActiveScreen && opacity > 0.002
         anchors.centerIn: parent
         width: Math.min(324, Math.max(256, cardContent.implicitWidth + 40))
         height: cardContent.implicitHeight + 32
@@ -126,26 +140,26 @@ PanelWindow {
             ColorAnimation { duration: 220; easing.type: Easing.OutCubic }
         }
 
-        opacity: (root._entered && root.capsuleVisible) ? 1.0 : 0.0
-        scale: (root._entered && root.capsuleVisible)
+        opacity: root.capsuleVisible ? 1.0 : 0.0
+        scale: root.capsuleVisible
             ? 1.0
-            : ((root.phase === "executing" || root.phase === "clearing") ? 0.94 : 0.90)
+            : ((root.phase === "committing" || root.phase === "executing" || root.phase === "clearing") ? 0.95 : 0.90)
 
         Behavior on opacity {
             NumberAnimation {
                 duration: root.capsuleVisible
-                    ? Math.max(140, Math.round(260 / Math.max(0.5, Theme.speedMultiplier)))
-                    : Math.max(110, Math.round(200 / Math.max(0.5, Theme.speedMultiplier)))
-                easing.type: Easing.OutCubic
+                    ? Math.max(130, Math.round(240 / Math.max(0.5, Theme.speedMultiplier)))
+                    : Math.max(110, Math.round(180 / Math.max(0.5, Theme.speedMultiplier)))
+                easing.type: root.capsuleVisible ? Easing.OutCubic : Easing.InCubic
             }
         }
         Behavior on scale {
             NumberAnimation {
                 duration: root.capsuleVisible
-                    ? Math.max(180, Math.round(Theme.springMs * 0.9))
-                    : Math.max(110, Math.round(200 / Math.max(0.5, Theme.speedMultiplier)))
-                easing.type: root.capsuleVisible ? Easing.OutBack : Easing.OutCubic
-                easing.overshoot: 1.05
+                    ? Math.max(160, Math.round(Theme.springMs * 0.85))
+                    : Math.max(110, Math.round(180 / Math.max(0.5, Theme.speedMultiplier)))
+                easing.type: root.capsuleVisible ? Easing.OutBack : Easing.InCubic
+                easing.overshoot: 1.02
             }
         }
 
@@ -190,7 +204,7 @@ PanelWindow {
                             to: 360
                             duration: 860
                             loops: Animation.Infinite
-                            running: (root.isReboot || (root.isReloadMode && !root.isReloadDone)) && root.capsuleVisible
+                            running: root.overlayActive && (root.isReboot || (root.isReloadMode && !root.isReloadDone)) && root.capsuleVisible
                             onRunningChanged: if (!running) actionIcon.rotation = 0
                         }
                     }
@@ -239,9 +253,10 @@ PanelWindow {
                     radius: 2
                     color: root.accentTint
                     x: progressTrack.width
+                    visible: !root.isReloadDone
 
                     SequentialAnimation on x {
-                        running: root._entered && root.capsuleVisible && !root.isReloadDone
+                        running: root.overlayActive && root.capsuleVisible && !root.isReloadDone
                         loops: Animation.Infinite
                         NumberAnimation {
                             from: progressTrack.width
@@ -252,7 +267,7 @@ PanelWindow {
                     }
                 }
 
-                // Smooth solid confirmation sweep when reload completes
+                // Smooth right-to-left solid confirmation sweep when reload completes
                 Rectangle {
                     anchors.right: parent.right
                     anchors.top: parent.top
@@ -262,7 +277,7 @@ PanelWindow {
                     width: root.isReloadDone ? parent.width : 0
 
                     Behavior on width {
-                        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
                     }
                 }
             }

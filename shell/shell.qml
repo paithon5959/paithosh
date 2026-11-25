@@ -27,11 +27,12 @@ ShellRoot {
             pendingOverlayReveal = false;
             reloadReason = "";
             if (showOverlayReveal) {
+                stateObj.reloadInstantOpaque = true;
                 stateObj.reloadPhase = "revealing";
                 reloadRevealHoldTimer.restart();
             }
             reloadPostShowTimer.pendingMessage = msg;
-            reloadPostShowTimer.interval = showOverlayReveal ? 280 : 120;
+            reloadPostShowTimer.interval = showOverlayReveal ? 820 : 120;
             reloadPostShowTimer.restart();
         }
     }
@@ -49,6 +50,7 @@ ShellRoot {
         function onReloadFailed(errorString) {
             Quickshell.inhibitReloadPopup();
             reloadCollapseTimer.stop();
+            reloadCommitTimer.stop();
             reloadExecuteTimer.stop();
             reloadSafetyTimer.stop();
             reloadState.pendingEntrance = false;
@@ -67,10 +69,10 @@ ShellRoot {
         initialVeilOpacity: reloadState.pendingBgReveal ? 1.0 : 0.0
         targetVeilOpacity: (stateObj.sessionPhase === "fading" || stateObj.sessionPhase === "executing")
             ? 1.0
-            : (stateObj.reloadPhase === "exiting" ? 1.0 : 0.0)
+            : ((stateObj.reloadPhase === "exiting" || stateObj.reloadPhase === "committing" || stateObj.reloadPhase === "revealing") ? 1.0 : 0.0)
         targetStageScale: (stateObj.sessionPhase === "fading" || stateObj.sessionPhase === "executing")
             ? 0.98
-            : (stateObj.reloadPhase === "exiting" ? 1.02 : 1.0)
+            : ((stateObj.reloadPhase === "exiting" || stateObj.reloadPhase === "committing" || stateObj.reloadPhase === "revealing") ? 1.02 : 1.0)
     }
 
     Binding {
@@ -523,8 +525,9 @@ ShellRoot {
         property bool lastProfileOk: true
         property int themeImportSeq: 0
         property string currentShareCode: ""
-        property string reloadPhase: "idle" // "idle" | "collapsing" | "exiting" | "revealing" | "clearing"
-        readonly property bool reloadOverlayActive: reloadPhase === "exiting" || reloadPhase === "revealing" || reloadPhase === "clearing"
+        property string reloadPhase: "idle" // "idle" | "collapsing" | "exiting" | "committing" | "revealing" | "clearing"
+        property bool reloadInstantOpaque: false
+        readonly property bool reloadOverlayActive: reloadPhase === "exiting" || reloadPhase === "committing" || reloadPhase === "revealing" || reloadPhase === "clearing"
         property bool reloadSlotOpen: false
         property string reloadSlotText: ""
         property string reloadSlotState: "ok" // "loading" | "ok" | "error"
@@ -1297,15 +1300,31 @@ ShellRoot {
         repeat: false
         onTriggered: {
             stateObj.reloadPhase = "exiting";
-            // Wait until fullscreen reload dialog + BackgroundLayer fade 100% smoothly before reloading
-            reloadExecuteTimer.interval = bgLayer.exitFadeMs + 140;
+            // Let the OLED curtain + "Reloading Shell..." dialog fade in and sweep smoothly
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            reloadCommitTimer.interval = bgLayer.exitFadeMs + Math.max(120, Math.round(180 / speed));
+            reloadCommitTimer.restart();
+        }
+    }
+
+    Timer {
+        id: reloadCommitTimer
+        interval: 460
+        repeat: false
+        onTriggered: {
+            if (stateObj.reloadPhase !== "exiting") return;
+            // Fade the moving dialog capsule out into pure still OLED black BEFORE calling Quickshell.reload()
+            // so zero spinners or progress bars freeze during QML recompilation
+            stateObj.reloadPhase = "committing";
+            const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
+            reloadExecuteTimer.interval = Math.max(150, Math.round(220 / speed));
             reloadExecuteTimer.restart();
         }
     }
 
     Timer {
         id: reloadExecuteTimer
-        interval: 420
+        interval: 220
         repeat: false
         onTriggered: {
             if (stateObj._pendingReloadHyprland && CompositorService.isHyprland) {
@@ -1317,23 +1336,26 @@ ShellRoot {
 
     Timer {
         id: reloadRevealHoldTimer
-        interval: 190
+        interval: 720
         repeat: false
         onTriggered: {
             if (stateObj.reloadPhase !== "revealing") return;
+            // Re-enable smooth opacity Behavior right before fading curtain 1.0 -> 0.0
+            stateObj.reloadInstantOpaque = false;
             stateObj.reloadPhase = "clearing";
             const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
-            reloadClearTimer.interval = Math.max(160, Math.round(380 / speed));
+            reloadClearTimer.interval = Math.max(260, Math.round(520 / speed));
             reloadClearTimer.restart();
         }
     }
 
     Timer {
         id: reloadClearTimer
-        interval: 380
+        interval: 520
         repeat: false
         onTriggered: {
             if (stateObj.reloadPhase === "clearing") {
+                stateObj.reloadInstantOpaque = false;
                 stateObj.reloadPhase = "idle";
             }
         }
@@ -1544,16 +1566,13 @@ ShellRoot {
         wallpaperPath: bgLayer.currentWallpaperPath
     }
 
-    // Lazy-loaded Fullscreen Transition Curtain (Reload / Logout / Restart / Shutdown)
-    Loader {
-        active: stateObj.sessionTransitionActive || stateObj.reloadOverlayActive
-        sourceComponent: Component {
-            Variants {
-                model: Quickshell.screens
-                SessionTransitionOverlay {
-                    shellState: stateObj
-                }
-            }
+    // Persistent Reloadable Fullscreen Transition Curtain (Reload / Logout / Restart / Shutdown)
+    // Kept always-mapped with 0x0 click-through mask when idle so Wayland surface survives soft reload with zero blink
+    Variants {
+        reloadableId: "paithoshTransitionVariants"
+        model: Quickshell.screens
+        SessionTransitionOverlay {
+            shellState: stateObj
         }
     }
 

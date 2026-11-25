@@ -62,7 +62,7 @@ PanelWindow {
     readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen || shellState.reloadSlotOpen || PackageService.statusEventOpen || PackageService.activeOpText !== "" || BackupService.busy
 
     property bool bootEntered: false
-    readonly property bool isReloadExiting: shellState.reloadPhase === "exiting" || shellState.reloadPhase === "revealing"
+    readonly property bool isReloadExiting: shellState.reloadPhase === "exiting" || shellState.reloadPhase === "committing" || shellState.reloadPhase === "revealing"
     readonly property bool isSessionExiting: shellState.sessionPhase === "fading" || shellState.sessionPhase === "executing"
     readonly property bool isLifecycleExiting: isReloadExiting || isSessionExiting
     readonly property bool isTucked: !bootEntered || isLifecycleExiting
