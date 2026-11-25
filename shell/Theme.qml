@@ -92,7 +92,7 @@ Singleton {
     property color manualAccent2: "#cccccc"
     property int manualGradientAngle: 135
 
-    // Experimental: "Adjust color based on what's you see" (Wallpaper-Adaptive Theme)
+    // "Adjust colors based on what you see" (Wallpaper-Adaptive Theme)
     property bool wallpaperColorEnabled: false
     property string wallpaperColorMode: "Solid" // "Solid" | "Gradient"
     property string wallpaperColorSourcePath: ""
@@ -103,9 +103,12 @@ Singleton {
 
     // Internal OKLab Blender State
     property bool _suppressColorSignal: false
+    property int targetGradientAngle: 135
     property real blendProgress: 1.0
     property var _fromLab: null
     property var _toLab: null
+    property var _blendDirty: null
+    property double _lastBlendTickMs: 0
     property var _targetPalette: null
     property color _liveBorderBase: "#ffffff"
     property real _liveCardAlpha: 0.08
@@ -117,37 +120,67 @@ Singleton {
         property: "blendProgress"
         from: 0.0
         to: 1.0
-        duration: Math.max(260, Math.round(540 / Math.max(0.5, root.speedMultiplier)))
-        easing.type: Easing.InOutCubic
+        duration: Math.max(180, Math.round(280 / Math.max(0.5, root.speedMultiplier)))
+        easing.type: Easing.OutCubic
         onFinished: root._finishBlend()
     }
 
+    function _labDiffers(a, b) {
+        return Math.abs(a[0] - b[0]) > 0.002 || Math.abs(a[1] - b[1]) > 0.002 || Math.abs(a[2] - b[2]) > 0.002;
+    }
+
+    function _arraysEqual(a, b) {
+        if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+        for (let i = 0; i < a.length; ++i) {
+            if (a[i] !== b[i]) return false;
+        }
+        return true;
+    }
+
     onBlendProgressChanged: {
-        if (!_fromLab || !_toLab) return;
+        if (!_fromLab || !_toLab || !_blendDirty) return;
         const t = blendProgress;
+        if (t < 0.999) {
+            const now = Date.now();
+            if (now - _lastBlendTickMs < 32) return;
+            _lastBlendTickMs = now;
+        }
         const f = _fromLab;
         const g = _toLab;
+        const d = _blendDirty;
 
-        root.pillBg = _lerpLabColor(f.pillBg, g.pillBg, t);
-        root.pillBgMid = _lerpLabColor(f.pillBgMid, g.pillBgMid, t);
-        root.pillBg2 = _lerpLabColor(f.pillBg2, g.pillBg2, t);
-        root.surfaceBg = _lerpLabColor(f.surfaceBg, g.surfaceBg, t);
-        root.surfaceBgMid = _lerpLabColor(f.surfaceBgMid, g.surfaceBgMid, t);
-        root.surfaceBg2 = _lerpLabColor(f.surfaceBg2, g.surfaceBg2, t);
-        root.surfaceRaised = _lerpLabColor(f.surfaceRaised, g.surfaceRaised, t);
-        root.text = _lerpLabColor(f.text, g.text, t);
-        root.accent = _lerpLabColor(f.accent, g.accent, t);
-        root.accentMid = _lerpLabColor(f.accentMid, g.accentMid, t);
-        root.accent2 = _lerpLabColor(f.accent2, g.accent2, t);
-        root.accentFg = _lerpLabColor(f.accentFg, g.accentFg, t);
-        root._liveBorderBase = _lerpLabColor(f.borderBase, g.borderBase, t);
+        if (d.pillBg) root.pillBg = _lerpLabColor(f.pillBg, g.pillBg, t);
+        if (d.pillBgMid) root.pillBgMid = _lerpLabColor(f.pillBgMid, g.pillBgMid, t);
+        if (d.pillBg2) root.pillBg2 = _lerpLabColor(f.pillBg2, g.pillBg2, t);
+        if (d.surfaceBg) root.surfaceBg = _lerpLabColor(f.surfaceBg, g.surfaceBg, t);
+        if (d.surfaceBgMid) root.surfaceBgMid = _lerpLabColor(f.surfaceBgMid, g.surfaceBgMid, t);
+        if (d.surfaceBg2) root.surfaceBg2 = _lerpLabColor(f.surfaceBg2, g.surfaceBg2, t);
+        if (d.surfaceRaised) root.surfaceRaised = _lerpLabColor(f.surfaceRaised, g.surfaceRaised, t);
+        if (d.text) root.text = _lerpLabColor(f.text, g.text, t);
+        if (d.accent) root.accent = _lerpLabColor(f.accent, g.accent, t);
+        if (d.accentMid) root.accentMid = _lerpLabColor(f.accentMid, g.accentMid, t);
+        if (d.accent2) root.accent2 = _lerpLabColor(f.accent2, g.accent2, t);
+        if (d.accentFg) root.accentFg = _lerpLabColor(f.accentFg, g.accentFg, t);
+        if (d.borderBase) root._liveBorderBase = _lerpLabColor(f.borderBase, g.borderBase, t);
 
-        root._liveCardAlpha = f.cardAlpha + (g.cardAlpha - f.cardAlpha) * t;
-        root._liveHoverAlpha = f.hoverAlpha + (g.hoverAlpha - f.hoverAlpha) * t;
-        root._liveBorderAlpha = f.borderAlpha + (g.borderAlpha - f.borderAlpha) * t;
-        root.gradientAngle = _lerpAngle(f.gradientAngle, g.gradientAngle, t);
+        if (d.cardAlpha) root._liveCardAlpha = f.cardAlpha + (g.cardAlpha - f.cardAlpha) * t;
+        if (d.hoverAlpha) root._liveHoverAlpha = f.hoverAlpha + (g.hoverAlpha - f.hoverAlpha) * t;
+        if (d.borderAlpha) root._liveBorderAlpha = f.borderAlpha + (g.borderAlpha - f.borderAlpha) * t;
+        if (d.gradientAngle) root.gradientAngle = _lerpAngle(f.gradientAngle, g.gradientAngle, t);
 
-        _refreshDerivedTokens();
+        if (d.text) {
+            root.textSub = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.62);
+            root.textMuted = Qt.rgba(root.text.r, root.text.g, root.text.b, 0.45);
+        }
+        if (d.text || d.cardAlpha) {
+            root.cardBg = Qt.rgba(root.text.r, root.text.g, root.text.b, root._liveCardAlpha);
+        }
+        if (d.text || d.hoverAlpha) {
+            root.cardHover = Qt.rgba(root.text.r, root.text.g, root.text.b, root._liveHoverAlpha);
+        }
+        if (d.borderBase || d.borderAlpha) {
+            root.borderSubtle = Qt.rgba(root._liveBorderBase.r, root._liveBorderBase.g, root._liveBorderBase.b, root._liveBorderAlpha);
+        }
     }
 
     readonly property var presetNames: ["OLED Pure", "Mica Dark", "Adaptive", "Nord Frost", "Mica Monochrome", "Catppuccin Mocha"]
@@ -572,12 +605,14 @@ Singleton {
         root.surfaceGradientEnabled = target.surfaceGradientEnabled;
         root.accentGradientEnabled = target.accentGradientEnabled;
         root.gradientAngle = target.gradientAngle;
+        root.targetGradientAngle = target.gradientAngle;
         _refreshDerivedTokens();
     }
 
     function _finishBlend() {
         root._fromLab = null;
         root._toLab = null;
+        root._blendDirty = null;
         if (root._targetPalette) {
             _applyPaletteImmediate(root._targetPalette);
         }
@@ -585,10 +620,12 @@ Singleton {
 
     function _commitPalette(target, animate) {
         root._targetPalette = target;
+        root.targetGradientAngle = target.gradientAngle;
         if (!animate) {
             _blendAnim.stop();
             root._fromLab = null;
             root._toLab = null;
+            root._blendDirty = null;
             _applyPaletteImmediate(target);
             root.blendProgress = 1.0;
             return;
@@ -626,7 +663,7 @@ Singleton {
         if (target.accentGradientEnabled || wasAccGrad) root.accentGradientEnabled = true;
 
         _blendAnim.stop();
-        root._fromLab = {
+        const fromLab = {
             pillBg: _colorToOklab(curPill),
             pillBgMid: _colorToOklab(curPillMid),
             pillBg2: _colorToOklab(curPill2),
@@ -645,7 +682,7 @@ Singleton {
             borderAlpha: root._liveBorderAlpha,
             gradientAngle: root.gradientAngle
         };
-        root._toLab = {
+        const toLab = {
             pillBg: _colorToOklab(target.pillBg),
             pillBgMid: _colorToOklab(toPillMid),
             pillBg2: _colorToOklab(toPill2),
@@ -664,6 +701,41 @@ Singleton {
             borderAlpha: target.borderAlpha,
             gradientAngle: target.gradientAngle
         };
+        const dirty = {
+            pillBg: _labDiffers(fromLab.pillBg, toLab.pillBg),
+            pillBgMid: _labDiffers(fromLab.pillBgMid, toLab.pillBgMid),
+            pillBg2: _labDiffers(fromLab.pillBg2, toLab.pillBg2),
+            surfaceBg: _labDiffers(fromLab.surfaceBg, toLab.surfaceBg),
+            surfaceBgMid: _labDiffers(fromLab.surfaceBgMid, toLab.surfaceBgMid),
+            surfaceBg2: _labDiffers(fromLab.surfaceBg2, toLab.surfaceBg2),
+            surfaceRaised: _labDiffers(fromLab.surfaceRaised, toLab.surfaceRaised),
+            text: _labDiffers(fromLab.text, toLab.text),
+            accent: _labDiffers(fromLab.accent, toLab.accent),
+            accentMid: _labDiffers(fromLab.accentMid, toLab.accentMid),
+            accent2: _labDiffers(fromLab.accent2, toLab.accent2),
+            accentFg: _labDiffers(fromLab.accentFg, toLab.accentFg),
+            borderBase: _labDiffers(fromLab.borderBase, toLab.borderBase),
+            cardAlpha: Math.abs(fromLab.cardAlpha - toLab.cardAlpha) > 0.002,
+            hoverAlpha: Math.abs(fromLab.hoverAlpha - toLab.hoverAlpha) > 0.002,
+            borderAlpha: Math.abs(fromLab.borderAlpha - toLab.borderAlpha) > 0.002,
+            gradientAngle: Math.abs(fromLab.gradientAngle - toLab.gradientAngle) >= 1
+        };
+        let anyDirty = false;
+        for (let k in dirty) {
+            if (dirty[k]) { anyDirty = true; break; }
+        }
+        if (!anyDirty) {
+            root._fromLab = null;
+            root._toLab = null;
+            root._blendDirty = null;
+            _applyPaletteImmediate(target);
+            root.blendProgress = 1.0;
+            return;
+        }
+        root._fromLab = fromLab;
+        root._toLab = toLab;
+        root._blendDirty = dirty;
+        root._lastBlendTickMs = 0;
         root.blendProgress = 0.0;
         _blendAnim.start();
     }
@@ -726,16 +798,16 @@ Singleton {
         };
     }
 
-    function setWallpaperColorEnabled(enabled) {
+    function setWallpaperColorEnabled(enabled, deferApply) {
         const next = Boolean(enabled);
         if (root.wallpaperColorEnabled === next) return;
         root.wallpaperColorEnabled = next;
         if (!next) {
             root.wallpaperColorBusy = false;
             rebuildPalette(true, true);
-        } else if (root._wallpaperPaletteObj && root._wallpaperPaletteObj.mode === root.wallpaperColorMode) {
+        } else if (!deferApply && root._wallpaperPaletteObj && root._wallpaperPaletteObj.mode === root.wallpaperColorMode) {
             rebuildPalette(true, true);
-        } else if (!root._suppressColorSignal) {
+        } else if (!deferApply && !root._suppressColorSignal) {
             root.themeColorsChanged();
         }
     }
@@ -751,8 +823,8 @@ Singleton {
         if (!resultObj || !resultObj.ok || !resultObj.palette) return false;
         const ext = Array.isArray(resultObj.extractedColors) ? resultObj.extractedColors : [];
         const ref = Array.isArray(resultObj.refinedPalette) ? resultObj.refinedPalette : [];
-        root.wallpaperExtractedColors = ext;
-        root.wallpaperRefinedPalette = ref;
+        if (!_arraysEqual(root.wallpaperExtractedColors, ext)) root.wallpaperExtractedColors = ext;
+        if (!_arraysEqual(root.wallpaperRefinedPalette, ref)) root.wallpaperRefinedPalette = ref;
         root.wallpaperColorSourcePath = String(sourcePath || "");
         const copyPal = Object.assign({}, resultObj.palette, { mode: resultObj.mode || root.wallpaperColorMode });
         root._wallpaperPaletteObj = copyPal;
@@ -1159,7 +1231,7 @@ Singleton {
             customSurfaceRaised: root.hasCustomSurfaceRaised ? normalizeHex(root.customSurfaceRaised, "") : "",
             customText: root.hasCustomText ? normalizeHex(root.customText, "") : "",
             customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "",
-            // 8. v4 Adaptive Wallpaper Color Mode ("Adjust color based on what's you see")
+            // 8. v4 Adaptive Wallpaper Color Mode ("Adjust colors based on what you see")
             wallpaperColorEnabled: Boolean(root.wallpaperColorEnabled),
             wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid"
         };

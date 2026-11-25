@@ -626,6 +626,7 @@ Item {
 
     component SettingGroup: Rectangle {
         default property alias rows: groupCol.data
+        property bool animateHeight: true
         Layout.fillWidth: true
         implicitHeight: groupCol.implicitHeight
         radius: 12
@@ -633,7 +634,7 @@ Item {
         border.width: 1
         border.color: Theme.borderSubtle
         clip: true
-        Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+        Behavior on implicitHeight { enabled: animateHeight; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
         ColumnLayout {
             id: groupCol
@@ -1282,13 +1283,15 @@ Item {
         id: lockBanner
         property bool active: Theme.wallpaperColorEnabled
         property string message: ""
+        property real collapseSpacing: 12
 
         Layout.fillWidth: true
+        Layout.topMargin: active ? 0 : -collapseSpacing
         implicitHeight: active ? lockBox.implicitHeight : 0
         opacity: active ? 1.0 : 0.0
-        visible: implicitHeight > 0.5
         clip: true
 
+        Behavior on Layout.topMargin { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         Behavior on implicitHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
@@ -1333,6 +1336,7 @@ Item {
 
     component WallpaperColorCard: SettingGroup {
         id: wpColorCard
+        animateHeight: false
         readonly property var paletteSwatches: Theme.wallpaperColorMode === "Gradient"
             ? Theme.wallpaperRefinedPalette
             : Theme.wallpaperExtractedColors
@@ -1340,7 +1344,7 @@ Item {
         SettingRow {
             showDivider: false
             iconName: "eye"
-            title: "Adjust color based on what's you see"
+            title: "Adjust colors based on what you see"
             subtitle: Theme.wallpaperColorEnabled
                 ? (Theme.wallpaperColorBusy
                     ? "Analyzing active wallpaper palette..."
@@ -1348,34 +1352,13 @@ Item {
                         ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
                         : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast"))
                 : "Match interface colors automatically to your active wallpaper"
-            searchKeywords: "adjust color based on what you see wallpaper adaptive dynamic experimental solid gradient match palette"
+            searchKeywords: "adjust colors based on what you see wallpaper adaptive dynamic solid gradient match palette"
 
-            RowLayout {
-                spacing: 10
-                Rectangle {
-                    height: 20
-                    implicitWidth: wpExpLbl.implicitWidth + 12
-                    radius: 6
-                    clip: true
-                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
-                    border.width: 1
-                    border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42)
-                    Text {
-                        id: wpExpLbl
-                        anchors.centerIn: parent
-                        text: "Experimental"
-                        color: Theme.warn
-                        font.family: Theme.fontMono
-                        font.pixelSize: 10
-                        font.weight: Font.DemiBold
-                    }
-                }
-                CtrlSwitch {
-                    checked: Theme.wallpaperColorEnabled
-                    onToggled: (v) => {
-                        if (root.shellState) root.shellState.setWallpaperColorEnabled(v);
-                        else Theme.setWallpaperColorEnabled(v);
-                    }
+            CtrlSwitch {
+                checked: Theme.wallpaperColorEnabled
+                onToggled: (v) => {
+                    if (root.shellState) root.shellState.setWallpaperColorEnabled(v);
+                    else Theme.setWallpaperColorEnabled(v);
                 }
             }
         }
@@ -1571,7 +1554,7 @@ Item {
                                 Layout.minimumWidth: 0
                                 text: Theme.wallpaperColorBusy
                                     ? "Analyzing..."
-                                    : (wpColorCard.paletteSwatches.length + " tones" + (Theme.wallpaperColorMode === "Gradient" ? (" • " + Math.round(Theme.gradientAngle) + "°") : ""))
+                                    : (wpColorCard.paletteSwatches.length + " tones" + (Theme.wallpaperColorMode === "Gradient" ? (" • " + Math.round(Theme.targetGradientAngle) + "°") : ""))
                                 color: Theme.textSub
                                 font.family: Theme.fontMono
                                 font.pixelSize: 10
@@ -2076,7 +2059,7 @@ Item {
                                 }
                             }
                             WallpaperLockBanner {
-                                message: "Theme presets are disabled while \"Adjust color based on what's you see\" is active — Paithosh is matching colors automatically to your wallpaper."
+                                message: "Theme presets are disabled while \"Adjust colors based on what you see\" is active — Paithosh is matching colors automatically to your wallpaper."
                             }
 
                             SettingGroup {
@@ -5368,7 +5351,7 @@ Item {
                             WallpaperColorCard {}
 
                             WallpaperLockBanner {
-                                message: "Theme presets are disabled while \"Adjust color based on what's you see\" is active so Paithosh can match colors directly to your wallpaper. Your manual preset and custom palette remain preserved."
+                                message: "Theme presets are disabled while \"Adjust colors based on what you see\" is active so Paithosh can match colors directly to your wallpaper. Your manual preset and custom palette remain preserved."
                             }
 
                             SectionLabel { text: "Quick Share Code (Personalization + Advanced)" }
@@ -5617,7 +5600,7 @@ Item {
                             WallpaperColorCard {}
 
                             WallpaperLockBanner {
-                                message: "Manual color, surface, gradient, and studio controls below are disabled while \"Adjust color based on what's you see\" is enabled — Paithosh is automatically matching interface colors to your active wallpaper. Turn it off above to resume manual tuning (your previous setup is preserved)."
+                                message: "Manual color, surface, gradient, and studio controls below are disabled while \"Adjust colors based on what you see\" is enabled — Paithosh is automatically matching interface colors to your active wallpaper. Turn it off above to resume manual tuning (your previous setup is preserved)."
                             }
 
                             SectionLabel { text: "Surface & Gradients" }

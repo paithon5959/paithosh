@@ -320,9 +320,9 @@ QtObject {
             id: "app-wallpaper-color",
             page: "appearance",
             pageLabel: "Appearance",
-            title: "Adjust color based on what's you see",
-            subtitle: "Experimental • Automatically match Solid (3–5) or Gradient (10–12) colors to wallpaper",
-            keywords: "adjust color based on what you see wallpaper adaptive dynamic experimental solid gradient match palette",
+            title: "Adjust colors based on what you see",
+            subtitle: "Automatically match Solid (3–5) or Gradient (10–12) colors to wallpaper",
+            keywords: "adjust colors based on what you see wallpaper adaptive dynamic solid gradient match palette",
             icon: "eye"
         },
         {

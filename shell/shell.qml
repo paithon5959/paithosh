@@ -369,7 +369,7 @@ ShellRoot {
 
     Timer {
         id: shareCodeTimer
-        interval: 100
+        interval: 380
         repeat: false
         onTriggered: {
             const payload = Theme.buildPaishState(stateObj, CompositorService, stateObj.activeProfile, CursorService, LockService);
@@ -447,7 +447,7 @@ ShellRoot {
 
     Timer {
         id: saveSettingsTimer
-        interval: 80
+        interval: 320
         repeat: false
         onTriggered: stateObj.writeSettingsNow()
     }
@@ -562,7 +562,8 @@ ShellRoot {
         function setWallpaperColorEnabled(enabled) {
             const next = Boolean(enabled);
             if (Theme.wallpaperColorEnabled === next) return;
-            Theme.setWallpaperColorEnabled(next);
+            const hasWp = Boolean(bgLayer.currentWallpaperPath && bgLayer.currentWallpaperPath !== "");
+            Theme.setWallpaperColorEnabled(next, next && hasWp);
             if (Theme.wallpaperColorEnabled) {
                 syncWallpaperColors(true, false);
             }
