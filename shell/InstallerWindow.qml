@@ -89,6 +89,10 @@ PanelWindow {
     property real scrimAlpha: 0.0
     property real splashOpacity: 0.0
     property real splashScale: 0.55
+    property real splashOrbOffsetX: 34.0
+    property real splashOrbOffsetY: 30.0
+    property real splashOrbScale: 0.25
+    property real splashOrbOpacity: 0.0
     property bool dialogOpen: false
 
     Component.onCompleted: {
@@ -102,10 +106,19 @@ PanelWindow {
         NumberAnimation { target: root; property: "scrimAlpha"; from: 0.0; to: 0.72; duration: 750; easing.type: Easing.InOutCubic }
         ScriptAction { script: SoundService.playIconPop() }
         ParallelAnimation {
-            NumberAnimation { target: root; property: "splashOpacity"; from: 0.0; to: 1.0; duration: 580; easing.type: Easing.OutCubic }
-            NumberAnimation { target: root; property: "splashScale"; from: 0.62; to: 1.0; duration: 720; easing.type: Easing.OutQuint }
+            NumberAnimation { target: root; property: "splashOpacity"; from: 0.0; to: 1.0; duration: 540; easing.type: Easing.OutCubic }
+            NumberAnimation { target: root; property: "splashScale"; from: 0.68; to: 1.0; duration: 680; easing.type: Easing.OutQuint }
+            SequentialAnimation {
+                PauseAnimation { duration: 150 }
+                ParallelAnimation {
+                    NumberAnimation { target: root; property: "splashOrbOpacity"; from: 0.0; to: 1.0; duration: 240; easing.type: Easing.OutCubic }
+                    NumberAnimation { target: root; property: "splashOrbOffsetX"; from: 34.0; to: 0.0; duration: 560; easing.type: Easing.OutBack; easing.overshoot: 1.45 }
+                    NumberAnimation { target: root; property: "splashOrbOffsetY"; from: 30.0; to: 0.0; duration: 560; easing.type: Easing.OutBack; easing.overshoot: 1.45 }
+                    NumberAnimation { target: root; property: "splashOrbScale"; from: 0.25; to: 1.0; duration: 520; easing.type: Easing.OutBack; easing.overshoot: 1.35 }
+                }
+            }
         }
-        PauseAnimation { duration: 480 }
+        PauseAnimation { duration: 520 }
         ParallelAnimation {
             NumberAnimation { target: root; property: "splashOpacity"; to: 0.0; duration: 260; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashScale"; to: 1.18; duration: 300; easing.type: Easing.InCubic }
@@ -365,34 +378,42 @@ PanelWindow {
             }
         }
 
-        // Welcome Splash Emblem (Dynamic Island Pill Symbol)
+        // Welcome Splash Emblem (Frameless Orbital Nucleus with detached-orb spring animation)
         ColumnLayout {
             anchors.centerIn: parent
-            spacing: 20
+            spacing: 22
             visible: root.splashOpacity > 0.01
             opacity: root.splashOpacity
             scale: root.splashScale
 
-            Rectangle {
+            Item {
                 Layout.alignment: Qt.AlignHCenter
-                width: 180; height: 180; radius: 48
-                clip: true
-                color: Theme.pillBg
-                border.width: 2
-                border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
+                width: 148
+                height: 148
 
-                // Miniature Dynamic Island pill emblem
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 12
-                    Rectangle {
-                        width: 82; height: 34; radius: 17
-                        color: Theme.accent
+                SvgIcon {
+                    anchors.fill: parent
+                    sourceName: "paithosh-body"
+                    iconSize: 148
+                    preserveColor: true
+                }
+
+                // Detached Orbital Nucleus dot (24x24 viewBox: cx=8.6, cy=9.4, r=1.65)
+                Rectangle {
+                    readonly property real orbSize: 148 * (3.3 / 24.0)
+                    width: orbSize
+                    height: orbSize
+                    radius: orbSize / 2
+                    gradient: Gradient {
+                        orientation: Gradient.Vertical
+                        GradientStop { position: 0.0; color: "#ffffff" }
+                        GradientStop { position: 0.65; color: "#dce0e6" }
+                        GradientStop { position: 1.0; color: "#8c93a0" }
                     }
-                    Rectangle {
-                        width: 34; height: 34; radius: 17
-                        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
-                    }
+                    x: 148 * (8.6 / 24.0) - width / 2 + root.splashOrbOffsetX
+                    y: 148 * (9.4 / 24.0) - height / 2 + root.splashOrbOffsetY
+                    scale: root.splashOrbScale
+                    opacity: root.splashOrbOpacity
                 }
             }
 
@@ -484,7 +505,7 @@ PanelWindow {
                                 width: 34; height: 34; radius: 10
                                 color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
                                 border.width: 1; border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.30)
-                                SvgIcon { anchors.centerIn: parent; sourceName: "settings"; iconSize: 17; color: Theme.accent }
+                                SvgIcon { anchors.centerIn: parent; sourceName: "paithosh"; iconSize: 19; preserveColor: true }
                             }
                             ColumnLayout {
                                 Layout.fillWidth: true; spacing: 1
@@ -676,10 +697,11 @@ PanelWindow {
                                         width: 52; height: 52; radius: 14
                                         color: Theme.pillBg
                                         border.width: 1; border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
-                                        Row {
-                                            anchors.centerIn: parent; spacing: 4
-                                            Rectangle { width: 22; height: 10; radius: 5; color: Theme.accent }
-                                            Rectangle { width: 10; height: 10; radius: 5; color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) }
+                                        SvgIcon {
+                                            anchors.centerIn: parent
+                                            sourceName: "paithosh"
+                                            iconSize: 30
+                                            preserveColor: true
                                         }
                                     }
                                     ColumnLayout {

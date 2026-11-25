@@ -494,7 +494,7 @@ ColumnLayout {
             anchors.margins: 12
             spacing: 12
 
-            // Dynamic Island emblem
+            // Paithosh Orbital Nucleus emblem
             Rectangle {
                 width: 44; height: 44; radius: 12
                 color: Theme.surfaceRaised
@@ -502,20 +502,11 @@ ColumnLayout {
                 border.color: Theme.borderSubtle
                 clip: true
 
-                Column {
+                SvgIcon {
                     anchors.centerIn: parent
-                    spacing: 3
-                    Rectangle {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 24; height: 8; radius: 4
-                        color: Theme.accent
-                    }
-                    Row {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 3
-                        Rectangle { width: 7; height: 4; radius: 2; color: Theme.textSub }
-                        Rectangle { width: 12; height: 4; radius: 2; color: Theme.textMuted }
-                    }
+                    sourceName: "paithosh"
+                    iconSize: 26
+                    preserveColor: true
                 }
             }
 

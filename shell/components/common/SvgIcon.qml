@@ -8,6 +8,7 @@ Item {
     property string sourceName: ""
     property int iconSize: 16
     property color color: Theme.text
+    property bool preserveColor: false
 
     implicitWidth: iconSize
     implicitHeight: iconSize
@@ -22,7 +23,7 @@ Item {
         sourceSize.height: root.iconSize * 2
         fillMode: Image.PreserveAspectFit
         smooth: true
-        visible: false
+        visible: root.preserveColor && root.sourceName !== ""
     }
 
     MultiEffect {
@@ -30,6 +31,6 @@ Item {
         source: img
         colorization: 1.0
         colorizationColor: root.color
-        visible: root.sourceName !== ""
+        visible: !root.preserveColor && root.sourceName !== ""
     }
 }

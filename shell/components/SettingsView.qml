@@ -1481,7 +1481,7 @@ Item {
                                     anchors.fill: parent; anchors.margins: 14; spacing: 12
                                     Rectangle {
                                         width: 40; height: 40; radius: 10; color: Theme.surfaceRaised; border.width: 1; border.color: Theme.borderSubtle
-                                        Text { anchors.centerIn: parent; text: "λ"; font.family: Theme.fontMono; font.pixelSize: 18; font.weight: Font.Bold; color: Theme.text }
+                                        SvgIcon { anchors.centerIn: parent; sourceName: "paithosh"; iconSize: 22; preserveColor: true }
                                     }
                                     ColumnLayout {
                                         Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
@@ -2671,7 +2671,7 @@ Item {
                             SettingGroup {
                                 SettingRow {
                                     showDivider: true
-                                    iconName: "bolt"
+                                    iconName: "paithosh"
                                     title: {
                                         if (PackageService.shellUpdateStream === "release" && PackageService.shellCurrentTag !== "") {
                                             return "Paithosh Shell  •  " + PackageService.shellCurrentTag;
