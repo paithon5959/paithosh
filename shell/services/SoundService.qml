@@ -488,9 +488,10 @@ Singleton {
     function playRecordStart() { play("record-start.wav", 0.9); }
     function playRecordStop() { play("record-stop.wav", 0.9); }
     function playNotify() { play("notify-gentle.wav", 0.85); }
-    function playInstallerStep() { play("installer-step.wav", 0.65); }
-    function playInstallerStart() { play("installer-start.wav", 0.85); }
-    function playInstallerDone() { play("installer-done.wav", 0.90); }
+    function playInstallerSplash() { play("icon-pop.wav", 0.80, false); }
+    function playInstallerStep() { play("installer-step.wav", 0.65, false); }
+    function playInstallerStart() { play("installer-start.wav", 0.85, false); }
+    function playInstallerDone() { play("installer-done.wav", 0.90, false); }
     function playIconPop() { play("icon-pop.wav", 0.45); }
     function playLock() { play("lock.wav", 0.75); }
     function playLockError() { play("lock-error.wav", 0.75); }

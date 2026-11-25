@@ -104,7 +104,7 @@ PanelWindow {
     SequentialAnimation {
         id: welcomeSeq
         NumberAnimation { target: root; property: "scrimAlpha"; from: 0.0; to: 0.72; duration: 750; easing.type: Easing.InOutCubic }
-        ScriptAction { script: SoundService.playIconPop() }
+        ScriptAction { script: SoundService.playInstallerSplash() }
         ParallelAnimation {
             NumberAnimation { target: root; property: "splashOpacity"; from: 0.0; to: 1.0; duration: 540; easing.type: Easing.OutCubic }
             NumberAnimation { target: root; property: "splashScale"; from: 0.68; to: 1.0; duration: 680; easing.type: Easing.OutQuint }
