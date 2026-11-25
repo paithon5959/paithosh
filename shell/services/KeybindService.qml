@@ -83,6 +83,10 @@ Singleton {
         { id: "focusRight",    label: "Focus Right",         desc: "", lua: 'hl.dsp.focus({ direction = "right" })' },
         { id: "focusUp",       label: "Focus Up",            desc: "", lua: 'hl.dsp.focus({ direction = "up" })' },
         { id: "focusDown",     label: "Focus Down",          desc: "", lua: 'hl.dsp.focus({ direction = "down" })' },
+        { id: "moveLeft",      label: "Move Window Left",    desc: "", lua: 'hl.dsp.window.move({ direction = "left" })' },
+        { id: "moveRight",     label: "Move Window Right",   desc: "", lua: 'hl.dsp.window.move({ direction = "right" })' },
+        { id: "moveUp",        label: "Move Window Up",      desc: "", lua: 'hl.dsp.window.move({ direction = "up" })' },
+        { id: "moveDown",      label: "Move Window Down",    desc: "", lua: 'hl.dsp.window.move({ direction = "down" })' },
         { id: "wsNext",        label: "Next Workspace",      desc: "", lua: 'hl.dsp.focus({ workspace = "e+1" })' },
         { id: "wsPrev",        label: "Previous Workspace",  desc: "", lua: 'hl.dsp.focus({ workspace = "e-1" })' },
         { id: "exitHypr",      label: "Exit Hyprland",       desc: "hyprshutdown / exit", lua: 'hl.dsp.exec_cmd("command -v hyprshutdown >/dev/null 2>&1 && hyprshutdown || hyprctl dispatch exit")' }
@@ -733,6 +737,11 @@ def classify(action_lua, cmd):
         if "window.float" in al: return ("window", "Toggle Floating", "")
         if "window.pseudo" in al: return ("window", "Toggle Pseudo-Tile", "")
         if "togglesplit" in al: return ("window", "Toggle Split", "")
+        if "window.move" in al:
+            if 'direction = "left"' in al or "direction = 'left'" in al: return ("window", "Move Window Left", "")
+            if 'direction = "right"' in al or "direction = 'right'" in al: return ("window", "Move Window Right", "")
+            if 'direction = "up"' in al or "direction = 'up'" in al: return ("window", "Move Window Up", "")
+            if 'direction = "down"' in al or "direction = 'down'" in al: return ("window", "Move Window Down", "")
         if 'direction = "left"' in al or "direction = 'left'" in al: return ("window", "Focus Left", "")
         if 'direction = "right"' in al or "direction = 'right'" in al: return ("window", "Focus Right", "")
         if 'direction = "up"' in al or "direction = 'up'" in al: return ("window", "Focus Up", "")
