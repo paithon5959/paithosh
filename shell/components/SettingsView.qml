@@ -27,13 +27,25 @@ Item {
     property string powerMode: "Balanced"
     property bool dndEnabled: false
 
-    // Display
+    // Display (live applied state)
     property string activeMonitorName: "eDP-1"
     property string displayScale: "100%"
     property string displayRes: "1920 × 1080"
     property string displayRefreshRate: "60 Hz"
     property string displayOrient: "Landscape"
     property bool rotationLock: true
+
+    // Display (staged draft state for preview before Apply)
+    property string draftDisplayScale: "100%"
+    property string draftDisplayRes: "1920 × 1080"
+    property string draftDisplayRefreshRate: "60 Hz"
+    property string draftDisplayOrient: "Landscape"
+    readonly property bool hasPendingDisplayChanges:
+        draftDisplayScale !== displayScale ||
+        draftDisplayRes !== displayRes ||
+        draftDisplayRefreshRate !== displayRefreshRate ||
+        draftDisplayOrient !== displayOrient
+
     property var displayResOptions: ["1920 × 1080"]
     property var displayRefreshOptions: ["60 Hz"]
     property var displayRatesByRes: ({})
@@ -118,7 +130,10 @@ Item {
 
     Component.onDestruction: SoundService.stopPreviewAmbient()
     onVisibleChanged: {
-        if (!visible) SoundService.stopPreviewAmbient();
+        if (!visible) {
+            SoundService.stopPreviewAmbient();
+            if (hasPendingDisplayChanges) resetDisplayDraft();
+        }
     }
 
     Connections {
@@ -131,6 +146,7 @@ Item {
     function syncDisplayFromCompositor() {
         const details = CompositorService.monitorDetails;
         if (!details || details.length === 0) return;
+        const hadPending = hasPendingDisplayChanges;
         let mon = details[0];
         for (let i = 0; i < details.length; ++i) {
             if (details[i].focused) { mon = details[i]; break; }
@@ -197,7 +213,7 @@ Item {
             displayRes = curLabel;
         }
         const curHz = mon.refreshRate ? Math.round(Number(mon.refreshRate)) : 60;
-        updateRefreshOptionsForRes(displayRes, curHz);
+        updateRefreshOptionsForRes(displayRes, curHz, false);
         const s = Number(mon.scale || 1);
         if (Math.abs(s - 1.0) < 0.05) displayScale = "100%";
         else if (Math.abs(s - 1.25) < 0.05) displayScale = "125% (Recommended)";
@@ -207,9 +223,21 @@ Item {
 
         const tr = Number(mon.transform || 0);
         displayOrient = (tr === 1 || tr === 3) ? "Portrait" : "Landscape";
+
+        if (!hadPending) {
+            resetDisplayDraft();
+        }
     }
 
-    function updateRefreshOptionsForRes(resLabel, preferredHz) {
+    function resetDisplayDraft() {
+        draftDisplayScale = displayScale;
+        draftDisplayRes = displayRes;
+        draftDisplayOrient = displayOrient;
+        updateRefreshOptionsForRes(displayRes, 0, true);
+        draftDisplayRefreshRate = displayRefreshRate;
+    }
+
+    function updateRefreshOptionsForRes(resLabel, preferredHz, isDraft) {
         const rawRates = displayRatesByRes[resLabel];
         const rates = rawRates && rawRates.length > 0 ? rawRates.slice() : [60];
         if (preferredHz > 0 && rates.indexOf(preferredHz) === -1) {
@@ -221,10 +249,18 @@ Item {
             formatted.push(rates[i] + " Hz");
         }
         displayRefreshOptions = formatted;
-        if (preferredHz > 0) {
-            displayRefreshRate = preferredHz + " Hz";
-        } else if (formatted.indexOf(displayRefreshRate) === -1 && formatted.length > 0) {
-            displayRefreshRate = formatted[0];
+        if (isDraft) {
+            if (preferredHz > 0) {
+                draftDisplayRefreshRate = preferredHz + " Hz";
+            } else if (formatted.indexOf(draftDisplayRefreshRate) === -1 && formatted.length > 0) {
+                draftDisplayRefreshRate = formatted[0];
+            }
+        } else {
+            if (preferredHz > 0) {
+                displayRefreshRate = preferredHz + " Hz";
+            } else if (formatted.indexOf(displayRefreshRate) === -1 && formatted.length > 0) {
+                displayRefreshRate = formatted[0];
+            }
         }
     }
 
@@ -260,12 +296,19 @@ Item {
     }
 
     function applyDisplayChange() {
-        const parts = displayRes.split(" × ");
+        let targetRes = draftDisplayRes;
+        const parts = targetRes.split(" × ");
         const reqW = parseInt(parts[0], 10);
         const reqH = parseInt(parts[1], 10);
         if (maxDisplayWidth > 0 && maxDisplayHeight > 0 && (reqW > maxDisplayWidth || reqH > maxDisplayHeight)) {
-            displayRes = maxDisplayRes;
+            targetRes = maxDisplayRes;
+            draftDisplayRes = maxDisplayRes;
         }
+        displayRes = targetRes;
+        displayRefreshRate = draftDisplayRefreshRate;
+        displayScale = draftDisplayScale;
+        displayOrient = draftDisplayOrient;
+
         const hzNum = parseInt(displayRefreshRate, 10) || 60;
         const mode = displayRes.replace(" × ", "x") + "@" + hzNum;
         const scaleNum = parseFloat(displayScale) / 100.0;
@@ -388,6 +431,7 @@ Item {
         const resolved = resolvePageKey(pageKey);
         if (currentPage === resolved) return;
         if (resolved !== "lockscreen") SoundService.stopPreviewAmbient();
+        if (resolved !== "display" && hasPendingDisplayChanges) resetDisplayDraft();
         if (!root.loadedPages[resolved]) {
             const next = Object.assign({}, root.loadedPages);
             next[resolved] = true;
@@ -2130,11 +2174,36 @@ Item {
                                             anchors.centerIn: parent; spacing: 6
                                             Rectangle { width: 6; height: 6; radius: 3; color: Theme.accent }
                                             Text {
-                                                text: root.displayRes + " • " + root.displayScale.replace(" (Recommended)", "") + " • " + root.displayOrient
+                                                text: root.draftDisplayRes + " • " + root.draftDisplayRefreshRate + " • " + root.draftDisplayScale.replace(" (Recommended)", "") + " • " + root.draftDisplayOrient
                                                 color: Theme.text
                                                 font.family: Theme.fontMono
                                                 font.pixelSize: 10
                                                 font.weight: Font.Medium
+                                            }
+                                        }
+                                    }
+
+                                    // Pending preview indicator (top-right)
+                                    Rectangle {
+                                        z: 2
+                                        anchors.right: parent.right; anchors.top: parent.top; anchors.margins: 12
+                                        height: 22; radius: 11
+                                        width: previewBadgeRow.implicitWidth + 16
+                                        color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
+                                        border.width: 1; border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
+                                        opacity: root.hasPendingDisplayChanges ? 1.0 : 0.0
+                                        visible: opacity > 0.01
+                                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        RowLayout {
+                                            id: previewBadgeRow
+                                            anchors.centerIn: parent; spacing: 5
+                                            Rectangle { width: 6; height: 6; radius: 3; color: Theme.accent }
+                                            Text {
+                                                text: "Preview"
+                                                color: Theme.accent
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 10
+                                                font.weight: Font.DemiBold
                                             }
                                         }
                                     }
@@ -2145,9 +2214,9 @@ Item {
                                         anchors.margins: 14
                                         anchors.topMargin: 28
 
-                                        readonly property bool isPortrait: root.displayOrient === "Portrait"
+                                        readonly property bool isPortrait: root.draftDisplayOrient === "Portrait"
                                         readonly property real scaleFactor: {
-                                            const s = parseFloat(root.displayScale);
+                                            const s = parseFloat(root.draftDisplayScale);
                                             return isNaN(s) ? 1.0 : Math.max(0.85, Math.min(1.45, s / 100.0));
                                         }
 
@@ -2279,22 +2348,80 @@ Item {
                             }
 
                             SectionLabel { text: "Scale & layout" }
+
+                            // Pending Display Changes Action Bar (Apply / Reset)
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: root.hasPendingDisplayChanges ? 52 : 0
+                                opacity: root.hasPendingDisplayChanges ? 1.0 : 0.0
+                                visible: Layout.preferredHeight > 0.5
+                                clip: true
+
+                                Behavior on Layout.preferredHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: 12
+                                    color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.10)
+                                    border.width: 1
+                                    border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
+
+                                    RowLayout {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 14
+                                        anchors.rightMargin: 12
+                                        spacing: 10
+
+                                        SvgIcon {
+                                            sourceName: "monitor"
+                                            iconSize: 15
+                                            color: Theme.accent
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Previewing display changes — click Apply to save"
+                                            color: Theme.text
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 12
+                                            font.weight: Font.Medium
+                                            elide: Text.ElideRight
+                                        }
+
+                                        CtrlBtn {
+                                            text: "Reset"
+                                            ghost: true
+                                            enabled: root.hasPendingDisplayChanges
+                                            onClicked: root.resetDisplayDraft()
+                                        }
+
+                                        CtrlBtn {
+                                            text: "Apply"
+                                            iconName: "check"
+                                            enabled: root.hasPendingDisplayChanges
+                                            onClicked: root.applyDisplayChange()
+                                        }
+                                    }
+                                }
+                            }
+
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false; iconName: "monitor"; title: "Scale"; subtitle: "Change the size of text, apps, and other items"
-                                    CtrlSelect { options: ["100%", "125% (Recommended)", "150%", "200%"]; currentText: root.displayScale; onSelected: (v) => { root.displayScale = v; root.applyDisplayChange(); } }
+                                    CtrlSelect { options: ["100%", "125% (Recommended)", "150%", "200%"]; currentText: root.draftDisplayScale; onSelected: (v) => { root.draftDisplayScale = v; } }
                                 }
                                 SettingRow {
                                     iconName: "monitor"; title: "Display resolution"; subtitle: "Adjust the resolution to fit your connected display (Max: " + root.maxDisplayRes + ")"
-                                    CtrlSelect { options: root.displayResOptions; currentText: root.displayRes; onSelected: (v) => { root.displayRes = v; root.updateRefreshOptionsForRes(v, 0); root.applyDisplayChange(); } }
+                                    CtrlSelect { options: root.displayResOptions; currentText: root.draftDisplayRes; onSelected: (v) => { root.draftDisplayRes = v; root.updateRefreshOptionsForRes(v, 0, true); } }
                                 }
                                 SettingRow {
                                     iconName: "monitor"; title: "Refresh rate"; subtitle: "Choose a higher refresh rate for smoother motion"
-                                    CtrlSelect { options: root.displayRefreshOptions; currentText: root.displayRefreshRate; onSelected: (v) => { root.displayRefreshRate = v; root.applyDisplayChange(); } }
+                                    CtrlSelect { options: root.displayRefreshOptions; currentText: root.draftDisplayRefreshRate; onSelected: (v) => { root.draftDisplayRefreshRate = v; } }
                                 }
                                 SettingRow {
                                     iconName: "monitor"; title: "Display orientation"; subtitle: "Rotate screen layout for Wayland output"
-                                    CtrlSelect { options: ["Landscape", "Portrait"]; currentText: root.displayOrient; onSelected: (v) => { root.displayOrient = v; root.applyDisplayChange(); } }
+                                    CtrlSelect { options: ["Landscape", "Portrait"]; currentText: root.draftDisplayOrient; onSelected: (v) => { root.draftDisplayOrient = v; } }
                                 }
                                 SettingRow {
                                     iconName: "lock"; title: "Rotation lock"; subtitle: "Prevent automatic orientation changes"
