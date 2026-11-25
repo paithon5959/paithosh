@@ -1872,7 +1872,7 @@ Item {
                                         onClicked: root.shellState.requestShellReload({
                                             reloadHyprland: true,
                                             hard: false,
-                                            reason: "Shell & Hyprland Reloaded"
+                                            reason: "Shell Reloaded"
                                         })
                                     }
                                 }

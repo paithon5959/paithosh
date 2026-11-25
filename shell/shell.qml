@@ -655,7 +655,7 @@ ShellRoot {
             _pendingReloadRestart = Boolean(cfg.restartProcess);
             _pendingReloadReason = (typeof cfg.reason === "string" && cfg.reason !== "")
                 ? cfg.reason
-                : (_pendingReloadHyprland ? "Shell & Hyprland Reloaded" : "Config Reloaded");
+                : (_pendingReloadHyprland ? "Shell Reloaded" : "Config Reloaded");
 
             closePopovers();
             closeModal();
@@ -1868,7 +1868,7 @@ ShellRoot {
                 reloadHyprland: m !== "qml-only",
                 hard: m === "hard",
                 restartProcess: m === "restart",
-                reason: m === "qml-only" ? "Config Reloaded" : "Shell & Hyprland Reloaded"
+                reason: m === "qml-only" ? "Config Reloaded" : "Shell Reloaded"
             });
         }
 
