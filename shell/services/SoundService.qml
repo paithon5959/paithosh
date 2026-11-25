@@ -22,6 +22,130 @@ Singleton {
     property var _savedStreams: ({})
     property var _pendingSfx: []
 
+    readonly property string _duckStatePath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/paithosh-duck-state.json"
+    readonly property int _duckStateTtlMs: 60000
+    property int _recoverRetries: 0
+
+    FileView {
+        id: duckStateFile
+        path: root._duckStatePath
+        blockLoading: true
+        printErrors: false
+    }
+
+    function _streamAppKey(node) {
+        if (node && node.properties && node.properties["application.name"]) {
+            return String(node.properties["application.name"]);
+        }
+        return (node && node.name) ? String(node.name) : "";
+    }
+
+    function _readPersistedOrig() {
+        const cleaned = ({});
+        try {
+            duckStateFile.reload();
+            duckStateFile.waitForJob();
+            const raw = duckStateFile.text();
+            if (!raw || raw.trim() === "") return cleaned;
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== "object") return cleaned;
+            const now = Date.now();
+            for (const k in parsed) {
+                const entry = parsed[k];
+                if (typeof entry === "number") {
+                    if (entry > 0.001 && entry <= 2.0) {
+                        cleaned[k] = { orig: entry, app: "", ts: now };
+                    }
+                } else if (entry && typeof entry === "object") {
+                    const orig = Number(entry.orig);
+                    const ts = Number(entry.ts || 0);
+                    if (orig > 0.001 && orig <= 2.0 && (!ts || (now - ts) <= root._duckStateTtlMs)) {
+                        cleaned[k] = {
+                            orig: orig,
+                            app: entry.app ? String(entry.app) : "",
+                            ts: ts || now
+                        };
+                    }
+                }
+            }
+        } catch (e) {}
+        return cleaned;
+    }
+
+    function _writePersistedOrig(map) {
+        try {
+            duckStateFile.setText(JSON.stringify(map || ({})));
+            duckStateFile.waitForJob();
+        } catch (e) {}
+    }
+
+    function recoverOrphanedDuck() {
+        if (_activeSfx > 0 || duckAnim.running) return;
+        const persisted = _readPersistedOrig();
+        if (Object.keys(persisted).length > 0) {
+            _recoverRetries = 0;
+            reloadRecoverTimer.restart();
+        }
+    }
+
+    Timer {
+        id: reloadRecoverTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            if (root._activeSfx > 0 || duckAnim.running) return;
+            const persisted = root._readPersistedOrig();
+            const keys = Object.keys(persisted);
+            if (keys.length === 0) {
+                root._writePersistedOrig({});
+                return;
+            }
+            const streams = AudioService.playbackStreams;
+            if (streams.length === 0 && root._recoverRetries < 6) {
+                root._recoverRetries += 1;
+                reloadRecoverTimer.restart();
+                return;
+            }
+            let recovered = 0;
+            let minRatio = 1.0;
+            for (let i = 0; i < streams.length; i++) {
+                const n = streams[i];
+                if (!n || !n.audio) continue;
+                const key = String(n.id);
+                const rec = persisted[key];
+                if (!rec || !(rec.orig > 0.001)) continue;
+                if (rec.app && rec.app !== root._streamAppKey(n)) continue;
+                root._savedStreams[key] = { node: n, orig: rec.orig };
+                const live = n.audio.volume;
+                if (!isNaN(live) && live >= 0) {
+                    minRatio = Math.min(minRatio, Math.max(0.0, Math.min(1.0, live / rec.orig)));
+                }
+                recovered++;
+            }
+            if (recovered > 0 && minRatio < 0.995) {
+                root._duckGain = minRatio;
+                root._animateDuck(1.0, root.duckUpMs, Easing.InOutSine);
+            } else {
+                for (const id in root._savedStreams) {
+                    const entry = root._savedStreams[id];
+                    if (entry && entry.node && entry.node.audio) {
+                        entry.node.audio.volume = entry.orig;
+                    }
+                }
+                root._savedStreams = ({});
+                root._writePersistedOrig({});
+            }
+        }
+    }
+
+    Component.onDestruction: {
+        duckAnim.stop();
+        sfxDelayTimer.stop();
+        restoreHoldTimer.stop();
+        savedClearTimer.stop();
+        reloadRecoverTimer.stop();
+    }
+
     readonly property var _keyFiles: [
         "key-creamy-1.wav",
         "key-creamy-2.wav",
@@ -61,6 +185,7 @@ Singleton {
         onTriggered: {
             if (root._activeSfx === 0 && !duckAnim.running && root._duckGain >= 0.999) {
                 root._savedStreams = ({});
+                root._writePersistedOrig({});
             }
         }
     }
@@ -208,7 +333,9 @@ Singleton {
             const n = streams[i];
             if (!n || !n.audio || n.audio.muted) continue;
             const key = String(n.id);
-            const orig = (_mediaFadeStreams[key] !== undefined) ? _mediaFadeStreams[key].orig : n.audio.volume;
+            const orig = (_mediaFadeStreams[key] !== undefined)
+                ? _mediaFadeStreams[key].orig
+                : (_savedStreams[key] !== undefined ? _savedStreams[key].orig : n.audio.volume);
             if (isNaN(orig) || orig <= 0.001) continue;
             map[key] = { node: n, orig: orig };
             count++;
@@ -405,10 +532,27 @@ Singleton {
 
     function _snapshotStreams() {
         const streams = AudioService.playbackStreams;
+        const liveKeys = ({});
+        for (let i = 0; i < streams.length; i++) {
+            const n = streams[i];
+            if (n && n.audio) liveKeys[String(n.id)] = true;
+        }
         let count = 0;
         for (const k in _savedStreams) {
-            if (_savedStreams[k]) count++;
+            const entry = _savedStreams[k];
+            if (!liveKeys[k] || !entry || !entry.node || !entry.node.audio) {
+                delete _savedStreams[k];
+            } else {
+                count++;
+            }
         }
+
+        const persisted = _readPersistedOrig();
+        let persistedDirty = false;
+        let inheritedMinRatio = 1.0;
+        let hasInherited = false;
+        const now = Date.now();
+
         for (let i = 0; i < streams.length; i++) {
             const n = streams[i];
             if (!n || !n.audio) continue;
@@ -417,9 +561,41 @@ Singleton {
             const key = String(n.id);
             if (_savedStreams[key] !== undefined) continue;
             const v = n.audio.volume;
+            const appKey = _streamAppKey(n);
+
+            const mediaEntry = _mediaFadeStreams[key];
+            if (mediaEntry && mediaEntry.orig > 0.001) {
+                _savedStreams[key] = { node: n, orig: mediaEntry.orig };
+                persisted[key] = { orig: mediaEntry.orig, app: appKey, ts: now };
+                persistedDirty = true;
+                count++;
+                continue;
+            }
+
+            const rec = persisted[key];
+            if (rec && rec.orig > 0.001 && (!rec.app || rec.app === appKey)) {
+                _savedStreams[key] = { node: n, orig: rec.orig };
+                rec.ts = now;
+                persistedDirty = true;
+                if (!isNaN(v) && v >= 0) {
+                    inheritedMinRatio = Math.min(inheritedMinRatio, Math.max(0.0, Math.min(1.0, v / rec.orig)));
+                    hasInherited = true;
+                }
+                count++;
+                continue;
+            }
+
             if (isNaN(v) || n.audio.muted || v <= 0.001) continue;
             _savedStreams[key] = { node: n, orig: v };
+            persisted[key] = { orig: v, app: appKey, ts: now };
+            persistedDirty = true;
             count++;
+        }
+        if (persistedDirty) {
+            _writePersistedOrig(persisted);
+        }
+        if (hasInherited && _activeSfx === 0 && !duckAnim.running && inheritedMinRatio < _duckGain) {
+            _duckGain = Math.max(duckLevel, inheritedMinRatio);
         }
         return count;
     }
@@ -434,9 +610,12 @@ Singleton {
     }
 
     function _spawnSfx(path, vol) {
-        sfxProcComponent.createObject(root, {
+        const proc = sfxProcComponent.createObject(root, {
             command: ["pw-play", "--volume=" + vol.toFixed(2), path]
         });
+        if (!proc) {
+            _onSfxDone();
+        }
     }
 
     function _flushPending() {
@@ -470,17 +649,24 @@ Singleton {
             return;
         }
 
+        reloadRecoverTimer.stop();
         savedClearTimer.stop();
         restoreHoldTimer.stop();
         _activeSfx += 1;
         if (_duckGain <= duckLevel + 0.02) {
             _spawnSfx(path, v);
         } else {
-            if (!(duckAnim.running && duckAnim.to === duckLevel)) {
-                _animateDuck(duckLevel, duckDownMs, Easing.InOutSine);
-            }
             _pendingSfx.push({ path: path, vol: v });
-            if (!sfxDelayTimer.running) sfxDelayTimer.start();
+            const ratio = Math.max(0.0, Math.min(1.0, (_duckGain - duckLevel) / Math.max(0.01, 1.0 - duckLevel)));
+            const downMs = Math.max(40, Math.round(duckDownMs * ratio));
+            if (!(duckAnim.running && duckAnim.to === duckLevel)) {
+                _animateDuck(duckLevel, downMs, Easing.InOutSine);
+                sfxDelayTimer.interval = downMs;
+                sfxDelayTimer.restart();
+            } else if (!sfxDelayTimer.running) {
+                sfxDelayTimer.interval = downMs;
+                sfxDelayTimer.start();
+            }
         }
     }
 

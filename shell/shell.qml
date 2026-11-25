@@ -8,6 +8,8 @@ import "components"
 ShellRoot {
     id: root
 
+    Component.onCompleted: SoundService.recoverOrphanedDuck()
+
     PersistentProperties {
         id: reloadState
         reloadableId: "paithoshReloadState"
