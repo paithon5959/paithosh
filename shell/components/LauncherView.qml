@@ -51,28 +51,6 @@ Item {
                     root.shellState.openIslandApp("settings", null);
                 }
             });
-            pinned.push({
-                id: "paithosh-upload",
-                name: "Upload Picker",
-                category: "System",
-                iconName: "",
-                fallbackSvg: "folder",
-                action: function() {
-                    root.shellState.pickerMode = "upload";
-                    root.shellState.openIslandApp("picker", null);
-                }
-            });
-            pinned.push({
-                id: "paithosh-download",
-                name: "Download Picker",
-                category: "System",
-                iconName: "",
-                fallbackSvg: "folder",
-                action: function() {
-                    root.shellState.pickerMode = "download";
-                    root.shellState.openIslandApp("picker", null);
-                }
-            });
         }
         const q = query.trim().toLowerCase();
         const combined = [];
@@ -304,7 +282,7 @@ Item {
                                     anchors.centerIn: parent
                                     sourceName: modelData.fallbackSvg || "settings"
                                     iconSize: 26
-                                    color: Theme.text
+                                    color: Theme.accent
                                     visible: parent.resolvedIcon === ""
                                 }
                             }
