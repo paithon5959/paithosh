@@ -20,7 +20,13 @@ Item {
             height: 54
             radius: 14
             color: Theme.cardBg
+            border.width: 1
+            border.color: KdeConnectService.online
+                ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.40)
+                : Theme.borderSubtle
             clip: true
+
+            Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
             RowLayout {
                 anchors.fill: parent
@@ -35,6 +41,7 @@ Item {
 
                     Text {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: KdeConnectService.deviceName
                         color: Theme.text
                         font.family: Theme.fontSans
@@ -44,20 +51,40 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: (KdeConnectService.online ? "Connected" : "Standby") + " • Battery " + KdeConnectService.batteryPct + "% • 5GHz"
+                        Layout.minimumWidth: 0
+                        text: (KdeConnectService.online ? "Connected" : "Standby") + " • " + KdeConnectService.batteryPct + "% • 5GHz"
                         color: Theme.textSub
-                        font.family: Theme.fontSans
+                        font.family: Theme.fontMono
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
                 }
 
-                Text {
-                    text: KdeConnectService.online ? "Online" : "Standby"
-                    color: KdeConnectService.online ? Theme.ok : Theme.textMuted
-                    font.family: Theme.fontSans
-                    font.pixelSize: 11
-                    font.weight: Font.DemiBold
+                Rectangle {
+                    height: 22
+                    width: kdeStatusText.implicitWidth + 14
+                    radius: 8
+                    color: KdeConnectService.online
+                        ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
+                        : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.06)
+                    border.width: 1
+                    border.color: KdeConnectService.online
+                        ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.38)
+                        : Theme.borderSubtle
+
+                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                    Text {
+                        id: kdeStatusText
+                        anchors.centerIn: parent
+                        text: KdeConnectService.online ? "Online" : "Standby"
+                        color: KdeConnectService.online ? Theme.ok : Theme.textMuted
+                        font.family: Theme.fontSans
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
                 }
             }
         }

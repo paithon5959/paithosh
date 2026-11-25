@@ -20,7 +20,13 @@ Item {
             height: 54
             radius: 14
             color: Theme.cardBg
+            border.width: 1
+            border.color: PowerService.charging
+                ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.40)
+                : Theme.borderSubtle
             clip: true
+
+            Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
             RowLayout {
                 anchors.fill: parent
@@ -33,30 +39,61 @@ Item {
                     Layout.minimumWidth: 0
                     spacing: 2
 
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: "Battery " + PowerService.batteryPct + "%"
-                        color: Theme.text
-                        font.family: Theme.fontSans
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                        spacing: 6
+
+                        Text {
+                            text: "Battery"
+                            color: Theme.text
+                            font.family: Theme.fontSans
+                            font.pixelSize: 13
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            text: PowerService.batteryPct + "%"
+                            color: Theme.text
+                            font.family: Theme.fontMono
+                            font.pixelSize: 14
+                            font.weight: Font.Bold
+                        }
                     }
                     Text {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: PowerService.timeRemaining + " • Health " + PowerService.healthPct + "%"
                         color: Theme.textSub
-                        font.family: Theme.fontSans
+                        font.family: Theme.fontMono
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
                 }
 
-                Text {
-                    text: PowerService.charging ? "Charging" : "Discharging"
-                    color: PowerService.charging ? Theme.ok : Theme.textSub
-                    font.family: Theme.fontSans
-                    font.pixelSize: 11
+                Rectangle {
+                    height: 22
+                    width: pwrStatusText.implicitWidth + 14
+                    radius: 8
+                    color: PowerService.charging
+                        ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
+                        : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.06)
+                    border.width: 1
+                    border.color: PowerService.charging
+                        ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.38)
+                        : Theme.borderSubtle
+
+                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                    Text {
+                        id: pwrStatusText
+                        anchors.centerIn: parent
+                        text: PowerService.charging ? "Charging" : "Discharging"
+                        color: PowerService.charging ? Theme.ok : Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 11
+                        font.weight: Font.DemiBold
+                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    }
                 }
             }
         }
@@ -74,7 +111,7 @@ Item {
                     text: modelData
                     active: PowerService.powerProfile === modelData
                     fillWidth: true
-                    radius: 14
+                    radius: 10
                     verticalPadding: 10
                     onClicked: PowerService.setPowerProfile(modelData)
                 }

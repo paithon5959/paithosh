@@ -30,10 +30,15 @@ Item {
                 radius: 14
                 clip: true
                 color: wifiMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                border.width: 1
+                border.color: wifiMouse.containsMouse
+                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42)
+                    : (NetworkService.wifiEnabled ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28) : Theme.borderSubtle)
                 scale: wifiMouse.pressed ? 0.96 : 1.0
 
-                Behavior on color { ColorAnimation { duration: 160 } }
-                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                 RowLayout {
                     anchors.fill: parent
@@ -42,11 +47,13 @@ Item {
                     spacing: 10
 
                     Rectangle {
-                        width: 26
-                        height: 26
-                        radius: 13
-                        color: NetworkService.wifiEnabled ? Theme.accent : Qt.rgba(1, 1, 1, 0.14)
-                        Behavior on color { ColorAnimation { duration: 180 } }
+                        width: 28
+                        height: 28
+                        radius: 14
+                        color: NetworkService.wifiEnabled ? Theme.accent : Theme.surfaceRaised
+                        border.width: NetworkService.wifiEnabled ? 0 : 1
+                        border.color: Theme.borderSubtle
+                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                         SvgIcon {
                             anchors.centerIn: parent
@@ -104,10 +111,15 @@ Item {
                 radius: 14
                 clip: true
                 color: dndMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                border.width: 1
+                border.color: dndMouse.containsMouse
+                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42)
+                    : (NotificationService.dnd ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.28) : Theme.borderSubtle)
                 scale: dndMouse.pressed ? 0.96 : 1.0
 
-                Behavior on color { ColorAnimation { duration: 160 } }
-                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                 RowLayout {
                     anchors.fill: parent
@@ -116,11 +128,13 @@ Item {
                     spacing: 10
 
                     Rectangle {
-                        width: 26
-                        height: 26
-                        radius: 13
-                        color: NotificationService.dnd ? Theme.accent : Qt.rgba(1, 1, 1, 0.14)
-                        Behavior on color { ColorAnimation { duration: 180 } }
+                        width: 28
+                        height: 28
+                        radius: 14
+                        color: NotificationService.dnd ? Theme.accent : Theme.surfaceRaised
+                        border.width: NotificationService.dnd ? 0 : 1
+                        border.color: Theme.borderSubtle
+                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                         SvgIcon {
                             anchors.centerIn: parent
@@ -290,11 +304,21 @@ Item {
         // MPRIS Media Hero Card
         Rectangle {
             Layout.fillWidth: true
-            height: 108
-            radius: 18
+            Layout.preferredHeight: MediaService.active ? 108 : 0
+            radius: 14
             color: Theme.cardBg
+            border.width: 1
+            border.color: Theme.borderSubtle
             clip: true
-            visible: MediaService.active
+            opacity: MediaService.active ? 1.0 : 0.0
+            visible: Layout.preferredHeight > 1 || opacity > 0.01
+
+            Behavior on Layout.preferredHeight {
+                NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+            }
+            Behavior on opacity {
+                NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+            }
 
             ColumnLayout {
                 anchors.fill: parent
@@ -308,8 +332,10 @@ Item {
                     Rectangle {
                         width: 48
                         height: 48
-                        radius: 12
-                        color: Qt.rgba(1, 1, 1, 0.14)
+                        radius: 10
+                        color: Theme.surfaceRaised
+                        border.width: 1
+                        border.color: Theme.borderSubtle
                         clip: true
 
                         Image {
@@ -366,11 +392,11 @@ Item {
                                 width: 28
                                 height: 28
                                 radius: 14
-                                color: mMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.14) : "transparent"
-                                scale: mMouse.pressed ? 0.86 : 1.0
+                                color: mMouse.containsMouse ? Theme.cardHover : "transparent"
+                                scale: mMouse.pressed ? 0.92 : 1.0
 
-                                Behavior on color { ColorAnimation { duration: 150 } }
-                                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                                Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                                 SvgIcon {
                                     anchors.centerIn: parent
@@ -399,7 +425,7 @@ Item {
                         Layout.fillWidth: true
                         height: 4
                         radius: 2
-                        color: Qt.rgba(1, 1, 1, 0.14)
+                        color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.14)
                         clip: true
 
                         Rectangle {
@@ -436,8 +462,11 @@ Item {
         Rectangle {
             Layout.fillWidth: true
             height: 76
-            radius: 18
+            radius: 14
             color: Theme.cardBg
+            border.width: 1
+            border.color: Theme.borderSubtle
+            clip: true
 
             ColumnLayout {
                 anchors.fill: parent
@@ -464,7 +493,7 @@ Item {
                             width: 72
                             Layout.preferredWidth: 72
                             text: modelData.label
-                            color: Qt.rgba(1, 1, 1, 0.78)
+                            color: Theme.textSub
                             font.family: Theme.fontSans
                             font.pixelSize: 12
                         }
@@ -478,7 +507,7 @@ Item {
                                 width: parent.width
                                 height: 6
                                 radius: 3
-                                color: Qt.rgba(1, 1, 1, 0.16)
+                                color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.16)
                                 clip: true
 
                                 Rectangle {
@@ -498,15 +527,16 @@ Item {
                                 radius: 7
                                 color: Theme.accent
                                 border.width: 1
-                                border.color: Qt.rgba(0, 0, 0, 0.45)
+                                border.color: Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.45)
                                 x: Math.max(0, Math.min(parent.width - width, parent.width * (currentVal / 100.0) - width / 2))
-                                scale: slMouse.pressed ? 1.15 : 1.0
-                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
+                                scale: slMouse.pressed ? 1.15 : (slMouse.containsMouse ? 1.08 : 1.0)
+                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
                             }
 
                             MouseArea {
                                 id: slMouse
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 preventStealing: true
                                 cursorShape: Qt.PointingHandCursor
                                 function applyX(mx) {
@@ -542,8 +572,10 @@ Item {
             readonly property bool hasItems: NotificationService.unreadCount > 0
             Layout.fillWidth: true
             Layout.preferredHeight: hasItems ? Math.min(200, 44 + notifList.contentHeight) : 0
-            radius: 18
-            color: Qt.rgba(1, 1, 1, 0.06)
+            radius: 14
+            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.05)
+            border.width: 1
+            border.color: Theme.borderSubtle
             clip: true
             opacity: hasItems ? 1.0 : 0.0
             visible: Layout.preferredHeight > 1 || opacity > 0.01
@@ -563,14 +595,37 @@ Item {
                 RowLayout {
                     Layout.fillWidth: true
 
-                    Text {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: "Notifications (" + NotificationService.unreadCount + ")"
-                        color: Qt.rgba(1, 1, 1, 0.78)
-                        font.family: Theme.fontSans
-                        font.pixelSize: 12
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
+                        Layout.minimumWidth: 0
+                        spacing: 6
+
+                        Text {
+                            text: "Notifications"
+                            color: Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+
+                        Rectangle {
+                            height: 16
+                            width: Math.max(18, notifCountText.implicitWidth + 8)
+                            radius: 5
+                            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08)
+
+                            Text {
+                                id: notifCountText
+                                anchors.centerIn: parent
+                                text: String(NotificationService.unreadCount)
+                                color: Theme.textMuted
+                                font.family: Theme.fontMono
+                                font.pixelSize: 10
+                                font.weight: Font.DemiBold
+                            }
+                        }
+
+                        Item { Layout.fillWidth: true }
                     }
 
                     PillButton {
@@ -616,12 +671,14 @@ Item {
                             width: parent.width
                             height: 54
                             x: rowWrap.removing ? 16 : 0
-                            radius: 14
-                            color: rowMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.07)
+                            radius: 10
+                            color: rowMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                            border.width: 1
+                            border.color: Theme.borderSubtle
                             clip: true
 
                             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                            Behavior on color { ColorAnimation { duration: 160 } }
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
                             MouseArea {
                                 id: rowMouse
@@ -640,13 +697,28 @@ Item {
                                     Layout.minimumWidth: 0
                                     spacing: 1
 
-                                    Text {
+                                    RowLayout {
                                         Layout.fillWidth: true
-                                        text: rowWrap.modelData.appName + " • " + rowWrap.modelData.timeText
-                                        color: Theme.textMuted
-                                        font.family: Theme.fontSans
-                                        font.pixelSize: 10
-                                        elide: Text.ElideRight
+                                        Layout.minimumWidth: 0
+                                        spacing: 4
+
+                                        Text {
+                                            Layout.maximumWidth: parent.width * 0.65
+                                            text: rowWrap.modelData.appName
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                        }
+                                        Text {
+                                            text: "• " + rowWrap.modelData.timeText
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontMono
+                                            font.pixelSize: 10
+                                            elide: Text.ElideRight
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                        }
                                     }
                                     Text {
                                         Layout.fillWidth: true

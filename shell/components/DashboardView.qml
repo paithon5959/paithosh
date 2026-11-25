@@ -36,7 +36,9 @@ Item {
         anchors.right: parent.right
         height: 36
         radius: 14
-        color: Qt.rgba(1, 1, 1, 0.06)
+        color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.06)
+        border.width: 1
+        border.color: Theme.borderSubtle
         clip: true
 
         GridLayout {
@@ -61,11 +63,11 @@ Item {
                     Layout.minimumWidth: 0
                     radius: 10
                     clip: true
-                    color: isSelected ? Theme.accent : (tabMouse.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                    color: isSelected ? Theme.accent : (tabMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent")
                     scale: tabMouse.pressed ? 0.94 : 1.0
 
-                    Behavior on color { ColorAnimation { duration: 180 } }
-                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack } }
+                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                     Text {
                         anchors.fill: parent
@@ -79,6 +81,8 @@ Item {
                         font.pixelSize: 11
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
+
+                        Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
                     }
 
                     MouseArea {
@@ -110,8 +114,8 @@ Item {
             opacity: root.activeTab === "mission" ? 1.0 : 0.0
             y: root.activeTab === "mission" ? 0 : 8
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200 } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         TaskManagerTab {
@@ -120,8 +124,8 @@ Item {
             opacity: root.activeTab === "tasks" ? 1.0 : 0.0
             y: root.activeTab === "tasks" ? 0 : 8
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200 } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         KdeConnectTab {
@@ -130,8 +134,8 @@ Item {
             opacity: root.activeTab === "kde" ? 1.0 : 0.0
             y: root.activeTab === "kde" ? 0 : 8
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200 } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         PowerStationTab {
@@ -140,8 +144,8 @@ Item {
             opacity: root.activeTab === "power" ? 1.0 : 0.0
             y: root.activeTab === "power" ? 0 : 8
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200 } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
     }
 }
