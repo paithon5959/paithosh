@@ -47,6 +47,8 @@ Singleton {
         }
         if (charging !== lastCharging) {
             lastCharging = charging;
+            if (charging) SoundService.playPowerPlug();
+            else SoundService.playPowerUnplug();
             chargerChanged(charging, batteryPct, chargeWatts);
         }
     }
@@ -63,6 +65,8 @@ Singleton {
 
     function triggerPreviewCharger() {
         fallbackCharging = !fallbackCharging;
+        if (fallbackCharging) SoundService.playPowerPlug();
+        else SoundService.playPowerUnplug();
         chargerChanged(fallbackCharging, batteryPct, chargeWatts);
     }
 

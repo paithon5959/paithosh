@@ -474,6 +474,8 @@ Singleton {
     function playIconPop() { play("icon-pop.wav", 0.45); }
     function playLock() { play("lock.wav", 0.75); }
     function playLockError() { play("lock-error.wav", 0.75); }
+    function playPowerPlug() { play("power-plug.wav", 0.80, true); }
+    function playPowerUnplug() { play("power-unplug.wav", 0.72, true); }
 
     function startLockAmbient(preset) {
         previewRestartTimer.stop();
