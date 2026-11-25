@@ -9,6 +9,7 @@ PanelWindow {
     reloadableId: "paithoshBackground"
 
     readonly property string wallpaperDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/wallpapers"
+    readonly property string defaultWallpaperAsset: Quickshell.shellDir + "/assets/wallpapers/default.png"
     readonly property int maxWallpapers: 16
 
     property string initialWallpaperPath: ""
@@ -51,7 +52,7 @@ PanelWindow {
                 _reloadVeilSettled = true;
             }
         } else {
-            // Cold boot: wait for first image decode (or fallback timer) then fade & settle in smoothly
+            // Cold boot: wait for saved settings / first wallpaper scan before revealing
             _reloadVeilSettled = true;
             bootFallbackTimer.restart();
         }
@@ -248,8 +249,12 @@ PanelWindow {
         id: wallpaperScanProc
         command: [
             "sh", "-c",
-            "mkdir -p \"$1\" && find \"$1\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -n 16 | cut -d' ' -f2-",
-            "_", root.wallpaperDir
+            "mkdir -p \"$1\"; " +
+            "if [ -z \"$(find \"$1\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -print -quit 2>/dev/null)\" ] && [ -f \"$2\" ]; then " +
+            "  cp -- \"$2\" \"$1/paithosh-default.png\" 2>/dev/null || true; " +
+            "fi; " +
+            "find \"$1\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \\) -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -n 16 | cut -d' ' -f2-",
+            "_", root.wallpaperDir, root.defaultWallpaperAsset
         ]
         running: false
         stdout: StdioCollector {
@@ -292,6 +297,10 @@ PanelWindow {
                     root.currentIndex = 0;
                     root._pendingIndex = -1;
                     root._pendingPath = "";
+                    if (imgA.source.toString() === "" && imgB.source.toString() === "") {
+                        root.currentWallpaperPath = root.defaultWallpaperAsset;
+                        imgA.source = root._toUrl(root.defaultWallpaperAsset);
+                    }
                 }
             }
         }

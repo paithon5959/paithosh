@@ -1,4 +1,4 @@
-# Paithosh (Paithon's shell)
+# <img src="shell/assets/icons/paithosh.svg" width="32" height="32" align="absmiddle" alt="Paithosh" /> Paithosh (Paithon's shell)
 
 Simply a shell I built to tinker with.
 
