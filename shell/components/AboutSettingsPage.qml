@@ -29,13 +29,13 @@ ColumnLayout {
     property int healthOkCount: 0
     property int healthTotalCount: 7
     property var healthItems: [
-        { id: "config", title: "Shell Config", detail: "Waiting to check...", status: "ok" },
-        { id: "compositor", title: "Compositor IPC", detail: "Waiting to check...", status: "ok" },
-        { id: "shader", title: "Gooey Shader", detail: "Waiting to check...", status: "ok" },
-        { id: "cli", title: "Core CLI Tools", detail: "Waiting to check...", status: "ok" },
-        { id: "disk", title: "Storage", detail: "Waiting to check...", status: "ok" },
-        { id: "battery", title: "Battery", detail: "Waiting to check...", status: "ok" },
-        { id: "thermal", title: "System Temperature", detail: "Waiting to check...", status: "ok" }
+        { id: "config", icon: "document", title: "Shell Config", detail: "Waiting to check...", status: "ok" },
+        { id: "compositor", icon: "layers", title: "Compositor IPC", detail: "Waiting to check...", status: "ok" },
+        { id: "shader", icon: "sparkles", title: "Gooey Shader", detail: "Waiting to check...", status: "ok" },
+        { id: "cli", icon: "terminal", title: "Core CLI Tools", detail: "Waiting to check...", status: "ok" },
+        { id: "disk", icon: "hard-drive", title: "Storage", detail: "Waiting to check...", status: "ok" },
+        { id: "battery", icon: "bolt", title: "Battery", detail: "Waiting to check...", status: "ok" },
+        { id: "thermal", icon: "thermometer", title: "System Temperature", detail: "Waiting to check...", status: "ok" }
     ]
 
     readonly property string projectRoot: Quickshell.shellDir.replace(/\/shell\/?$/, "")
@@ -228,6 +228,7 @@ ColumnLayout {
                 const items = [
                     {
                         id: "config",
+                        icon: "document",
                         title: "Shell Config",
                         detail: cfgOk
                             ? (setOk ? "~/.config/paithosh/settings.json writable" : "Config dir ready (settings.json pending)")
@@ -236,6 +237,7 @@ ColumnLayout {
                     },
                     {
                         id: "compositor",
+                        icon: "layers",
                         title: "Compositor IPC",
                         detail: isHypr
                             ? ("Connected • " + TelemetryService.hyprVersion)
@@ -244,6 +246,7 @@ ColumnLayout {
                     },
                     {
                         id: "shader",
+                        icon: "sparkles",
                         title: "Gooey Shader",
                         detail: qsbBytes > 0
                             ? ("gooey.frag.qsb compiled (" + (qsbBytes / 1024).toFixed(1) + " KB)")
@@ -252,6 +255,7 @@ ColumnLayout {
                     },
                     {
                         id: "cli",
+                        icon: "terminal",
                         title: "Core CLI Tools",
                         detail: missing === ""
                             ? "All core & media CLI tools available"
@@ -260,18 +264,21 @@ ColumnLayout {
                     },
                     {
                         id: "disk",
+                        icon: "hard-drive",
                         title: "Storage",
                         detail: diskPct + "% used • " + diskAvail + " free of " + diskTotal + " on /",
                         status: diskPct >= 95 ? "error" : (diskPct >= 85 ? "warn" : "ok")
                     },
                     {
                         id: "battery",
+                        icon: "bolt",
                         title: "Battery",
                         detail: batDetail,
                         status: batStatus
                     },
                     {
                         id: "thermal",
+                        icon: "thermometer",
                         title: "System Temperature",
                         detail: tempDetail,
                         status: tempStatus
@@ -324,6 +331,7 @@ ColumnLayout {
         property string iconName: ""
         property string title: ""
         property string subtitle: ""
+        property bool monoSubtitle: false
         property bool showDivider: true
         default property alias control: ctrlSlot.data
 
@@ -381,7 +389,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     text: aRow.subtitle
                     color: Theme.textSub
-                    font.family: Theme.fontSans
+                    font.family: aRow.monoSubtitle ? Theme.fontMono : Theme.fontSans
                     font.pixelSize: 11
                     elide: Text.ElideRight
                 }
@@ -394,7 +402,7 @@ ColumnLayout {
         }
     }
 
-    component AboutPillBtn: Rectangle {
+    component AboutActionBtn: Rectangle {
         id: btn
         property string label: ""
         property string iconName: ""
@@ -404,25 +412,25 @@ ColumnLayout {
         signal triggered()
 
         implicitWidth: Math.max(30, btnRow.implicitWidth + (label !== "" ? 20 : 12))
-        height: 28
-        radius: 14
+        height: 30
+        radius: 8
         clip: true
         color: active ? activeBg : (btnMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised)
         border.width: 1
         border.color: active ? activeBg : Theme.borderSubtle
         scale: btnMouse.pressed ? 0.94 : 1.0
-        Behavior on color { ColorAnimation { duration: 140 } }
-        Behavior on border.color { ColorAnimation { duration: 140 } }
-        Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
         RowLayout {
             id: btnRow
             anchors.centerIn: parent
-            spacing: 5
+            spacing: 6
             SvgIcon {
                 visible: btn.iconName !== ""
                 sourceName: btn.iconName
-                iconSize: 12
+                iconSize: 13
                 color: btn.active ? btn.activeFg : Theme.text
             }
             Text {
@@ -430,8 +438,8 @@ ColumnLayout {
                 text: btn.label
                 color: btn.active ? btn.activeFg : Theme.text
                 font.family: Theme.fontSans
-                font.pixelSize: 11
-                font.weight: Font.DemiBold
+                font.pixelSize: 12
+                font.weight: Font.Medium
                 elide: Text.ElideRight
             }
         }
@@ -445,35 +453,116 @@ ColumnLayout {
         }
     }
 
-    component MetaChip: Rectangle {
-        id: chip
-        property string text: ""
-        property color dotColor: "transparent"
-        property bool mono: false
+    component AboutExpandableSection: Rectangle {
+        id: expRoot
+        property bool expanded: false
+        property string iconName: "sliders"
+        property string title: "Hardware & Runtime Details"
+        property string subtitle: "Kernel, graphics, storage & session info"
+        default property alias content: expCol.data
 
-        height: 22
-        implicitWidth: chipRow.implicitWidth + 14
-        radius: 11
-        color: Theme.surfaceRaised
+        Layout.fillWidth: true
+        implicitHeight: expHeader.height + (expanded ? expBody.implicitHeight : 0)
+        radius: 12
+        color: Theme.cardBg
         border.width: 1
-        border.color: Theme.borderSubtle
+        border.color: expMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.40) : Theme.borderSubtle
+        scale: expMouse.pressed ? 0.99 : 1.0
         clip: true
+        Behavior on implicitHeight { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
-        RowLayout {
-            id: chipRow
-            anchors.centerIn: parent
-            spacing: 5
-            Rectangle {
-                visible: chip.dotColor !== "transparent"
-                width: 6; height: 6; radius: 3
-                color: chip.dotColor
+        Rectangle {
+            id: expHeader
+            width: parent.width
+            height: 54
+            color: expMouse.containsMouse ? Theme.cardHover : "transparent"
+            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 14
+                anchors.rightMargin: 14
+                spacing: 12
+
+                Rectangle {
+                    width: 30; height: 30; radius: 8
+                    color: Theme.surfaceRaised
+                    border.width: 1; border.color: Theme.borderSubtle
+                    clip: true
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        sourceName: expRoot.iconName
+                        iconSize: 15
+                        color: expMouse.containsMouse ? Theme.text : Theme.textSub
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
+                    spacing: 2
+                    Text {
+                        Layout.fillWidth: true
+                        text: expRoot.title
+                        color: Theme.text
+                        font.family: Theme.fontSans
+                        font.pixelSize: 13
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: expRoot.subtitle
+                        color: Theme.textSub
+                        font.family: Theme.fontSans
+                        font.pixelSize: 11
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Rectangle {
+                    width: 26; height: 26; radius: 8
+                    color: expMouse.containsMouse ? Theme.surfaceRaised : "transparent"
+                    border.width: 1
+                    border.color: expMouse.containsMouse ? Theme.borderSubtle : "transparent"
+                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        sourceName: "chevron-right"
+                        iconSize: 14
+                        color: expMouse.containsMouse ? Theme.text : Theme.textSub
+                        rotation: expRoot.expanded ? 90 : 0
+                        Behavior on rotation { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                    }
+                }
             }
-            Text {
-                text: chip.text
-                color: Theme.textSub
-                font.family: chip.mono ? Theme.fontMono : Theme.fontSans
-                font.pixelSize: 10
-                elide: Text.ElideRight
+
+            MouseArea {
+                id: expMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: expRoot.expanded = !expRoot.expanded
+            }
+        }
+
+        Item {
+            id: expBody
+            y: expHeader.height
+            width: parent.width
+            implicitHeight: expCol.implicitHeight
+            opacity: expRoot.expanded ? 1.0 : 0.0
+            enabled: expRoot.expanded
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+            ColumnLayout {
+                id: expCol
+                width: parent.width
+                spacing: 0
             }
         }
     }
@@ -496,7 +585,7 @@ ColumnLayout {
 
             // Paithosh Orbital Nucleus emblem
             Rectangle {
-                width: 44; height: 44; radius: 12
+                width: 44; height: 44; radius: 10
                 color: Theme.surfaceRaised
                 border.width: 1
                 border.color: Theme.borderSubtle
@@ -519,6 +608,7 @@ ColumnLayout {
                     Layout.fillWidth: true
                     spacing: 8
                     Text {
+                        Layout.alignment: Qt.AlignBaseline
                         text: "Paithosh Shell"
                         color: Theme.text
                         font.family: Theme.fontSans
@@ -526,9 +616,16 @@ ColumnLayout {
                         font.weight: Font.DemiBold
                         elide: Text.ElideRight
                     }
-                    MetaChip {
+                    Text {
+                        Layout.alignment: Qt.AlignBaseline
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: "v" + root.shellVersion + " · " + root.gitBranch + "@" + root.gitCommit
-                        mono: true
+                        color: Theme.textSub
+                        font.family: Theme.fontMono
+                        font.pixelSize: 11
+                        font.weight: Font.Medium
+                        elide: Text.ElideRight
                     }
                 }
 
@@ -544,15 +641,15 @@ ColumnLayout {
 
             RowLayout {
                 spacing: 6
-                AboutPillBtn {
+                AboutActionBtn {
                     iconName: root.copiedFeedback ? "check" : "copy"
                     label: root.copiedFeedback ? "Copied" : "Copy"
                     active: root.copiedFeedback
-                    activeBg: Theme.ok
-                    activeFg: Theme.pillBg
+                    activeBg: Theme.accent
+                    activeFg: Theme.accentFg
                     onTriggered: root.copySystemSummary()
                 }
-                AboutPillBtn {
+                AboutActionBtn {
                     iconName: "refresh"
                     onTriggered: root.refreshAll()
                 }
@@ -569,45 +666,62 @@ ColumnLayout {
             iconName: "terminal"
             title: "OS"
             subtitle: TelemetryService.osName + " (" + TelemetryService.arch + ")"
-            MetaChip {
-                text: TelemetryService.kernel || "Linux"
-                mono: true
-            }
         }
         AboutRow {
             iconName: "settings"
             title: "Compositor"
-            subtitle: TelemetryService.hyprVersion
-            MetaChip {
-                dotColor: CompositorService.isHyprland ? Theme.ok : Theme.warn
-                text: CompositorService.isHyprland ? "Hyprland" : "KDE Preview"
-            }
+            subtitle: TelemetryService.hyprVersion + (CompositorService.isHyprland ? "" : " • KDE Preview")
         }
         AboutRow {
             iconName: "keyboard"
             title: "Host & Shell"
             subtitle: TelemetryService.hostname + " • " + TelemetryService.shellName
-            MetaChip {
-                text: (root.shellState ? root.shellState.activeProfile : "default") + ".paish"
-                mono: true
-            }
         }
         AboutRow {
             iconName: "cpu"
-            title: "Processor & Graphics"
+            title: "Processor"
             subtitle: TelemetryService.cpuModel + (TelemetryService.cpuCores !== "" ? (" (" + TelemetryService.cpuCores + ")") : "")
-            MetaChip {
-                text: TelemetryService.gpuName
-            }
         }
         AboutRow {
             iconName: "hard-drive"
             title: "Memory & Storage"
-            subtitle: "RAM " + TelemetryService.memDetail + " (" + TelemetryService.ramPct + "%) • " + TelemetryService.swapSummary
-            MetaChip {
-                text: TelemetryService.storageTotal + (TelemetryService.storageDetail !== "" ? (" • " + TelemetryService.storageDetail) : "")
-                mono: true
-            }
+            monoSubtitle: true
+            subtitle: "RAM " + TelemetryService.memDetail + " (" + TelemetryService.ramPct + "%) • " + TelemetryService.storageTotal
+        }
+    }
+
+    AboutExpandableSection {
+        iconName: "sliders"
+        title: "Hardware & Runtime Details"
+        subtitle: "Kernel, graphics, storage breakdown & active profile"
+
+        AboutRow {
+            iconName: "code"
+            title: "Kernel"
+            monoSubtitle: true
+            subtitle: TelemetryService.kernel || "Linux"
+        }
+        AboutRow {
+            iconName: "monitor"
+            title: "Graphics"
+            subtitle: TelemetryService.gpuName || "Integrated / Unknown"
+        }
+        AboutRow {
+            iconName: "archive"
+            title: "Swap & Storage"
+            monoSubtitle: true
+            subtitle: TelemetryService.swapSummary + (TelemetryService.storageDetail !== "" ? (" • " + TelemetryService.storageDetail) : "")
+        }
+        AboutRow {
+            iconName: "layers"
+            title: "Active Profile"
+            monoSubtitle: true
+            subtitle: (root.shellState ? root.shellState.activeProfile : "default") + ".paish"
+        }
+        AboutRow {
+            iconName: "info"
+            title: "Session & Runtime"
+            subtitle: (root.sessionDesktop || "Wayland") + " • " + root.qsVersion + " • " + root.qtVersion
         }
     }
 
@@ -615,24 +729,40 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         Layout.topMargin: 4
-        spacing: 8
+        spacing: 10
 
         AboutSectionLabel {
             Layout.topMargin: 0
             text: "Health Check"
         }
 
-        MetaChip {
-            dotColor: root.healthRunning
-                ? Theme.info
-                : (root.healthOkCount === root.healthTotalCount ? Theme.ok : Theme.warn)
-            text: root.healthRunning
-                ? "Checking..."
-                : (root.healthOkCount + "/" + root.healthTotalCount + " Passed • " + root.lastCheckTime)
+        RowLayout {
+            spacing: 5
+            SvgIcon {
+                sourceName: root.healthRunning
+                    ? "clock"
+                    : (root.healthOkCount === root.healthTotalCount ? "check" : "alert-triangle")
+                iconSize: 13
+                color: root.healthRunning
+                    ? Theme.info
+                    : (root.healthOkCount === root.healthTotalCount ? Theme.accent : Theme.warn)
+            }
+            Text {
+                text: root.healthRunning
+                    ? "Checking..."
+                    : (root.healthOkCount + "/" + root.healthTotalCount + " Passed • " + root.lastCheckTime)
+                color: root.healthRunning
+                    ? Theme.info
+                    : (root.healthOkCount === root.healthTotalCount ? Theme.accent : Theme.warn)
+                font.family: Theme.fontMono
+                font.pixelSize: 11
+                font.weight: Font.Medium
+                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+            }
         }
 
-        AboutPillBtn {
-            height: 26
+        AboutActionBtn {
+            height: 28
             iconName: root.healthRunning ? "clock" : "refresh"
             label: root.healthRunning ? "Running" : "Run Check"
             onTriggered: root.runHealthCheck()
@@ -646,51 +776,18 @@ ColumnLayout {
                 required property var modelData
                 required property int index
                 showDivider: index > 0
-                iconName: modelData.status === "ok" ? "check" : (modelData.status === "error" ? "close" : "alert-triangle")
+                iconName: modelData.icon || "info"
                 title: modelData.title
                 subtitle: modelData.detail
 
-                Rectangle {
-                    height: 22
-                    implicitWidth: stRow.implicitWidth + 14
-                    radius: 6
-                    clip: true
-                    color: Theme.surfaceRaised
-                    border.width: 1
-                    border.color: modelData.status === "ok"
-                        ? Theme.borderSubtle
-                        : (modelData.status === "error"
-                            ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.35)
-                            : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.35))
-                    Behavior on color { ColorAnimation { duration: 180 } }
-                    Behavior on border.color { ColorAnimation { duration: 180 } }
-
-                    RowLayout {
-                        id: stRow
-                        anchors.centerIn: parent
-                        spacing: 5
-
-                        Rectangle {
-                            width: 6
-                            height: 6
-                            radius: 3
-                            color: modelData.status === "ok"
-                                ? Theme.ok
-                                : (modelData.status === "error" ? Theme.danger : Theme.warn)
-                            Behavior on color { ColorAnimation { duration: 180 } }
-                        }
-
-                        Text {
-                            id: stLbl
-                            text: modelData.status === "ok" ? "OK" : (modelData.status === "error" ? "Fail" : "Warn")
-                            color: modelData.status === "ok"
-                                ? Theme.textSub
-                                : (modelData.status === "error" ? Theme.dangerText : Theme.warn)
-                            font.family: Theme.fontSans
-                            font.pixelSize: 11
-                            font.weight: Font.Medium
-                        }
-                    }
+                SvgIcon {
+                    sourceName: modelData.status === "ok"
+                        ? "check"
+                        : (modelData.status === "error" ? "close" : "alert-triangle")
+                    iconSize: 16
+                    color: modelData.status === "ok"
+                        ? Theme.accent
+                        : (modelData.status === "error" ? Theme.dangerText : Theme.warn)
                 }
             }
         }
