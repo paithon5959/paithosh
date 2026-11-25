@@ -4451,36 +4451,38 @@ Item {
                                         id: shareCodeCol
                                         anchors.fill: parent; anchors.margins: 12; spacing: 8
 
+                                        Component.onCompleted: {
+                                            if (root.shellState) root.shellState.refreshShareCode();
+                                        }
+
+                                        Connections {
+                                            target: root.shellState
+                                            function onShareCodeCopied(code) {
+                                                root.themeExportOk = true;
+                                                root.themeExportStatus = "Copied share code (" + code.length + " chars)";
+                                            }
+                                            function onThemeCodeImported(ok, message) {
+                                                root.themeExportOk = ok;
+                                                root.themeExportStatus = message;
+                                                if (ok) root.themeImportInput = "";
+                                            }
+                                        }
+
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 8
                                             ColumnLayout {
                                                 Layout.fillWidth: true; spacing: 2
                                                 Text { text: "Export current settings as compact code"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Text {
-                                                    readonly property string _cursorSig: CursorService.style + ":" + CursorService.size + ":" + CursorService.colorMode + ":" + CursorService.fixedColor + ":" + CursorService.motionBlur
-                                                    readonly property string previewCode: (_cursorSig, root.shellState ? root.shellState.exportThemeCode().code : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService).code)
-                                                    text: previewCode
+                                                    text: (root.shellState && root.shellState.currentShareCode !== "") ? root.shellState.currentShareCode : "paish:..."
                                                     color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10
                                                     elide: Text.ElideMiddle; Layout.fillWidth: true
                                                 }
                                             }
                                             CtrlBtn {
-                                                text: "Copy Raw"
-                                                ghost: true
-                                                onClicked: {
-                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService);
-                                                    FileService.copyToClipboard(b.raw);
-                                                    root.themeExportOk = true;
-                                                    root.themeExportStatus = "Copied raw values (" + b.raw.length + " chars)";
-                                                }
-                                            }
-                                            CtrlBtn {
                                                 text: "Copy Code"
                                                 onClicked: {
-                                                    const b = root.shellState ? root.shellState.exportThemeCode() : Theme.encodeState(null, CompositorService, bgLayer, "", CursorService);
-                                                    FileService.copyToClipboard(b.code);
-                                                    root.themeExportOk = true;
-                                                    root.themeExportStatus = "Copied share code (" + b.code.length + " chars)";
+                                                    if (root.shellState) root.shellState.copyShareCode();
                                                 }
                                             }
                                         }
@@ -4489,7 +4491,7 @@ Item {
                                             Layout.fillWidth: true; height: 1; color: Theme.borderSubtle
                                         }
 
-                                        Text { text: "Paste share code (PAISH1:...) or raw ';' string to apply"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                        Text { text: "Paste share code (paish:...) to apply"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11 }
                                         RowLayout {
                                             Layout.fillWidth: true; spacing: 8
                                             Rectangle {
@@ -4507,18 +4509,11 @@ Item {
                                                         event.accepted = true;
                                                     }
                                                     onAccepted: {
-                                                        if (root.shellState && root.shellState.importThemeCode(root.themeImportInput)) {
-                                                            root.themeExportOk = true;
-                                                            root.themeExportStatus = "Applied theme code & synced!";
-                                                            root.themeImportInput = "";
-                                                        } else {
-                                                            root.themeExportOk = false;
-                                                            root.themeExportStatus = "Invalid theme code or format";
-                                                        }
+                                                        if (root.shellState) root.shellState.importThemeCode(root.themeImportInput);
                                                     }
                                                     Text {
                                                         anchors.fill: parent; verticalAlignment: Text.AlignVCenter
-                                                        text: "PAISH1:... or 1;0;0;26;..."
+                                                        text: "paish:..."
                                                         color: Theme.textMuted; font: parent.font
                                                         visible: parent.text === ""
                                                     }
@@ -4527,14 +4522,7 @@ Item {
                                             CtrlBtn {
                                                 text: "Apply Code"
                                                 onClicked: {
-                                                    if (root.shellState && root.shellState.importThemeCode(root.themeImportInput)) {
-                                                        root.themeExportOk = true;
-                                                        root.themeExportStatus = "Applied theme code & synced!";
-                                                        root.themeImportInput = "";
-                                                    } else {
-                                                        root.themeExportOk = false;
-                                                        root.themeExportStatus = "Invalid theme code or format";
-                                                    }
+                                                    if (root.shellState) root.shellState.importThemeCode(root.themeImportInput);
                                                 }
                                             }
                                         }
@@ -4790,19 +4778,19 @@ Item {
                                     title: "Crossfade + Scale"
                                     subtitle: "Smooth zoom & fade"
                                     active: bgLayer.transitionMode === "crossfade-scale"
-                                    onTriggered: { bgLayer.transitionMode = "crossfade-scale"; root.markAppearanceChanged(); }
+                                    onTriggered: { bgLayer.transitionMode = "crossfade-scale"; }
                                 }
                                 PresetCard {
                                     title: "Crossfade"
                                     subtitle: "Clean opacity blend"
                                     active: bgLayer.transitionMode === "crossfade"
-                                    onTriggered: { bgLayer.transitionMode = "crossfade"; root.markAppearanceChanged(); }
+                                    onTriggered: { bgLayer.transitionMode = "crossfade"; }
                                 }
                                 PresetCard {
                                     title: "Instant"
                                     subtitle: "Zero transition delay"
                                     active: bgLayer.transitionMode === "instant"
-                                    onTriggered: { bgLayer.transitionMode = "instant"; root.markAppearanceChanged(); }
+                                    onTriggered: { bgLayer.transitionMode = "instant"; }
                                 }
                             }
                             RowLayout {
@@ -4997,7 +4985,6 @@ Item {
                                             cursorShape: Qt.PointingHandCursor
                                             onClicked: {
                                                 bgLayer.selectWallpaper(wpCard.modelData);
-                                                root.markAppearanceChanged();
                                             }
                                         }
                                     }
@@ -5812,11 +5799,11 @@ Item {
                                 subtitle: "Master split ratio & split orientation"
                                 SettingRow {
                                     showDivider: false; iconName: "layout"; title: "Master split ratio"; subtitle: "Percentage width reserved for primary window"
-                                    CtrlSlider { from: 30; to: 80; value: root.masterRatio; unit: "%"; onMoved: (v) => { root.masterRatio = v; Theme.masterRatio = v; } }
+                                    CtrlSlider { from: 30; to: 80; value: root.masterRatio; unit: "%"; onMoved: (v) => { root.masterRatio = v; Theme.masterRatio = v; root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
                                     title: "Preserve split direction"; subtitle: "Keep orientation consistent when closing windows"
-                                    CtrlTickBox { checked: root.preserveSplit; onToggled: (v) => { root.preserveSplit = v; Theme.preserveSplit = v; } }
+                                    CtrlTickBox { checked: root.preserveSplit; onToggled: (v) => { root.preserveSplit = v; Theme.preserveSplit = v; root.markAppearanceChanged(); } }
                                 }
                             }
 
@@ -5827,19 +5814,19 @@ Item {
                                     title: "Compact"
                                     subtitle: "In 3px • Out 6px • 1px"
                                     active: CompositorService.gapsIn === 3 && CompositorService.gapsOut === 6
-                                    onTriggered: CompositorService.setGapsAndBorder(3, 6, 1)
+                                    onTriggered: { CompositorService.setGapsAndBorder(3, 6, 1); root.markAppearanceChanged(); }
                                 }
                                 PresetCard {
                                     title: "Balanced"
                                     subtitle: "In 6px • Out 12px • 1px"
                                     active: CompositorService.gapsIn === 6 && CompositorService.gapsOut === 12
-                                    onTriggered: CompositorService.setGapsAndBorder(6, 12, 1)
+                                    onTriggered: { CompositorService.setGapsAndBorder(6, 12, 1); root.markAppearanceChanged(); }
                                 }
                                 PresetCard {
                                     title: "Spacious"
                                     subtitle: "In 12px • Out 24px • 2px"
                                     active: CompositorService.gapsIn === 12 && CompositorService.gapsOut === 24
-                                    onTriggered: CompositorService.setGapsAndBorder(12, 24, 2)
+                                    onTriggered: { CompositorService.setGapsAndBorder(12, 24, 2); root.markAppearanceChanged(); }
                                 }
                             }
 
@@ -5851,6 +5838,7 @@ Item {
                                         onToggled: (v) => {
                                             root.activeBorderHighlight = v;
                                             if (root.shellState) root.shellState.activeBorderHighlight = v;
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -5860,15 +5848,15 @@ Item {
                                 subtitle: "Raw inner/outer pixel gaps & border thickness"
                                 SettingRow {
                                     showDivider: false; iconName: "grid-gap"; title: "Inner gaps"; subtitle: "Space between tiled windows"
-                                    CtrlSlider { from: 0; to: 32; value: CompositorService.gapsIn; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(v, CompositorService.gapsOut, CompositorService.borderSize) }
+                                    CtrlSlider { from: 0; to: 32; value: CompositorService.gapsIn; unit: "px"; onMoved: (v) => { CompositorService.setGapsAndBorder(v, CompositorService.gapsOut, CompositorService.borderSize); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
                                     iconName: "grid-gap"; title: "Outer gaps"; subtitle: "Margin around screen edges"
-                                    CtrlSlider { from: 0; to: 48; value: CompositorService.gapsOut; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(CompositorService.gapsIn, v, CompositorService.borderSize) }
+                                    CtrlSlider { from: 0; to: 48; value: CompositorService.gapsOut; unit: "px"; onMoved: (v) => { CompositorService.setGapsAndBorder(CompositorService.gapsIn, v, CompositorService.borderSize); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
                                     iconName: "square-rounded"; title: "Border thickness"; subtitle: "Window stroke width"
-                                    CtrlSlider { from: 0; to: 6; value: CompositorService.borderSize; unit: "px"; onMoved: (v) => CompositorService.setGapsAndBorder(CompositorService.gapsIn, CompositorService.gapsOut, v) }
+                                    CtrlSlider { from: 0; to: 6; value: CompositorService.borderSize; unit: "px"; onMoved: (v) => { CompositorService.setGapsAndBorder(CompositorService.gapsIn, CompositorService.gapsOut, v); root.markAppearanceChanged(); } }
                                 }
                             }
 
@@ -5930,6 +5918,7 @@ Item {
                                             const pos = (v === "Bottom") ? "bottom" : "top";
                                             root.barPosition = pos;
                                             if (root.shellState) root.shellState.barPosition = pos;
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -5971,6 +5960,7 @@ Item {
                                                     root.shellState.autoHideOnOverlap = true;
                                                 }
                                             }
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -5986,6 +5976,7 @@ Item {
                                         onSelected: (v) => {
                                             root.islandCornerRadius = v;
                                             if (root.shellState) root.shellState.islandCornerRadius = v;
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -5996,6 +5987,7 @@ Item {
                                         onToggled: (v) => {
                                             root.topEdgeOffset = v;
                                             if (root.shellState) root.shellState.topEdgeOffset = v;
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -6488,7 +6480,7 @@ Item {
                                         iconName: "eye-off"
                                         searchKeywords: "none clean off lock screen effect"
                                         active: LockService.effectPreset === "none"
-                                        onTriggered: LockService.effectPreset = "none"
+                                        onTriggered: { LockService.effectPreset = "none"; root.markAppearanceChanged(); }
                                     }
                                     PresetCard {
                                         title: "Snowfall"
@@ -6496,7 +6488,7 @@ Item {
                                         iconName: "snowflake"
                                         searchKeywords: "snow snowfall winter particles lock screen effect"
                                         active: LockService.effectPreset === "snow"
-                                        onTriggered: LockService.effectPreset = "snow"
+                                        onTriggered: { LockService.effectPreset = "snow"; root.markAppearanceChanged(); }
                                     }
                                     PresetCard {
                                         title: "Rain"
@@ -6504,7 +6496,7 @@ Item {
                                         iconName: "cloud-rain"
                                         searchKeywords: "rain rainfall weather particles lock screen effect"
                                         active: LockService.effectPreset === "rain"
-                                        onTriggered: LockService.effectPreset = "rain"
+                                        onTriggered: { LockService.effectPreset = "rain"; root.markAppearanceChanged(); }
                                     }
                                     PresetCard {
                                         title: "Wind Breeze"
@@ -6512,7 +6504,7 @@ Item {
                                         iconName: "wind"
                                         searchKeywords: "wind breeze air particles lock screen effect"
                                         active: LockService.effectPreset === "wind"
-                                        onTriggered: LockService.effectPreset = "wind"
+                                        onTriggered: { LockService.effectPreset = "wind"; root.markAppearanceChanged(); }
                                     }
                                 }
 
@@ -6536,6 +6528,7 @@ Item {
                                         onTriggered: {
                                             LockService.ambientSound = "none";
                                             SoundService.stopPreviewAmbient();
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                     PresetCard {
@@ -6548,6 +6541,7 @@ Item {
                                             LockService.silentMode = false;
                                             LockService.ambientSound = "wind";
                                             SoundService.startPreviewAmbient("wind");
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                     PresetCard {
@@ -6560,6 +6554,7 @@ Item {
                                             LockService.silentMode = false;
                                             LockService.ambientSound = "rain";
                                             SoundService.startPreviewAmbient("rain");
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                     PresetCard {
@@ -6572,6 +6567,7 @@ Item {
                                             LockService.silentMode = false;
                                             LockService.ambientSound = "snow";
                                             SoundService.startPreviewAmbient("snow");
+                                            root.markAppearanceChanged();
                                         }
                                     }
                                 }
@@ -6590,6 +6586,7 @@ Item {
                                             onToggled: (v) => {
                                                 LockService.silentMode = v;
                                                 if (v) SoundService.stopPreviewAmbient();
+                                                root.markAppearanceChanged();
                                             }
                                         }
                                     }
@@ -6601,7 +6598,7 @@ Item {
                                         opacity: spotMatched ? (LockService.silentMode ? 0.48 : 1.0) : 0.28
                                         CtrlSwitch {
                                             checked: LockService.sfxEnabled
-                                            onToggled: (v) => LockService.sfxEnabled = v
+                                            onToggled: (v) => { LockService.sfxEnabled = v; root.markAppearanceChanged(); }
                                         }
                                     }
                                 }
@@ -6617,7 +6614,7 @@ Item {
                                         searchKeywords: "notifications toast bell badge lock screen"
                                         CtrlSwitch {
                                             checked: LockService.showNotifications
-                                            onToggled: (v) => LockService.showNotifications = v
+                                            onToggled: (v) => { LockService.showNotifications = v; root.markAppearanceChanged(); }
                                         }
                                     }
                                     Item {
@@ -6640,7 +6637,7 @@ Item {
                                             searchKeywords: "hide sensitive content privacy notifications mask lock screen"
                                             CtrlSwitch {
                                                 checked: LockService.hideNotifContent
-                                                onToggled: (v) => LockService.hideNotifContent = v
+                                                onToggled: (v) => { LockService.hideNotifContent = v; root.markAppearanceChanged(); }
                                             }
                                         }
                                     }
@@ -6651,7 +6648,7 @@ Item {
                                         searchKeywords: "media player music mpris controls lock screen"
                                         CtrlSwitch {
                                             checked: LockService.showMedia
-                                            onToggled: (v) => LockService.showMedia = v
+                                            onToggled: (v) => { LockService.showMedia = v; root.markAppearanceChanged(); }
                                         }
                                     }
                                     SettingRow {
@@ -6661,7 +6658,7 @@ Item {
                                         searchKeywords: "system alerts low battery high temperature overheat thermal charger lock screen"
                                         CtrlSwitch {
                                             checked: LockService.showSystemAlerts
-                                            onToggled: (v) => LockService.showSystemAlerts = v
+                                            onToggled: (v) => { LockService.showSystemAlerts = v; root.markAppearanceChanged(); }
                                         }
                                     }
                                 }
@@ -6680,7 +6677,7 @@ Item {
                                         CtrlSlider {
                                             from: 50; to: 150; stepSize: 5; unit: "%"
                                             value: LockService.effectIntensity
-                                            onMoved: (v) => LockService.effectIntensity = Math.round(v)
+                                            onMoved: (v) => { LockService.effectIntensity = Math.round(v); root.markAppearanceChanged(); }
                                         }
                                     }
                                     SettingRow {
@@ -6694,6 +6691,7 @@ Item {
                                             onMoved: (v) => {
                                                 LockService.ambientVolume = Math.round(v);
                                                 SoundService.refreshPreviewAmbient();
+                                                root.markAppearanceChanged();
                                             }
                                         }
                                     }
@@ -6705,7 +6703,7 @@ Item {
                                         CtrlSlider {
                                             from: 15; to: 75; stepSize: 5; unit: "%"
                                             value: LockService.dimOpacity
-                                            onMoved: (v) => LockService.dimOpacity = Math.round(v)
+                                            onMoved: (v) => { LockService.dimOpacity = Math.round(v); root.markAppearanceChanged(); }
                                         }
                                     }
                                 }

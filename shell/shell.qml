@@ -20,6 +20,7 @@ ShellRoot {
 
     property string profileDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh"
     property string settingsPath: profileDir + "/settings.json"
+    readonly property string paishScript: Quickshell.shellDir + "/scripts/paithosh-paish.py"
 
     FileView {
         id: settingsFile
@@ -140,10 +141,46 @@ ShellRoot {
     }
 
     Process {
+        id: paishEncoder
+        property string jsonPayload: "{}"
+        property bool copyOnFinish: false
+        command: ["python3", root.paishScript, "encode", "--json", jsonPayload]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const code = (this.text || "").trim();
+                if (code.indexOf("paish:") === 0) {
+                    stateObj.currentShareCode = code;
+                    if (paishEncoder.copyOnFinish) {
+                        paishEncoder.copyOnFinish = false;
+                        FileService.copyToClipboard(code);
+                        stateObj.shareCodeCopied(code);
+                    }
+                } else {
+                    paishEncoder.copyOnFinish = false;
+                }
+            }
+        }
+    }
+
+    Process {
         id: paishWriter
         property string targetPath: ""
-        property string payload: ""
-        command: ["sh", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s\\n' \"$2\" > \"$1\"", "sh", targetPath, payload]
+        property string profileName: "default"
+        property string jsonPayload: "{}"
+        command: ["python3", root.paishScript, "encode", "--json", jsonPayload, "--out", targetPath]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const code = (this.text || "").trim();
+                if (code.indexOf("paish:") === 0) {
+                    stateObj.currentShareCode = code;
+                    stateObj.lastProfileStatus = "Saved " + paishWriter.profileName + ".paish (" + code.length + "B)";
+                    stateObj.lastProfileOk = true;
+                } else {
+                    stateObj.lastProfileStatus = "Failed to save " + paishWriter.profileName + ".paish";
+                    stateObj.lastProfileOk = false;
+                }
+            }
+        }
         onExited: stateObj.refreshProfiles()
     }
 
@@ -152,21 +189,26 @@ ShellRoot {
         property string targetPath: ""
         property bool silentOnMissing: false
         property string profileName: "default"
-        command: ["sh", "-c", "cat \"$1\" 2>/dev/null || true", "sh", targetPath]
+        command: ["python3", root.paishScript, "decode-file", targetPath]
         stdout: StdioCollector {
             onStreamFinished: {
                 const raw = (this.text || "").trim();
                 if (raw === "") {
                     if (!paishReader.silentOnMissing) {
-                        stateObj.lastProfileStatus = "Profile not found: " + paishReader.profileName + ".paish";
+                        stateObj.lastProfileStatus = "Invalid or missing " + paishReader.profileName + ".paish";
                         stateObj.lastProfileOk = false;
                     }
                     return;
                 }
-                const decoded = Theme.decodeState(raw);
-                if (!decoded) {
+                let decoded = null;
+                try {
+                    decoded = JSON.parse(raw);
+                } catch (e) {
+                    decoded = null;
+                }
+                if (!decoded || decoded.version !== 2) {
                     if (!paishReader.silentOnMissing) {
-                        stateObj.lastProfileStatus = "Invalid .paish format in " + paishReader.profileName + ".paish";
+                        stateObj.lastProfileStatus = "Invalid .paish v2 format in " + paishReader.profileName + ".paish";
                         stateObj.lastProfileOk = false;
                     }
                     return;
@@ -177,6 +219,44 @@ ShellRoot {
                     stateObj.lastProfileOk = true;
                 }
             }
+        }
+    }
+
+    Process {
+        id: paishImporter
+        property string codeInput: ""
+        command: ["python3", root.paishScript, "decode", codeInput]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const raw = (this.text || "").trim();
+                let decoded = null;
+                try {
+                    if (raw !== "") decoded = JSON.parse(raw);
+                } catch (e) {
+                    decoded = null;
+                }
+                if (!decoded || decoded.version !== 2) {
+                    stateObj.themeCodeImported(false, "Invalid paish: code or format");
+                    return;
+                }
+                const targetName = stateObj.sanitizeProfileName(decoded.profileName || decoded.presetName || "imported");
+                stateObj.applyDecodedTheme(decoded, targetName);
+                stateObj.saveProfile(targetName);
+                stateObj.themeCodeImported(true, "Applied paish: code & synced!");
+            }
+        }
+    }
+
+    Timer {
+        id: shareCodeTimer
+        interval: 100
+        repeat: false
+        onTriggered: {
+            const payload = Theme.buildPaishState(stateObj, CompositorService, stateObj.activeProfile, CursorService, LockService);
+            paishEncoder.copyOnFinish = false;
+            paishEncoder.jsonPayload = JSON.stringify(payload);
+            paishEncoder.running = false;
+            paishEncoder.running = true;
         }
     }
 
@@ -295,6 +375,7 @@ ShellRoot {
             } else if (_autoForkTarget === activeProfile && autoForkSaveTimer.running) {
                 autoForkSaveTimer.restart();
             }
+            shareCodeTimer.restart();
         }
 
         function applyCustomAccent(h, s, v) {
@@ -375,14 +456,26 @@ ShellRoot {
         property string lastProfileStatus: ""
         property bool lastProfileOk: true
         property int themeImportSeq: 0
+        property string currentShareCode: ""
+
+        signal shareCodeCopied(string code)
+        signal themeCodeImported(bool ok, string message)
 
         function sanitizeProfileName(name) {
-            const clean = String(name || "default").trim().replace(/[^a-zA-Z0-9._-]/g, "_");
-            return clean !== "" ? clean : "default";
+            const clean = String(name || "default").trim().toLowerCase().replace(/[^a-z0-9._-]/g, "_").replace(/^_+|_+$/g, "");
+            return clean !== "" ? clean.slice(0, 31) : "default";
         }
 
-        function exportThemeCode(profileName) {
-            return Theme.encodeState(stateObj, CompositorService, bgLayer, profileName, CursorService);
+        function refreshShareCode() {
+            shareCodeTimer.restart();
+        }
+
+        function copyShareCode() {
+            const payload = Theme.buildPaishState(stateObj, CompositorService, activeProfile, CursorService, LockService);
+            paishEncoder.copyOnFinish = true;
+            paishEncoder.jsonPayload = JSON.stringify(payload);
+            paishEncoder.running = false;
+            paishEncoder.running = true;
         }
 
         function applyDecodedTheme(d, profileName) {
@@ -422,14 +515,25 @@ ShellRoot {
             CompositorService.setSpringCurve(d.springStiffness, d.springDamping);
             CompositorService.setBlurConfig(d.blurEnabled, d.blurSize, d.blurPasses, d.blurVibrancy);
 
-            bgLayer.transitionMode = d.transitionMode;
-            bgLayer.applyWallpaperIndex(d.wallpaperIndex);
+            if (d.barPosition !== null && d.barPosition !== undefined) barPosition = d.barPosition;
 
             if (d.cursorStyle !== null) CursorService.style = CursorService.normalizeStyle(d.cursorStyle);
             if (d.cursorSize !== null) CursorService.size = Math.max(16, Math.min(64, Math.round(d.cursorSize)));
             if (d.cursorColorMode !== null) CursorService.colorMode = CursorService.normalizeColorMode(d.cursorColorMode);
             if (d.cursorFixedColor !== null) CursorService.fixedColor = CursorService.normalizeHex(d.cursorFixedColor);
             if (d.cursorMotionBlur !== null) CursorService.motionBlur = Boolean(d.cursorMotionBlur);
+
+            if (d.lockEffectPreset !== null && d.lockEffectPreset !== undefined) LockService.effectPreset = d.lockEffectPreset;
+            if (d.lockAmbientSound !== null && d.lockAmbientSound !== undefined) LockService.ambientSound = d.lockAmbientSound;
+            if (d.lockSilentMode !== null && d.lockSilentMode !== undefined) LockService.silentMode = Boolean(d.lockSilentMode);
+            if (d.lockSfxEnabled !== null && d.lockSfxEnabled !== undefined) LockService.sfxEnabled = Boolean(d.lockSfxEnabled);
+            if (d.lockShowNotifications !== null && d.lockShowNotifications !== undefined) LockService.showNotifications = Boolean(d.lockShowNotifications);
+            if (d.lockHideNotifContent !== null && d.lockHideNotifContent !== undefined) LockService.hideNotifContent = Boolean(d.lockHideNotifContent);
+            if (d.lockShowMedia !== null && d.lockShowMedia !== undefined) LockService.showMedia = Boolean(d.lockShowMedia);
+            if (d.lockShowSystemAlerts !== null && d.lockShowSystemAlerts !== undefined) LockService.showSystemAlerts = Boolean(d.lockShowSystemAlerts);
+            if (d.lockEffectIntensity !== null && d.lockEffectIntensity !== undefined) LockService.effectIntensity = d.lockEffectIntensity;
+            if (d.lockAmbientVolume !== null && d.lockAmbientVolume !== undefined) LockService.ambientVolume = d.lockAmbientVolume;
+            if (d.lockDimOpacity !== null && d.lockDimOpacity !== undefined) LockService.dimOpacity = d.lockDimOpacity;
 
             _applyingExternalState = false;
             themeImportSeq += 1;
@@ -439,25 +543,27 @@ ShellRoot {
         }
 
         function importThemeCode(input) {
-            const decoded = Theme.decodeState(input);
-            if (!decoded) return false;
-            const targetName = sanitizeProfileName(decoded.profileName || decoded.presetName || "imported");
-            applyDecodedTheme(decoded, targetName);
-            saveProfile(targetName);
+            const trimmed = String(input || "").trim();
+            if (trimmed.indexOf("paish:") !== 0) {
+                themeCodeImported(false, "Invalid paish: code or format");
+                return false;
+            }
+            paishImporter.codeInput = trimmed;
+            paishImporter.running = false;
+            paishImporter.running = true;
             return true;
         }
 
         function saveProfile(name) {
             const prof = sanitizeProfileName(name);
             activeProfile = prof;
-            const bundle = exportThemeCode(prof);
+            const payload = Theme.buildPaishState(stateObj, CompositorService, prof, CursorService, LockService);
+            paishWriter.profileName = prof;
             paishWriter.targetPath = root.profileDir + "/" + prof + ".paish";
-            paishWriter.payload = bundle.raw;
+            paishWriter.jsonPayload = JSON.stringify(payload);
             paishWriter.running = false;
             paishWriter.running = true;
-            lastProfileStatus = "Saved " + prof + ".paish (" + bundle.raw.length + "B)";
-            lastProfileOk = true;
-            return bundle;
+            return true;
         }
 
         function loadProfile(name, silent) {
@@ -485,6 +591,7 @@ ShellRoot {
         function saveSettings() {
             if (!settingsLoaded) return;
             saveSettingsTimer.restart();
+            shareCodeTimer.restart();
         }
 
         function writeSettingsNow() {
