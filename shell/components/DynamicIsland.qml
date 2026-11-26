@@ -30,6 +30,7 @@ PanelWindow {
 
     readonly property bool isBottom: shellState.barPosition === "bottom"
     readonly property bool isActiveScreen: shellState.activeScreen === modelData
+    readonly property bool isPopoverTargetScreen: isActiveScreen || (!shellState.activeScreen && Quickshell.screens.length > 0 && modelData === Quickshell.screens[0])
     readonly property bool isPopoverOpenOnThisScreen: isActiveScreen && shellState.openPopover !== ""
     readonly property bool isSearchOnThisScreen: isActiveScreen && shellState.openPopover === "search"
     readonly property bool isAppExpandedOnScreen: isActiveScreen && shellState.islandApp !== ""
@@ -40,6 +41,16 @@ PanelWindow {
     readonly property bool pointerOverIsland: topEdgeHover.hovered
     readonly property bool suppressSuperDrag: !root.isHidden && root.pointerOverIsland && root.shellState.superHeld
     readonly property bool isHidden: root.isDodged || ((shellState.manualHideBar || (shellState.hideBarFullscreen && CompositorService.isFullscreenFor(modelData)) || (shellState.autoHideOnOverlap && CompositorService.isOverlappedFor(modelData, shellState.barPosition))) && !root.hovered && !topEdgeHover.hovered && !hasActivity && !(shellState.superPeekBar && isActiveScreen))
+
+    function syncIslandLayoutToState() {
+        if (!isPopoverTargetScreen) return;
+        shellState.activeIslandHidden = root.isHidden;
+        shellState.activeIslandEdgeOffset = stageContainer.animatedEdgeOffset;
+    }
+
+    onIsPopoverTargetScreenChanged: syncIslandLayoutToState()
+    onIsHiddenChanged: syncIslandLayoutToState()
+    Component.onCompleted: syncIslandLayoutToState()
 
     onSuppressSuperDragChanged: {
         if (suppressSuperDrag) {
@@ -349,6 +360,7 @@ PanelWindow {
             }
         }
         property real animatedEdgeOffset: (root.hovered || root.isPopoverOpenOnThisScreen || root.isAppExpandedOnScreen) ? Theme.topOffsetHover : Theme.topOffsetRest
+        onAnimatedEdgeOffsetChanged: root.syncIslandLayoutToState()
         property real animatedHideOffset: root.isTucked ? 32 : (root.isHidden ? 26 : 0)
         property real bottomProgress: root.isBottom ? 1.0 : 0.0
         Behavior on animatedEdgeOffset {

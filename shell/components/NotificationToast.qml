@@ -8,14 +8,21 @@ import "common"
 Item {
     id: root
 
-    readonly property var toast: NotificationService.activeToast
+    readonly property var liveToast: NotificationService.activeToast
+    property var cachedToast: null
+    readonly property var toast: liveToast || cachedToast
     property bool copied: false
 
     implicitWidth: 380
     implicitHeight: toastCol.implicitHeight
     clip: true
 
-    onToastChanged: copied = false
+    onLiveToastChanged: {
+        if (liveToast) {
+            cachedToast = liveToast;
+            copied = false;
+        }
+    }
 
     HoverHandler {
         id: toastHover

@@ -807,6 +807,8 @@ ShellRoot {
         }
         property string islandCornerRadius: "26px (Default)"
         property string barPosition: "top" // "top" | "bottom"
+        property bool activeIslandHidden: false
+        property real activeIslandEdgeOffset: Theme.topOffsetRest
         property bool topEdgeOffset: true
         property bool activeBorderHighlight: true
         property string globalSurfaceTheme: "OLED Pure"
