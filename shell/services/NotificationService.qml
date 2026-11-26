@@ -34,6 +34,7 @@ Singleton {
             root.historyList = [entry].concat(root.historyList).slice(0, 30);
             if (!root.dnd && !notif.lastGeneration) {
                 root.activeToast = entry;
+                toastExpireTimer.interval = 4500;
                 toastExpireTimer.restart();
                 if (!(LockService.locked && LockService.silentMode)) {
                     SoundService.playNotify();
@@ -52,6 +53,19 @@ Singleton {
     function dismissToast() {
         toastExpireTimer.stop();
         activeToast = null;
+    }
+
+    function pauseToastTimer() {
+        if (activeToast && toastExpireTimer.running) {
+            toastExpireTimer.stop();
+        }
+    }
+
+    function resumeToastTimer() {
+        if (activeToast) {
+            toastExpireTimer.interval = 2500;
+            toastExpireTimer.restart();
+        }
     }
 
     function activateToast() {
@@ -116,6 +130,7 @@ Singleton {
         historyList = [entry].concat(historyList).slice(0, 30);
         if (!dnd) {
             activeToast = entry;
+            toastExpireTimer.interval = 4500;
             toastExpireTimer.restart();
         }
     }
