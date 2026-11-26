@@ -1232,9 +1232,14 @@ Item {
         height: 30
         implicitWidth: Math.max(126, selLbl.implicitWidth + 32)
         radius: 8
+        clip: true
         color: (cSel.enabled && selMouse.containsMouse) ? Theme.cardHover : Theme.surfaceRaised
         border.width: 1
-        border.color: Theme.borderSubtle
+        border.color: (cSel.enabled && selMouse.containsMouse) ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42) : Theme.borderSubtle
+        scale: (cSel.enabled && selMouse.pressed) ? 0.96 : 1.0
+        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
         RowLayout {
             anchors.fill: parent
@@ -2368,6 +2373,71 @@ Item {
                             readonly property string activeRecPreset: root.shellState ? root.shellState.recordPreset : ScreenRecordService.preset
                             readonly property string activeRecRes: root.shellState ? root.shellState.recordResolution : ScreenRecordService.resolution
                             readonly property int activeRecFps: root.shellState ? root.shellState.recordFps : ScreenRecordService.fps
+                            readonly property string activeRecCodec: {
+                                const raw = root.shellState ? root.shellState.recordCodec : ScreenRecordService.codec;
+                                const avail = ScreenRecordService.availableCodecs || ["auto"];
+                                if (ScreenRecordService.codecsLoaded && avail.indexOf(raw) === -1) return "auto";
+                                return raw;
+                            }
+                            readonly property bool isSoftwareCodec: activeRecCodec === "libx264" || activeRecCodec === "libx265"
+                            function codecLabelForKey(k) {
+                                switch (k) {
+                                    case "h264_vaapi": return "H.264 (VAAPI)";
+                                    case "hevc_vaapi": return "HEVC (VAAPI)";
+                                    case "h264_nvenc": return "H.264 (NVENC)";
+                                    case "hevc_nvenc": return "HEVC (NVENC)";
+                                    case "libx264": return "H.264 (Software)";
+                                    case "libx265": return "HEVC (Software)";
+                                    default: return "Auto (GPU → CPU)";
+                                }
+                            }
+                            readonly property string codecLabel: codecLabelForKey(activeRecCodec)
+                            readonly property var codecOptions: {
+                                const avail = ScreenRecordService.availableCodecs || ["auto"];
+                                const out = [];
+                                for (let i = 0; i < avail.length; ++i) {
+                                    const lbl = codecLabelForKey(avail[i]);
+                                    if (out.indexOf(lbl) === -1) out.push(lbl);
+                                }
+                                return out.length > 0 ? out : ["Auto (GPU → CPU)"];
+                            }
+                            Component.onCompleted: {
+                                if (!ScreenRecordService.codecsLoaded) ScreenRecordService.refreshCodecs();
+                            }
+                            readonly property string codecShortLabel: {
+                                switch (activeRecCodec) {
+                                    case "h264_vaapi": return "H.264 VAAPI";
+                                    case "hevc_vaapi": return "HEVC VAAPI";
+                                    case "h264_nvenc": return "H.264 NVENC";
+                                    case "hevc_nvenc": return "HEVC NVENC";
+                                    case "libx264": return "H.264 CPU";
+                                    case "libx265": return "HEVC CPU";
+                                    default: return "Auto (H.264)";
+                                }
+                            }
+                            readonly property string codecQualityLabel: {
+                                if (activeRecCodec === "h264_vaapi" || activeRecCodec === "hevc_vaapi") {
+                                    return activeRecPreset === "low" ? "QP 30" : (activeRecPreset === "high" ? "QP 20" : "QP 24");
+                                }
+                                if (activeRecCodec === "h264_nvenc" || activeRecCodec === "hevc_nvenc") {
+                                    return activeRecPreset === "low" ? "CQ 30" : (activeRecPreset === "high" ? "CQ 19" : "CQ 24");
+                                }
+                                if (activeRecCodec === "libx265") {
+                                    return activeRecPreset === "low" ? "CRF 32" : (activeRecPreset === "high" ? "CRF 22" : "CRF 28");
+                                }
+                                return activeRecPreset === "low" ? "CRF 32" : (activeRecPreset === "high" ? "CRF 20" : "CRF 26");
+                            }
+                            function codecKeyFromLabel(lbl) {
+                                switch (lbl) {
+                                    case "H.264 (VAAPI)": return "h264_vaapi";
+                                    case "HEVC (VAAPI)": return "hevc_vaapi";
+                                    case "H.264 (NVENC)": return "h264_nvenc";
+                                    case "HEVC (NVENC)": return "hevc_nvenc";
+                                    case "H.264 (Software)": return "libx264";
+                                    case "HEVC (Software)": return "libx265";
+                                    default: return "auto";
+                                }
+                            }
                             readonly property string presetLabel: activeRecPreset === "low" ? "Low Storage" : (activeRecPreset === "high" ? "High Quality" : (activeRecPreset === "custom" ? "Custom" : "Standard"))
                             readonly property string estSizePerMin: {
                                 if (activeRecPreset === "low" || (activeRecRes === "480p") || (activeRecRes === "720p" && activeRecFps <= 20)) return "~1.8 MB/min";
@@ -2496,14 +2566,17 @@ Item {
                                             // Bottom info bar
                                             Rectangle {
                                                 anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-                                                anchors.margins: 10; height: 24; radius: 6
-                                                color: Qt.rgba(0, 0, 0, 0.55)
-                                                Row {
-                                                    anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 10; spacing: 8
+                                                anchors.margins: 10; height: 24; radius: 6; clip: true
+                                                color: Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.78)
+                                                border.width: 1; border.color: Theme.borderSubtle
+                                                RowLayout {
+                                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
                                                     Text {
-                                                        text: "H.264 • " + (accessibilityPage.activeRecPreset === "low" ? "CRF 32" : (accessibilityPage.activeRecPreset === "high" ? "CRF 20" : "CRF 26"))
+                                                        Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                        text: accessibilityPage.codecShortLabel + " • " + accessibilityPage.codecQualityLabel
                                                             + " • Audio: " + ((ScreenRecordService.recordAudio && ScreenRecordService.recordMic) ? "Output + Mic" : (ScreenRecordService.recordAudio ? "Output" : (ScreenRecordService.recordMic ? "Mic" : "Off")))
-                                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10
+                                                        color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10
+                                                        elide: Text.ElideRight
                                                     }
                                                 }
                                             }
@@ -2574,7 +2647,7 @@ Item {
                             AdvancedSection {
                                 id: recAdvancedSection
                                 title: "Advanced Settings"
-                                subtitle: "Resolution, frame rate, output & microphone audio"
+                                subtitle: "Resolution, frame rate, video codec & audio channels"
                                 SettingRow {
                                     showDivider: false
                                     iconName: "monitor"; title: "Resolution"; subtitle: "Output video scale (Native = monitor resolution)"
@@ -2604,6 +2677,92 @@ Item {
                                             if (root.shellState) {
                                                 root.shellState.recordFps = f;
                                                 root.shellState.recordPreset = "custom";
+                                            }
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "video"; title: "Video Codec"; subtitle: "Detected encoders on this device (GPU or CPU)"
+                                    searchKeywords: "codec encoder h264 h265 hevc vaapi nvenc libx264 libx265 software hardware gpu cpu"
+                                    CtrlSelect {
+                                        options: accessibilityPage.codecOptions
+                                        currentText: accessibilityPage.codecLabel
+                                        onSelected: (v) => {
+                                            const c = accessibilityPage.codecKeyFromLabel(v);
+                                            ScreenRecordService.codec = c;
+                                            if (root.shellState) root.shellState.recordCodec = c;
+                                        }
+                                    }
+                                }
+                                // Subtle animated warning when CPU software encoding is selected
+                                Item {
+                                    id: swCodecWarnWrap
+                                    readonly property bool active: accessibilityPage.isSoftwareCodec
+                                    Layout.fillWidth: true
+                                    implicitHeight: active ? (swCodecWarnBox.implicitHeight + 12) : 0
+                                    opacity: active ? 1.0 : 0.0
+                                    visible: implicitHeight > 0.5 || opacity > 0.01
+                                    clip: true
+
+                                    Behavior on implicitHeight { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                                    Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+
+                                    Rectangle {
+                                        id: swCodecWarnBox
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.leftMargin: 14
+                                        anchors.rightMargin: 14
+                                        anchors.top: parent.top
+                                        anchors.topMargin: 2
+                                        implicitHeight: swCodecWarnRow.implicitHeight + 16
+                                        radius: 8
+                                        clip: true
+                                        color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.12)
+                                        border.width: 1
+                                        border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
+
+                                        RowLayout {
+                                            id: swCodecWarnRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.leftMargin: 12
+                                            anchors.rightMargin: 12
+                                            spacing: 10
+
+                                            SvgIcon {
+                                                sourceName: "alert-triangle"
+                                                iconSize: 15
+                                                color: Theme.warn
+                                                Layout.alignment: Qt.AlignTop
+                                                Layout.topMargin: 2
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                spacing: 2
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: "Software encoding (CPU)"
+                                                    color: Theme.warn
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 12
+                                                    font.weight: Font.DemiBold
+                                                    elide: Text.ElideRight
+                                                }
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: "Encoding on CPU increases processor load and may drop frames at high resolution or 60 FPS. Prefer Auto or a GPU codec when available."
+                                                    color: Theme.textSub
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 11
+                                                    wrapMode: Text.WordWrap
+                                                }
                                             }
                                         }
                                     }

@@ -125,6 +125,10 @@ ShellRoot {
                         stateObj.recordFps = obj.recordFps;
                         ScreenRecordService.fps = obj.recordFps;
                     }
+                    if (typeof obj.recordCodec === "string") {
+                        stateObj.recordCodec = obj.recordCodec;
+                        ScreenRecordService.codec = obj.recordCodec;
+                    }
                     if (typeof obj.inputIndicatorEnabled === "boolean") {
                         stateObj.inputIndicatorEnabled = obj.inputIndicatorEnabled;
                         InputIndicatorService.enabled = obj.inputIndicatorEnabled;
@@ -766,6 +770,7 @@ ShellRoot {
         property string recordPreset: "standard"
         property string recordResolution: "native"
         property int recordFps: 30
+        property string recordCodec: "auto"
         property string recordSaveDir: ""
         property bool inputIndicatorEnabled: true
         property bool capsLockIndicatorEnabled: true
@@ -801,6 +806,10 @@ ShellRoot {
         }
         onRecordFpsChanged: {
             ScreenRecordService.fps = recordFps;
+            if (!stateObj._applyingExternalState) saveSettings();
+        }
+        onRecordCodecChanged: {
+            ScreenRecordService.codec = recordCodec;
             if (!stateObj._applyingExternalState) saveSettings();
         }
         onRecordSaveDirChanged: {
@@ -1111,6 +1120,7 @@ ShellRoot {
                 recordPreset: recordPreset,
                 recordResolution: recordResolution,
                 recordFps: recordFps,
+                recordCodec: recordCodec,
                 recordSaveDir: recordSaveDir,
                 inputIndicatorEnabled: inputIndicatorEnabled,
                 capsLockIndicatorEnabled: capsLockIndicatorEnabled,

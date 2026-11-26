@@ -17,6 +17,10 @@ Singleton {
     property string preset: "standard"      // "standard" | "low" | "high" | "custom"
     property string resolution: "native"    // "native" | "1080p" | "720p" | "480p"
     property int fps: 30
+    property string codec: "auto"           // "auto" | "h264_vaapi" | "hevc_vaapi" | "h264_nvenc" | "hevc_nvenc" | "libx264" | "libx265"
+    readonly property bool isSoftwareCodec: codec === "libx264" || codec === "libx265"
+    property var availableCodecs: ["auto"]
+    property bool codecsLoaded: false
     property string saveDir: ""
 
     property int _sessionSeq: 0
@@ -35,6 +39,15 @@ Singleton {
     signal failed(string reason)
 
     readonly property string _scriptPath: decodeURIComponent(Qt.resolvedUrl("../scripts/screen-record.sh").toString().replace(/^file:\/\//, ""))
+
+    Component.onCompleted: refreshCodecs()
+
+    function refreshCodecs() {
+        if (codecProbeProc.running) return;
+        codecProbeProc.buffer = "";
+        codecProbeProc.command = [_scriptPath, "codecs"];
+        codecProbeProc.running = true;
+    }
 
     function toggle() {
         if (phase === "recording") {
@@ -61,7 +74,8 @@ Singleton {
             recordMic ? "1" : "0",
             String(fps),
             resolution,
-            preset
+            preset,
+            codec
         ];
         recordProc.running = true;
         SoundService.playRecordStart();
@@ -172,6 +186,32 @@ Singleton {
                 root.finished(action, path, sizeText);
             } else {
                 root.failed("Recording empty");
+            }
+        }
+    }
+
+    Process {
+        id: codecProbeProc
+        property string buffer: ""
+        stdout: SplitParser {
+            splitMarker: ""
+            onRead: data => { codecProbeProc.buffer += data; }
+        }
+        onExited: (code, status) => {
+            const raw = codecProbeProc.buffer.trim();
+            const found = [];
+            if (raw !== "") {
+                const lines = raw.split(/\r?\n/);
+                for (let i = 0; i < lines.length; ++i) {
+                    const c = lines[i].trim();
+                    if (c !== "" && found.indexOf(c) === -1) found.push(c);
+                }
+            }
+            if (found.indexOf("auto") === -1) found.unshift("auto");
+            root.availableCodecs = found;
+            root.codecsLoaded = true;
+            if (found.indexOf(root.codec) === -1) {
+                root.codec = "auto";
             }
         }
     }

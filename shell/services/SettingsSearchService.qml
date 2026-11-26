@@ -503,6 +503,17 @@ QtObject {
             icon: "bolt"
         },
 
+        // Accessibility & Screen Recording
+        {
+            id: "accessibility-recording-codec",
+            page: "accessibility",
+            pageLabel: "Accessibility",
+            title: "Video Codec",
+            subtitle: "Choose hardware (VAAPI / NVENC) or software (CPU) encoder for screen recording",
+            keywords: "record recording codec encoder h264 h265 hevc vaapi nvenc libx264 libx265 software hardware gpu cpu wf-recorder",
+            icon: "video"
+        },
+
         // About
         {
             id: "about-system",

@@ -273,6 +273,7 @@ start_recording() {
     local fps="${4:-30}"
     local res="${5:-native}"
     local preset="${6:-standard}"
+    local codec="${7:-auto}"
 
     if [[ -z "$out_path" ]]; then
         echo "ERROR|Missing output path"
@@ -347,11 +348,18 @@ start_recording() {
     fi
 
     local vaapi_qp="24"
+    local nvenc_cq="24"
     local x264_crf="26"
+    local x265_crf="28"
     case "$preset" in
-        low)  vaapi_qp="30"; x264_crf="32" ;;
-        high) vaapi_qp="20"; x264_crf="20" ;;
+        low)  vaapi_qp="30"; nvenc_cq="30"; x264_crf="32"; x265_crf="32" ;;
+        high) vaapi_qp="20"; nvenc_cq="19"; x264_crf="20"; x265_crf="22" ;;
     esac
+
+    local vaapi_scale_args=()
+    if [[ -n "$scale_w" ]]; then
+        vaapi_scale_args=(-F "scale_vaapi=w=${scale_w}:h=-2")
+    fi
 
     local output_args=()
     if command -v hyprctl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
@@ -367,38 +375,60 @@ start_recording() {
     fi
 
     local common_args=("${output_args[@]}" -D -y "${audio_args[@]}" -r "$fps")
+    local rec_rc=0
 
-    # Try VAAPI only at native resolution (CPU scale= filter is incompatible with VAAPI hwframes).
-    # No sleep probe: wait directly for wf-recorder and fall back immediately if VAAPI fails without output.
-    if [[ -z "$scale_w" ]]; then
-        local render_dev=""
-        render_dev="$(find_render_device || true)"
-        if [[ -n "$render_dev" ]]; then
-            local vaapi_cache="${RUNTIME_DIR}/paithosh-rec-vaapi-disabled-$(basename "$render_dev")"
-            if [[ ! -f "$vaapi_cache" ]]; then
-                local vaapi_rc=0
-                run_wf_recorder "${common_args[@]}" -c h264_vaapi -d "$render_dev" -p "qp=$vaapi_qp" -f "$out_path" || vaapi_rc=$?
-
-                if is_stopping; then
-                    exit 0
-                fi
-                if [[ -s "$out_path" ]]; then
-                    exit 0
-                fi
-
-                # VAAPI failed before producing frames; remember for this runtime session and fall back to libx264.
-                printf 'disabled\n' > "$vaapi_cache"
-                rm -f "$out_path"
+    case "$codec" in
+        h264_vaapi|hevc_vaapi)
+            local render_dev=""
+            render_dev="$(find_render_device || true)"
+            if [[ -z "$render_dev" ]]; then
+                echo "ERROR|No VAAPI render device found (/dev/dri/renderD*)"
+                exit 1
             fi
-        fi
-    fi
+            run_wf_recorder "${common_args[@]}" "${vaapi_scale_args[@]}" -c "$codec" -d "$render_dev" -p "qp=$vaapi_qp" -f "$out_path" || rec_rc=$?
+            ;;
+        h264_nvenc|hevc_nvenc)
+            run_wf_recorder "${common_args[@]}" "${scale_args[@]}" -c "$codec" -p preset=p4 -p rc=vbr -p "cq=$nvenc_cq" -x yuv420p -f "$out_path" || rec_rc=$?
+            ;;
+        libx264)
+            run_wf_recorder "${common_args[@]}" "${scale_args[@]}" -c libx264 -p preset=ultrafast -p tune=zerolatency -p profile=main -p level=4.1 -p "crf=$x264_crf" -x yuv420p -f "$out_path" || rec_rc=$?
+            ;;
+        libx265)
+            run_wf_recorder "${common_args[@]}" "${scale_args[@]}" -c libx265 -p preset=ultrafast -p "crf=$x265_crf" -x yuv420p -f "$out_path" || rec_rc=$?
+            ;;
+        auto|*)
+            # Try VAAPI only at native resolution (CPU scale= filter is incompatible with VAAPI hwframes).
+            # No sleep probe: wait directly for wf-recorder and fall back immediately if VAAPI fails without output.
+            if [[ -z "$scale_w" ]]; then
+                local render_dev=""
+                render_dev="$(find_render_device || true)"
+                if [[ -n "$render_dev" ]]; then
+                    local vaapi_cache="${RUNTIME_DIR}/paithosh-rec-vaapi-disabled-$(basename "$render_dev")"
+                    if [[ ! -f "$vaapi_cache" ]]; then
+                        local vaapi_rc=0
+                        run_wf_recorder "${common_args[@]}" -c h264_vaapi -d "$render_dev" -p "qp=$vaapi_qp" -f "$out_path" || vaapi_rc=$?
 
-    if is_stopping; then
-        exit 0
-    fi
+                        if is_stopping; then
+                            exit 0
+                        fi
+                        if [[ -s "$out_path" ]]; then
+                            exit 0
+                        fi
 
-    local x264_rc=0
-    run_wf_recorder "${common_args[@]}" "${scale_args[@]}" -c libx264 -p preset=ultrafast -p tune=zerolatency -p profile=main -p level=4.1 -p "crf=$x264_crf" -x yuv420p -f "$out_path" || x264_rc=$?
+                        # VAAPI failed before producing frames; remember for this runtime session and fall back to libx264.
+                        printf 'disabled\n' > "$vaapi_cache"
+                        rm -f "$out_path"
+                    fi
+                fi
+            fi
+
+            if is_stopping; then
+                exit 0
+            fi
+
+            run_wf_recorder "${common_args[@]}" "${scale_args[@]}" -c libx264 -p preset=ultrafast -p tune=zerolatency -p profile=main -p level=4.1 -p "crf=$x264_crf" -x yuv420p -f "$out_path" || rec_rc=$?
+            ;;
+    esac
 
     if is_stopping; then
         exit 0
@@ -406,7 +436,7 @@ start_recording() {
 
     if [[ ! -s "$out_path" ]]; then
         rm -f "$out_path"
-        echo "ERROR|$(extract_error "$x264_rc")"
+        echo "ERROR|$(extract_error "$rec_rc")"
         exit 1
     fi
 
@@ -468,9 +498,67 @@ finish_recording() {
     fi
 }
 
+list_codecs() {
+    echo "auto"
+
+    if ! command -v ffmpeg >/dev/null 2>&1; then
+        echo "libx264"
+        return 0
+    fi
+
+    local encoders=""
+    encoders="$(ffmpeg -hide_banner -encoders 2>/dev/null || true)"
+    if [[ -z "$encoders" ]]; then
+        echo "libx264"
+        return 0
+    fi
+
+    local has_h264_vaapi=0 has_hevc_vaapi=0 has_h264_nvenc=0 has_hevc_nvenc=0 has_libx264=0 has_libx265=0
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+h264_vaapi([[:space:]]|$)' <<< "$encoders" && has_h264_vaapi=1
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+hevc_vaapi([[:space:]]|$)' <<< "$encoders" && has_hevc_vaapi=1
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+h264_nvenc([[:space:]]|$)' <<< "$encoders" && has_h264_nvenc=1
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+hevc_nvenc([[:space:]]|$)' <<< "$encoders" && has_hevc_nvenc=1
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+libx264([[:space:]]|$)' <<< "$encoders" && has_libx264=1
+    grep -qE '^[[:space:]]*V[^ ]*[[:space:]]+libx265([[:space:]]|$)' <<< "$encoders" && has_libx265=1
+
+    local render_dev=""
+    render_dev="$(find_render_device || true)"
+    if [[ -n "$render_dev" && ( "$has_h264_vaapi" -eq 1 || "$has_hevc_vaapi" -eq 1 ) ]]; then
+        if command -v vainfo >/dev/null 2>&1; then
+            local va_out=""
+            va_out="$(vainfo --display drm --device "$render_dev" 2>/dev/null || true)"
+            if [[ "$has_h264_vaapi" -eq 1 ]] && grep -qE 'VAProfileH264.*VAEntrypointEncSlice' <<< "$va_out"; then
+                echo "h264_vaapi"
+            fi
+            if [[ "$has_hevc_vaapi" -eq 1 ]] && grep -qE 'VAProfileHEVC.*VAEntrypointEncSlice' <<< "$va_out"; then
+                echo "hevc_vaapi"
+            fi
+        else
+            if [[ "$has_h264_vaapi" -eq 1 ]] && ffmpeg -hide_banner -loglevel error -init_hw_device "vaapi=va:${render_dev}" -filter_hw_device va -f lavfi -i color=black:s=64x64:d=0.04 -vf format=nv12,hwupload -c:v h264_vaapi -frames:v 1 -f null - 2>/dev/null; then
+                echo "h264_vaapi"
+            fi
+            if [[ "$has_hevc_vaapi" -eq 1 ]] && ffmpeg -hide_banner -loglevel error -init_hw_device "vaapi=va:${render_dev}" -filter_hw_device va -f lavfi -i color=black:s=64x64:d=0.04 -vf format=nv12,hwupload -c:v hevc_vaapi -frames:v 1 -f null - 2>/dev/null; then
+                echo "hevc_vaapi"
+            fi
+        fi
+    fi
+
+    if [[ -e /dev/nvidiactl ]]; then
+        if [[ "$has_h264_nvenc" -eq 1 ]] && ffmpeg -hide_banner -loglevel error -f lavfi -i color=black:s=64x64:d=0.04 -c:v h264_nvenc -frames:v 1 -f null - 2>/dev/null; then
+            echo "h264_nvenc"
+        fi
+        if [[ "$has_hevc_nvenc" -eq 1 ]] && ffmpeg -hide_banner -loglevel error -f lavfi -i color=black:s=64x64:d=0.04 -c:v hevc_nvenc -frames:v 1 -f null - 2>/dev/null; then
+            echo "hevc_nvenc"
+        fi
+    fi
+
+    [[ "$has_libx264" -eq 1 ]] && echo "libx264"
+    [[ "$has_libx265" -eq 1 ]] && echo "libx265"
+}
+
 case "$CMD" in
     start)
-        start_recording "$TARGET_PATH" "${3:-1}" "${4:-0}" "${5:-30}" "${6:-native}" "${7:-standard}"
+        start_recording "$TARGET_PATH" "${3:-1}" "${4:-0}" "${5:-30}" "${6:-native}" "${7:-standard}" "${8:-auto}"
         ;;
     stop)
         stop_recording "$TARGET_PATH"
@@ -478,8 +566,11 @@ case "$CMD" in
     finish)
         finish_recording "$TARGET_PATH" "${3:-}"
         ;;
+    codecs)
+        list_codecs
+        ;;
     *)
-        echo "Usage: $0 {start|stop|finish} <path>" >&2
+        echo "Usage: $0 {start|stop|finish|codecs} [path]" >&2
         exit 2
         ;;
 esac
