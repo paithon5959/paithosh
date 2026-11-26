@@ -402,14 +402,10 @@ EOF
         echo "[paithosh] Wayland session detected — launching Paithosh GUI Installer..."
         local qs_bin="qs"
         command -v qs >/dev/null 2>&1 || qs_bin="quickshell"
-        GUI_ENV=()
+        GUI_ENV=("QS_DISABLE_FILE_WATCHER=1" "QS_NO_RELOAD_POPUP=1")
         [[ "$DRY_RUN" == "true" || "${PAITHOSH_INSTALLER_DRY_RUN:-0}" == "1" ]] && GUI_ENV+=("PAITHOSH_INSTALLER_DRY_RUN=1")
         local rc=0
-        if [[ ${#GUI_ENV[@]} -gt 0 ]]; then
-            env "${GUI_ENV[@]}" "$qs_bin" -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
-        else
-            "$qs_bin" -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
-        fi
+        env "${GUI_ENV[@]}" "$qs_bin" -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
         if [[ "$rc" -eq 0 ]]; then
             exit 0
         fi

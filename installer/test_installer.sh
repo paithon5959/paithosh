@@ -198,6 +198,39 @@ PY
     glob_out="$(HOME="$pkg_only_home" bash "$REPO_ROOT/installer/lib/apply.sh" --packages-only --dry-run --packages "*bad*,git" 2>&1)"
     grep -Fq "ignoring invalid package token '*bad*'" <<<"$glob_out"
     grep -Fq "Verify installed packages: git" <<<"$glob_out"
+
+    # Verify deferred vs CLI-end release checkout behavior
+    local rel_repo="$TMP_HOME/release-repo"
+    local rel_home="$TMP_HOME/release-home"
+    mkdir -p "$rel_home"
+    git clone --quiet --no-local "$REPO_ROOT" "$rel_repo" >/dev/null
+    git -C "$rel_repo" remote set-url origin "file://$rel_repo"
+    git -C "$rel_repo" tag -l | xargs -r git -C "$rel_repo" tag -d >/dev/null
+    git -C "$rel_repo" config user.email "test@example.com"
+    git -C "$rel_repo" config user.name "Test"
+    local orig_head prev_commit
+    prev_commit="$(git -C "$rel_repo" rev-parse HEAD)"
+    git -C "$rel_repo" tag "v1.0" "$prev_commit"
+    cp "$REPO_ROOT/installer/lib/apply.sh" "$rel_repo/installer/lib/apply.sh"
+    git -C "$rel_repo" add installer/lib/apply.sh
+    git -C "$rel_repo" commit -q -m "use updated apply.sh"
+    orig_head="$(git -C "$rel_repo" rev-parse HEAD)"
+
+    # With --defer-release-checkout (GUI mode): writes shellUpdateStream=release WITHOUT mutating HEAD/QML
+    local def_out
+    def_out="$(HOME="$rel_home" bash "$rel_repo/installer/lib/apply.sh" \
+        --update-stream release --defer-release-checkout \
+        --packages "" --sync-hypr false --autostart false --setup-portals false 2>&1)"
+    [[ "$(git -C "$rel_repo" rev-parse HEAD)" == "$orig_head" ]]
+    grep -Fq '"shellUpdateStream": "release"' "$rel_home/.config/paithosh/package-settings.json"
+    grep -Fq "checkout deferred until installer finishes" <<<"$def_out"
+
+    # Without --defer-release-checkout (CLI mode): checks out release tag cleanly at the end
+    HOME="$rel_home" bash "$rel_repo/installer/lib/apply.sh" \
+        --update-stream release \
+        --packages "" --sync-hypr false --autostart false --setup-portals false >/dev/null 2>&1
+    [[ "$(git -C "$rel_repo" describe --tags --exact-match HEAD 2>/dev/null || true)" == "v1.0" ]]
+    [[ "$(git -C "$rel_repo" rev-parse HEAD)" == "$prev_commit" ]]
     echo "  PASS: Lua & classic .conf apply idempotency + XDG portals + packages-only + safety verified"
 
     echo "[5/7] Checking symlink resolution for xdph-share-picker.sh..."
@@ -257,6 +290,8 @@ PY
         bash -s -- --dry-run < "$REPO_ROOT/install.sh")"
     grep -Fq "Installation complete!" <<<"$dryrun_out"
     [[ ! -e "$dryrun_home/.local/share/paithosh" ]]
+    grep -Fq "QS_DISABLE_FILE_WATCHER=1" "$REPO_ROOT/install.sh"
+    grep -Fq "QS_NO_RELOAD_POPUP=1" "$REPO_ROOT/install.sh"
     echo "  PASS: curl-pipe bootstrap & self-clone verified"
 
     echo "[7/7] Checking sync-hypr.sh, --sync-hypr apply, Hyprland Lua config, KeybindService & shell updater..."
@@ -628,21 +663,59 @@ if shutil.which("luajit") or shutil.which("luac") or shutil.which("lua"):
 PY
     echo "  PASS: sync-hypr.sh, Hyprland Lua verify, KeybindService & shell updater verified"
 
-    echo "[8/8] Checking GUI installer post-install shell launch..."
+    echo "[8/8] Checking GUI installer reload suppression & post-install shell launch..."
     python3 - "$REPO_ROOT/shell/InstallerWindow.qml" "$TMP_HOME" <<'PY'
-import os, re, stat, subprocess, sys
+import os, re, shutil, stat, subprocess, tempfile, time, sys
 
 qml_path, tmp_home = sys.argv[1:3]
 src = open(qml_path, "r", encoding="utf-8").read()
 
-# 1. Finish button must invoke finishAndClose / closeInstaller rather than bare Qt.quit()
+# 1. Finish button must invoke closeInstaller rather than bare Qt.quit()
 m_finish = re.search(r'text:\s*root\.installExitCode\s*===\s*0[^}]+?onClicked:\s*([^\n]+)', src, re.DOTALL)
 if not m_finish:
     m_finish = re.search(r'text:\s*"Finish"[^}]+?onClicked:\s*([^\n]+)', src, re.DOTALL)
 assert m_finish, "Could not locate Finish button in InstallerWindow.qml"
 assert "Qt.quit()" not in m_finish.group(1), f"Finish button still calls bare Qt.quit(): {m_finish.group(1)}"
 
-# 2. Must define detached post-install launcher guarded by !isDryRun and installExitCode === 0
+# 2. Must disable Quickshell file watcher & defer release checkout until closeInstaller()
+assert "Quickshell.watchFiles = false" in src, "InstallerWindow.qml must set Quickshell.watchFiles = false"
+assert "--defer-release-checkout" in src, "InstallerWindow.qml must pass --defer-release-checkout to apply.sh"
+
+# 3. Empirical Quickshell file-watcher regression test (if qs binary is installed)
+if shutil.which("qs"):
+    def test_qs_watch(env_extra, qml_extra, expect_reload):
+        td = tempfile.mkdtemp(prefix="qs-watch-check-", dir=tmp_home)
+        target_qml = os.path.join(td, "InstallerWindow.qml")
+        with open(target_qml, "w", encoding="utf-8") as f:
+            f.write(f"""import QtQuick
+import Quickshell
+ShellRoot {{
+    Component.onCompleted: {{
+        {qml_extra}
+    }}
+}}
+""")
+        env = os.environ.copy()
+        env["QT_QPA_PLATFORM"] = "offscreen"
+        env.update(env_extra)
+        proc = subprocess.Popen(
+            ["qs", "--no-color", "-p", target_qml],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+        )
+        time.sleep(0.8)
+        with open(target_qml, "a", encoding="utf-8") as f:
+            f.write("\n// touched during install\n")
+        time.sleep(0.9)
+        proc.terminate()
+        out, _ = proc.communicate(timeout=4)
+        reloaded = "Reloading configuration" in out
+        assert reloaded == expect_reload, f"Unexpected watch reload state (expect={expect_reload}):\n{out}"
+
+    test_qs_watch({}, "", True)
+    test_qs_watch({"QS_DISABLE_FILE_WATCHER": "1"}, "", False)
+    test_qs_watch({}, "Quickshell.watchFiles = false;", False)
+
+# 4. Must define detached post-install launcher guarded by !isDryRun and installExitCode === 0
 m_fn = re.search(r'function\s+closeInstaller\s*\(\s*\)\s*\{.*?\n    \}', src, re.DOTALL)
 assert m_fn, "Missing closeInstaller() helper in InstallerWindow.qml"
 fn_body = m_fn.group(0)
@@ -655,7 +728,7 @@ assert "hyprctl reload" in fn_body, "Launcher must reload Hyprland when config w
 assert "!root.loadingAudit && root.auditError === \"\"" in src, "InstallerWindow must block Next/Install during audit or audit error"
 assert "_appendPkgTokens" in src and "modelData.id" in src, "InstallerWindow must key selectedPkgs by p.id and split multi-token packages"
 
-# 3. Extract the sh -c payload and execute it with mock binaries
+# 5. Extract the sh -c payload and execute it with mock binaries
 m_sh = re.search(r'"setsid",\s*"-f",\s*"sh",\s*"-c",\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+),', fn_body, re.DOTALL)
 assert m_sh, "Could not extract sh -c script from closeInstaller()"
 parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m_sh.group(1))
@@ -673,30 +746,63 @@ def write_stub(name, body):
     os.chmod(p, os.stat(p).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 write_stub("pgrep", "exit 1")
-write_stub("pkill", "exit 0")
+write_stub("pkill", f'echo "pkill:$*" >> "{log_file}"; exit 0')
 write_stub("hyprctl", f'echo "hyprctl:$*" >> "{log_file}"')
 write_stub("qs", f'echo "qs:NO_POPUP=${{QS_NO_RELOAD_POPUP:-}}:$*" >> "{log_file}"')
 
 base_env = os.environ.copy()
 base_env["PATH"] = mock_bin + ":" + base_env.get("PATH", "")
 
-# Case A: sync_hypr=1 in Hyprland session -> reloads Hyprland then starts qs -d -p
+# Case A: sync_hypr=1, stream=main in Hyprland session -> pkill then hyprctl reload then qs -d -p
 env_a = base_env.copy()
 env_a["HYPRLAND_INSTANCE_SIGNATURE"] = "test-sig"
-subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "1"], env=env_a, check=True)
+subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "1", "/fake/paithosh", "main", "1"], env=env_a, check=True)
 trace_a = open(log_file, encoding="utf-8").read().splitlines()
-assert trace_a == [
+assert trace_a[-2:] == [
     "hyprctl:reload",
     "qs:NO_POPUP=1:-d -p /fake/paithosh/shell",
 ], f"Unexpected launch trace with sync_hypr=1: {trace_a}"
+assert any(line.startswith("pkill:") for line in trace_a[:-2]), f"Expected pkill before hyprctl/qs: {trace_a}"
 
-# Case B: sync_hypr=0 -> skips hyprctl reload, still starts qs -d -p
+# Case B: sync_hypr=0, stream=main -> pkill then qs -d -p without hyprctl reload
 os.remove(log_file)
-subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "0"], env=env_a, check=True)
+subprocess.run(["sh", "-c", sh_script, "_", "/fake/paithosh/shell", "0", "/fake/paithosh", "main", "1"], env=env_a, check=True)
 trace_b = open(log_file, encoding="utf-8").read().splitlines()
-assert trace_b == [
-    "qs:NO_POPUP=1:-d -p /fake/paithosh/shell",
-], f"Unexpected launch trace with sync_hypr=0: {trace_b}"
+assert trace_b[-1] == "qs:NO_POPUP=1:-d -p /fake/paithosh/shell", f"Unexpected launch trace with sync_hypr=0: {trace_b}"
+assert not any(line.startswith("hyprctl:") for line in trace_b), f"Unexpected hyprctl reload when sync_hypr=0: {trace_b}"
+assert any(line.startswith("pkill:") for line in trace_b[:-1]), f"Expected pkill before qs: {trace_b}"
+
+# Case C: sync_hypr=1, stream=release -> pkill BEFORE git checkout v1.0, then sync-hypr.sh, then hyprctl reload, then qs -d -p
+os.remove(log_file)
+rel_repo = os.path.join(tmp_home, "case-c-repo")
+os.makedirs(os.path.join(rel_repo, "defaults", "hypr", "config"), exist_ok=True)
+os.makedirs(os.path.join(rel_repo, "installer", "lib"), exist_ok=True)
+os.makedirs(os.path.join(rel_repo, "shell"), exist_ok=True)
+with open(os.path.join(rel_repo, "defaults", "hypr", "test.lua"), "w", encoding="utf-8") as f:
+    f.write("-- v1.0\n")
+with open(os.path.join(rel_repo, "installer", "lib", "sync-hypr.sh"), "w", encoding="utf-8") as f:
+    f.write(f'#!/usr/bin/env bash\necho "sync-hypr:$*" >> "{log_file}"\n')
+subprocess.run(["git", "-C", rel_repo, "init", "-q"], check=True)
+subprocess.run(["git", "-C", rel_repo, "config", "user.email", "test@example.com"], check=True)
+subprocess.run(["git", "-C", rel_repo, "config", "user.name", "Test"], check=True)
+subprocess.run(["git", "-C", rel_repo, "add", "."], check=True)
+subprocess.run(["git", "-C", rel_repo, "commit", "-q", "-m", "v1"], check=True)
+subprocess.run(["git", "-C", rel_repo, "tag", "v1.0"], check=True)
+with open(os.path.join(rel_repo, "defaults", "hypr", "test.lua"), "w", encoding="utf-8") as f:
+    f.write("-- master\n")
+subprocess.run(["git", "-C", rel_repo, "add", "."], check=True)
+subprocess.run(["git", "-C", rel_repo, "commit", "-q", "-m", "master"], check=True)
+
+subprocess.run(["sh", "-c", sh_script, "_", os.path.join(rel_repo, "shell"), "1", rel_repo, "release", "0"], env=env_a, check=True)
+checked_tag = subprocess.check_output(["git", "-C", rel_repo, "describe", "--tags", "--exact-match", "HEAD"], text=True).strip()
+assert checked_tag == "v1.0", f"Expected closeInstaller() to checkout v1.0, got {checked_tag}"
+trace_c = open(log_file, encoding="utf-8").read().splitlines()
+pkill_idxs = [i for i, l in enumerate(trace_c) if l.startswith("pkill:")]
+sync_idxs = [i for i, l in enumerate(trace_c) if l.startswith("sync-hypr:")]
+hypr_idxs = [i for i, l in enumerate(trace_c) if l == "hyprctl:reload"]
+qs_idxs = [i for i, l in enumerate(trace_c) if l == f"qs:NO_POPUP=1:-d -p {os.path.join(rel_repo, 'shell')}"]
+assert pkill_idxs and sync_idxs and hypr_idxs and qs_idxs, f"Missing expected trace steps in Case C: {trace_c}"
+assert max(pkill_idxs) < sync_idxs[0] < hypr_idxs[0] < qs_idxs[0], f"Wrong execution order in Case C: {trace_c}"
 PY
     echo "  PASS: GUI installer post-install shell launch verified"
 
@@ -716,7 +822,7 @@ if [[ "$NO_HYPR" == "true" || "$MODE" == "cli" ]]; then
     fi
 fi
 
-ENV_ARGS=("PAITHOSH_INSTALLER_DRY_RUN=1")
+ENV_ARGS=("PAITHOSH_INSTALLER_DRY_RUN=1" "QS_DISABLE_FILE_WATCHER=1" "QS_NO_RELOAD_POPUP=1")
 [[ -n "$MOCK_OS" ]] && ENV_ARGS+=("PAITHOSH_MOCK_OS=$MOCK_OS")
 [[ -n "$TMP_HOME" ]] && ENV_ARGS+=("HOME=$TMP_HOME")
 

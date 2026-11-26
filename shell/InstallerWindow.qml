@@ -106,9 +106,16 @@ PanelWindow {
     property bool dialogOpen: false
 
     Component.onCompleted: {
+        Quickshell.watchFiles = false;
         auditProc.running = true;
         releaseProc.running = true;
         welcomeSeq.start();
+    }
+
+    Connections {
+        target: Quickshell
+        function onReloadCompleted() { Quickshell.inhibitReloadPopup(); }
+        function onReloadFailed() { Quickshell.inhibitReloadPopup(); }
     }
 
     NumberAnimation {
@@ -278,7 +285,8 @@ PanelWindow {
             "--theme", optTheme,
             "--bar-position", optBarPos,
             "--autostart", optAutostart ? "true" : "false",
-            "--setup-portals", optSetupPortals ? "true" : "false"
+            "--setup-portals", optSetupPortals ? "true" : "false",
+            "--defer-release-checkout"
         ];
         if (sudoPassword !== "") {
             cmd.push("--sudo-stdin");
@@ -299,11 +307,12 @@ PanelWindow {
         if (installDone && installExitCode === 0 && !isDryRun) {
             const shellDir = repoRoot + "/shell";
             const syncHyprFlag = optSyncHypr ? "1" : "0";
+            const autostartFlag = optAutostart ? "1" : "0";
             Quickshell.execDetached([
                 "setsid", "-f", "sh", "-c",
                 "exec </dev/null >/dev/null 2>&1; " +
-                "shell_dir=\"$1\"; sync_hypr=\"$2\"; uid=\"$(id -u)\"; " +
-                "i=0; while [ $i -lt 20 ] && pgrep -u \"$uid\" -f '[I]nstallerWindow\\.qml' >/dev/null 2>&1; do " +
+                "shell_dir=\"$1\"; sync_hypr=\"$2\"; repo_root=\"$3\"; update_stream=\"$4\"; autostart_flag=\"$5\"; uid=\"$(id -u)\"; " +
+                "i=0; while [ $i -lt 40 ] && pgrep -u \"$uid\" -f '[I]nstallerWindow\\.qml' >/dev/null 2>&1; do " +
                 "  sleep 0.1; i=$((i + 1)); " +
                 "done; " +
                 "pkill -u \"$uid\" -x qs 2>/dev/null || true; " +
@@ -313,6 +322,38 @@ PanelWindow {
                 "done; " +
                 "pkill -9 -u \"$uid\" -x qs 2>/dev/null || true; " +
                 "pkill -9 -u \"$uid\" -x quickshell 2>/dev/null || true; " +
+                "if [ \"$update_stream\" = \"release\" ] && [ -n \"$repo_root\" ] && git -C \"$repo_root\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then " +
+                "  if git -C \"$repo_root\" diff --quiet && git -C \"$repo_root\" diff --cached --quiet; then " +
+                "    latest_tag=\"$(git -C \"$repo_root\" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1 || true)\"; " +
+                "    [ -z \"$latest_tag\" ] && latest_tag=\"$(git -C \"$repo_root\" tag -l --sort=-v:refname 2>/dev/null | head -n1 || true)\"; " +
+                "    if [ -n \"$latest_tag\" ]; then " +
+                "      prev_head=\"$(git -C \"$repo_root\" rev-parse HEAD 2>/dev/null || true)\"; " +
+                "      if git -C \"$repo_root\" checkout --quiet \"$latest_tag\" 2>/dev/null; then " +
+                "        if [ \"$sync_hypr\" = \"1\" ] && [ -n \"$prev_head\" ] && ! git -C \"$repo_root\" diff --quiet \"$prev_head\" HEAD -- defaults/hypr 2>/dev/null; then " +
+                "          bash \"$repo_root/installer/lib/sync-hypr.sh\" --repo-root \"$repo_root\" --mode replace --no-backup --no-reload >/dev/null 2>&1 || true; " +
+                "          autostart_lua=\"${XDG_CONFIG_HOME:-$HOME/.config}/hypr/config/autostart.lua\"; " +
+                "          if [ \"$autostart_flag\" = \"0\" ] && [ -f \"$autostart_lua\" ]; then " +
+                "            python3 - \"$autostart_lua\" <<'PY'\n" +
+                "import re, sys\n" +
+                "path = sys.argv[1]\n" +
+                "txt = open(path, 'r', encoding='utf-8').read()\n" +
+                "out, changed = [], False\n" +
+                "for ln in txt.splitlines(keepends=True):\n" +
+                "    if not ln.lstrip().startswith('--') and re.search(r'hl\\.exec_cmd\\(.*qs\\s+-p', ln):\n" +
+                "        ind = ln[:len(ln) - len(ln.lstrip())]\n" +
+                "        out.append(ind + '-- ' + ln.lstrip())\n" +
+                "        changed = True\n" +
+                "    else:\n" +
+                "        out.append(ln)\n" +
+                "if changed:\n" +
+                "    open(path, 'w', encoding='utf-8').write(''.join(out))\n" +
+                "PY\n" +
+                "          fi; " +
+                "        fi; " +
+                "      fi; " +
+                "    fi; " +
+                "  fi; " +
+                "fi; " +
                 "if [ \"$sync_hypr\" = \"1\" ] && [ -n \"${HYPRLAND_INSTANCE_SIGNATURE:-}\" ] && command -v hyprctl >/dev/null 2>&1; then " +
                 "  hyprctl reload >/dev/null 2>&1 || true; " +
                 "  sleep 0.2; " +
@@ -324,7 +365,10 @@ PanelWindow {
                 "fi",
                 "_",
                 shellDir,
-                syncHyprFlag
+                syncHyprFlag,
+                repoRoot,
+                optUpdateStream,
+                autostartFlag
             ]);
         }
         Qt.quit();

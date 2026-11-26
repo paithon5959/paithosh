@@ -17,6 +17,7 @@ SETUP_PORTALS="true"
 SUDO_STDIN="false"
 DRY_RUN="false"
 PACKAGES_ONLY="false"
+DEFER_RELEASE_CHECKOUT="false"
 
 require_arg() {
     if [[ "$1" -lt 2 ]]; then
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         --sudo-stdin) SUDO_STDIN="true"; shift ;;
         --dry-run) DRY_RUN="true"; shift ;;
         --packages-only) PACKAGES_ONLY="true"; shift ;;
+        --defer-release-checkout) DEFER_RELEASE_CHECKOUT="true"; shift ;;
         *) echo "[paithosh] Unknown option: $1" >&2; exit 2 ;;
     esac
 done
@@ -287,6 +289,7 @@ fi
 emit_step "3/6" "Writing Paithosh settings & directories..."
 PAITHOSH_DIR="${CONFIG_HOME}/paithosh"
 SHOTS_DIR="${HOME}/Pictures/Screenshots"
+LATEST_RELEASE_TAG=""
 run_cmd mkdir -p "$PAITHOSH_DIR" "$SHOTS_DIR"
 
 SETTINGS_FILE="${PAITHOSH_DIR}/settings.json"
@@ -351,14 +354,10 @@ PY
             else
                 GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$REPO_ROOT" fetch --tags --quiet "$remote" 2>/dev/null || true
             fi
-            latest_tag="$(git -C "$REPO_ROOT" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1 || true)"
-            [[ -z "$latest_tag" ]] && latest_tag="$(git -C "$REPO_ROOT" tag -l --sort=-v:refname 2>/dev/null | head -n1 || true)"
-            if [[ -n "$latest_tag" ]]; then
-                if git -C "$REPO_ROOT" checkout --quiet "$latest_tag" 2>/dev/null; then
-                    echo "[paithosh] Checked out release tag $latest_tag"
-                else
-                    echo "[paithosh] Warning: could not check out release tag $latest_tag" >&2
-                fi
+            LATEST_RELEASE_TAG="$(git -C "$REPO_ROOT" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1 || true)"
+            [[ -z "$LATEST_RELEASE_TAG" ]] && LATEST_RELEASE_TAG="$(git -C "$REPO_ROOT" tag -l --sort=-v:refname 2>/dev/null | head -n1 || true)"
+            if [[ "$DEFER_RELEASE_CHECKOUT" == "true" && -n "$LATEST_RELEASE_TAG" ]]; then
+                echo "[paithosh] Release tag $LATEST_RELEASE_TAG ready — checkout deferred until installer finishes."
             fi
         else
             echo "[paithosh] Repo has local modifications; skipping release tag checkout."
@@ -399,6 +398,28 @@ has_paithosh_launch() {
         return 0
     fi
     return 1
+}
+
+disable_lua_autostart() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    python3 - "$f" <<'PY'
+import re, sys
+path = sys.argv[1]
+txt = open(path, "r", encoding="utf-8").read()
+out_lines = []
+changed = False
+for line in txt.splitlines(keepends=True):
+    if not line.lstrip().startswith("--") and re.search(r'hl\.exec_cmd\(.*qs\s+-p', line):
+        indent = line[:len(line) - len(line.lstrip())]
+        out_lines.append(indent + "-- " + line.lstrip())
+        changed = True
+    else:
+        out_lines.append(line)
+if changed:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("".join(out_lines))
+PY
 }
 
 if [[ "$AUTOSTART" == "true" ]]; then
@@ -473,23 +494,7 @@ elif [[ "$SYNC_HYPR" == "true" ]]; then
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "[dry-run] Would disable qs -p autostart in $AUTOSTART_LUA"
     elif [[ -f "$AUTOSTART_LUA" ]]; then
-        python3 - "$AUTOSTART_LUA" <<'PY'
-import re, sys
-path = sys.argv[1]
-txt = open(path, "r", encoding="utf-8").read()
-out_lines = []
-changed = False
-for line in txt.splitlines(keepends=True):
-    if not line.lstrip().startswith("--") and re.search(r'hl\.exec_cmd\(.*qs\s+-p', line):
-        indent = line[:len(line) - len(line.lstrip())]
-        out_lines.append(indent + "-- " + line.lstrip())
-        changed = True
-    else:
-        out_lines.append(line)
-if changed:
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("".join(out_lines))
-PY
+        disable_lua_autostart "$AUTOSTART_LUA"
         echo "[paithosh] Disabled autostart in $AUTOSTART_LUA as requested."
     fi
 fi
@@ -578,4 +583,21 @@ PY
     fi
 fi
 
-echo "[paithosh] Installation complete!"
+{
+    if [[ "$DRY_RUN" != "true" && "$UPDATE_STREAM" == "release" && "$DEFER_RELEASE_CHECKOUT" != "true" && -n "${LATEST_RELEASE_TAG:-}" ]]; then
+        prev_head="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
+        if git -C "$REPO_ROOT" checkout --quiet "$LATEST_RELEASE_TAG" 2>/dev/null; then
+            echo "[paithosh] Checked out release tag $LATEST_RELEASE_TAG"
+            if [[ "$SYNC_HYPR" == "true" && -n "$prev_head" ]] && ! git -C "$REPO_ROOT" diff --quiet "$prev_head" HEAD -- defaults/hypr 2>/dev/null; then
+                bash "$SCRIPT_DIR/sync-hypr.sh" --repo-root "$REPO_ROOT" --mode replace --no-backup --no-reload || true
+                if [[ "$AUTOSTART" != "true" ]]; then
+                    disable_lua_autostart "$AUTOSTART_LUA"
+                fi
+            fi
+        else
+            echo "[paithosh] Warning: could not check out release tag $LATEST_RELEASE_TAG" >&2
+        fi
+    fi
+    echo "[paithosh] Installation complete!"
+    exit 0
+}
