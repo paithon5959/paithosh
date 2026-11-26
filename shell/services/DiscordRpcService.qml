@@ -9,7 +9,7 @@ QtObject {
     readonly property string defaultClientId: "920711890211053579"
 
     property bool enabled: true
-    property string preset: "auto" // "auto" | "larper" | "satire" | "minimal" | "custom"
+    property string preset: "auto" // "auto" | "larper" | "satire" | "minimal" | "music" | "dj" | "custom"
     property string customDetails: "Compiling kernel with -O3"
     property string customState: "I use Fedora btw"
     property bool showTheme: true
@@ -49,10 +49,21 @@ QtObject {
                 showUptime: root.showUptime,
                 updateInterval: root.updateInterval,
                 clientId: root.clientId.trim() !== "" ? root.clientId.trim() : root.defaultClientId,
-                theme: root.themeName
+                theme: root.themeName,
+                musicTitle: MediaService.trackTitle,
+                musicArtist: MediaService.trackArtist,
+                musicPlaying: MediaService.isPlaying,
+                musicSource: MediaService.useMixcloud ? "Mixcloud" : "MPRIS"
             }
         };
         rpcProc.write(JSON.stringify(payload) + "\n");
+    }
+
+    property Connections _mediaConnections: Connections {
+        target: MediaService
+        function onTrackTitleChanged() { if (root.preset === "music") root.pushConfig(); }
+        function onTrackArtistChanged() { if (root.preset === "music") root.pushConfig(); }
+        function onIsPlayingChanged() { if (root.preset === "music") root.pushConfig(); }
     }
 
     function reroll() {

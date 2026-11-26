@@ -5040,6 +5040,22 @@ Item {
                                         onTriggered: DiscordRpcService.preset = "minimal"
                                     }
                                     PresetCard {
+                                        title: "Now Playing"
+                                        subtitle: "Live track & artist from Mixcloud or MPRIS media player"
+                                        badge: "Music"
+                                        searchKeywords: "discord rpc music now playing mixcloud mpris track"
+                                        active: DiscordRpcService.preset === "music"
+                                        onTriggered: DiscordRpcService.preset = "music"
+                                    }
+                                    PresetCard {
+                                        title: "Mixcloud & DJ Vibe"
+                                        subtitle: "Curated DJ set & sidechain RMS audio ducking status lines"
+                                        badge: "DJ"
+                                        searchKeywords: "discord rpc dj mixcloud music sidechain ducking"
+                                        active: DiscordRpcService.preset === "dj"
+                                        onTriggered: DiscordRpcService.preset = "dj"
+                                    }
+                                    PresetCard {
                                         Layout.columnSpan: 2
                                         title: "Custom Flex"
                                         subtitle: "Write your own two-line Discord presence with instant live sync"

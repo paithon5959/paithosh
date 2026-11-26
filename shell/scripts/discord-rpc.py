@@ -203,6 +203,27 @@ def get_status_for_config(cfg: dict, last_pair: tuple[str, str] | None = None) -
         details, state = random.choice(pool)
     elif preset == "minimal":
         details, state = "Paithosh Shell", "Wayland • Hyprland"
+    elif preset == "music":
+        m_title = str(cfg.get("musicTitle", "")).strip()
+        m_artist = str(cfg.get("musicArtist", "")).strip()
+        m_playing = bool(cfg.get("musicPlaying", False))
+        m_source = str(cfg.get("musicSource", "")).strip()
+        if m_title:
+            prefix = "Listening to" if m_playing else "Paused:"
+            details = f"{prefix} {m_title}"
+            state = f"by {m_artist}" if m_artist else (f"via {m_source}" if m_source else "Paithosh Music")
+        else:
+            details, state = "Paithosh Music", "Idle • Ready to spin"
+    elif preset == "dj":
+        options = [
+            ("Crate digging on Mixcloud", "Sidechain RMS ducking active"),
+            ("Spinning DJ sets in Wayland", "Smooth audio ducking • Paithosh"),
+            ("Vibing to Mixcloud streams", "Zero-latency media island"),
+            ("Mixing beats on Hyprland", "Hybrid sidechain RMS audio"),
+            ("Late night Mixcloud session", "Auto-ducking on notifications"),
+        ]
+        pool = [o for o in options if o != last_pair] or options
+        details, state = random.choice(pool)
     else:
         hour = datetime.datetime.now().hour
         if 5 <= hour < 9:
