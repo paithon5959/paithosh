@@ -16,6 +16,7 @@ FloatingWindow {
     title: {
         if (appKind === "settings") return "Settings (Detached)";
         if (appKind === "files") return "Files (Detached)";
+        if (appKind === "music") return "Music (Detached)";
         if (appKind === "picker") {
             if (shellState.pickerDirectory) return "Select Folder (Detached)";
             return shellState.pickerMode === "download" ? "Save Location (Detached)" : "Upload Location (Detached)";
@@ -38,6 +39,8 @@ FloatingWindow {
                 pickerLoader.item.forceActiveFocus();
             } else if (appKind === "files" && filesLoader.item) {
                 filesLoader.item.forceActiveFocus();
+            } else if (appKind === "music" && musicLoader.item) {
+                musicLoader.item.forceActiveFocus();
             }
         } else if (isOpen) {
             shellState.closeDetachedApp();
@@ -154,6 +157,18 @@ FloatingWindow {
                     active: root.visible && root.appKind === "files"
                     function ensureSource() {
                         if (active && source.toString() === "") setSource("FilesView.qml", { shellState: root.shellState });
+                    }
+                    Component.onCompleted: ensureSource()
+                    onActiveChanged: ensureSource()
+                    onLoaded: if (item) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
+                }
+
+                Loader {
+                    id: musicLoader
+                    anchors.fill: parent
+                    active: root.visible && root.appKind === "music"
+                    function ensureSource() {
+                        if (active && source.toString() === "") setSource("MusicView.qml", { shellState: root.shellState });
                     }
                     Component.onCompleted: ensureSource()
                     onActiveChanged: ensureSource()

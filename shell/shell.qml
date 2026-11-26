@@ -235,6 +235,7 @@ ShellRoot {
         "components/LauncherView.qml",
         "components/DashboardView.qml",
         "components/FilesView.qml",
+        "components/MusicView.qml",
         "components/SettingsView.qml",
         "components/ClipboardView.qml",
         "components/SearchResultsView.qml",
@@ -736,8 +737,8 @@ ShellRoot {
 
         property var activeScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         property string openPopover: "" // "" | "launcher" | "dashboard" | "search" | "overview"
-        property string islandApp: "" // "" | "settings" | "files" | "picker"
-        property string detachedApp: "" // "" | "settings" | "files" | "picker"
+        property string islandApp: "" // "" | "settings" | "files" | "music" | "picker"
+        property string detachedApp: "" // "" | "settings" | "files" | "music" | "picker"
         property string dashboardTab: "mission" // "mission" | "tasks" | "kde" | "power"
         property string settingsPage: "home"
         property string settingsSpotlight: ""
@@ -2044,6 +2045,10 @@ ShellRoot {
 
         function openFiles(): void {
             stateObj.openIslandApp("files", null);
+        }
+
+        function openMusic(): void {
+            stateObj.openIslandApp("music", null);
         }
 
         function openPicker(mode: string): void {

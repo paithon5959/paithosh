@@ -89,6 +89,7 @@ PanelWindow {
     readonly property string attachedTitle: {
         if (shellState.islandApp === "settings") return "Settings (Island)";
         if (shellState.islandApp === "files") return "Files (Island)";
+        if (shellState.islandApp === "music") return "Music (Island)";
         if (shellState.islandApp === "picker") {
             if (shellState.pickerDirectory) return "Select Folder (Island)";
             return shellState.pickerMode === "download" ? "Save Location (Island)" : "Upload Location (Island)";
@@ -168,6 +169,8 @@ PanelWindow {
                 Qt.callLater(() => { if (pickerLoader.item) pickerLoader.item.forceActiveFocus(); });
             } else if (shellState.islandApp === "files" && filesLoader.item) {
                 Qt.callLater(() => { if (filesLoader.item) filesLoader.item.forceActiveFocus(); });
+            } else if (shellState.islandApp === "music" && musicLoader.item) {
+                Qt.callLater(() => { if (musicLoader.item) musicLoader.item.forceActiveFocus(); });
             } else {
                 expandedFocusItem.forceActiveFocus();
             }
@@ -186,6 +189,8 @@ PanelWindow {
                     Qt.callLater(() => { if (pickerLoader.item) pickerLoader.item.forceActiveFocus(); });
                 } else if (root.shellState.islandApp === "files" && filesLoader.item) {
                     Qt.callLater(() => { if (filesLoader.item) filesLoader.item.forceActiveFocus(); });
+                } else if (root.shellState.islandApp === "music" && musicLoader.item) {
+                    Qt.callLater(() => { if (musicLoader.item) musicLoader.item.forceActiveFocus(); });
                 }
             }
         }
@@ -1423,6 +1428,18 @@ PanelWindow {
                     }
 
                     Loader {
+                        id: musicLoader
+                        anchors.fill: parent
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "music"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("MusicView.qml", { shellState: root.shellState });
+                        }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
+                        onLoaded: if (item && root.isAppExpandedOnScreen) Qt.callLater(() => { if (item) item.forceActiveFocus(); })
+                    }
+
+                    Loader {
                         id: pickerLoader
                         anchors.fill: parent
                         active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "picker"
@@ -1568,10 +1585,21 @@ PanelWindow {
                     MouseArea {
                         anchors.fill: parent
                         hoverEnabled: true
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         cursorShape: Qt.PointingHandCursor
                         onEntered: root.hovered = true
                         onExited: root.hovered = false
-                        onClicked: MediaService.togglePlay()
+                        onClicked: function(mouse) {
+                            if (mouse.button === Qt.RightButton) {
+                                if (MediaService.useMixcloud) {
+                                    root.shellState.openIslandApp("music", root.modelData);
+                                } else {
+                                    root.shellState.togglePopover("dashboard", root.modelData);
+                                }
+                            } else {
+                                MediaService.togglePlay();
+                            }
+                        }
                     }
                 }
             }

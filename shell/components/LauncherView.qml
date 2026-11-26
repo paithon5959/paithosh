@@ -52,10 +52,22 @@ Item {
                 }
             });
         }
+        if (selectedCategory === "All" || selectedCategory === "Media") {
+            pinned.push({
+                id: "paithosh-music",
+                name: "Music",
+                category: "Media",
+                keywords: "mixcloud audio radio dj player stream",
+                iconName: "",
+                fallbackSvg: "music",
+                action: function() { root.shellState.openIslandApp("music", null); }
+            });
+        }
         const q = query.trim().toLowerCase();
         const combined = [];
         for (let i = 0; i < pinned.length; ++i) {
-            if (q === "" || pinned[i].name.toLowerCase().indexOf(q) !== -1 || pinned[i].category.toLowerCase().indexOf(q) !== -1) {
+            const hay = (pinned[i].name + " " + pinned[i].category + " " + (pinned[i].keywords || "")).toLowerCase();
+            if (q === "" || hay.indexOf(q) !== -1) {
                 combined.push(pinned[i]);
             }
         }

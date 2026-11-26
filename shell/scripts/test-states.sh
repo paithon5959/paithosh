@@ -131,6 +131,12 @@ ipc openSettings "lockscreen"
 sleep 0.45
 ipc openFiles
 sleep 0.35
+ipc openMusic
+sleep 0.45
+ipc detachApp music
+sleep 0.35
+ipc reattachApp music
+sleep 0.35
 ipc openPicker "upload"
 sleep 0.35
 ipc openPicker "download"
