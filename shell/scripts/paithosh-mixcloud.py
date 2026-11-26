@@ -847,6 +847,8 @@ class MixcloudDaemon:
         self._user_volume = 80
         self._muted = False
         self._last_pos_emit = 0.0
+        # ponytail: in-memory TTL dict cache for resolved stream URLs (no disk persistence)
+        self._url_cache: dict[str, tuple[float, str]] = {}
 
         # Playback & Audio DSP config
         self._buffer_preset = "balanced"
@@ -1391,12 +1393,15 @@ class MixcloudDaemon:
             cmd.append(f"--af={af_chain}")
 
         try:
+            # NOTE: Never set PR_SET_PDEATHSIG here because _spawn_deck is called from
+            # short-lived worker threads (_resolve_and_play / _progressive_mix_worker),
+            # and Linux PR_SET_PDEATHSIG fires when the spawning *thread* exits.
+            # Daemon main thread sets PR_SET_PDEATHSIG and tears down decks in shutdown().
             deck.proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                preexec_fn=lambda: _set_pdeathsig(signal.SIGTERM),
             )
             try:
                 with open(deck.pid_path, "w", encoding="utf-8") as fh:
@@ -1474,6 +1479,25 @@ class MixcloudDaemon:
                 continue
             except OSError:
                 break
+
+        # Guard against silent hang if primary mpv exits unexpectedly mid-buffering/playing
+        if not self._running:
+            return
+        with deck._write_lock:
+            still_current_sock = deck.ipc_sock is sock
+        if not still_current_sock:
+            return
+        should_error = False
+        err_seq = 0
+        with self._state_lock:
+            if deck is self._primary and self._state in ("buffering", "playing"):
+                self._state = "error"
+                err_seq = self._active_seq
+                should_error = True
+        if should_error:
+            rc = deck.proc.poll() if deck.proc is not None else None
+            self._emit_state(state="error", seq=err_seq, force=True)
+            self.emit({"type": "error", "seq": err_seq, "message": f"mpv audio backend closed unexpectedly (rc={rc})"})
 
     def _handle_deck_event(self, deck: _MpvDeck, msg: dict[str, Any]) -> None:
         ev = msg.get("event")
@@ -1554,12 +1578,19 @@ class MixcloudDaemon:
     # ------------------------------------------------------------------
 
     def _resolve_url_ytdlp(self, url: str, timeout_s: float = 25.0) -> tuple[bool, str, str]:
+        now = time.monotonic()
+        cached = self._url_cache.get(url)
+        if cached is not None and (now - cached[0]) < 600.0:
+            return True, cached[1], ""
+
         self._yt_dlp_path = _find_bin("yt-dlp")
         if not self._yt_dlp_path:
             return False, "", "Missing yt-dlp"
         try:
+            # Prefer single-stream HLS (192k AAC) over multi-representation DASH MPD
+            # to avoid FFmpeg sequentially probing 4 DASH streams (~3-4s faster startup).
             proc = subprocess.run(
-                [self._yt_dlp_path, "--no-playlist", "--no-warnings", "-f", "bestaudio/best", "-g", url],
+                [self._yt_dlp_path, "--no-playlist", "--no-warnings", "-f", "hls-192/hls-64/bestaudio/best", "-g", url],
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
@@ -1576,6 +1607,7 @@ class MixcloudDaemon:
         urls = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()]
         if not urls:
             return False, "", "No playable stream URL returned"
+        self._url_cache[url] = (time.monotonic(), urls[0])
         return True, urls[0], ""
 
     def _resolve_and_play(self, url: str, seq: int, volume: int, muted: bool, start_position: float = 0.0) -> None:

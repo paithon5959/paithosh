@@ -177,10 +177,35 @@ def test_lavfi_presets_in_mpv() -> None:
         assert proc.returncode == 0, f"mpv failed on DSP preset '{name}' ({chain}): {proc.stderr}"
 
 
+def test_worker_thread_spawn_survives_thread_exit() -> None:
+    """Regression test: mpv spawned from a worker thread must NOT die when the thread exits."""
+    import threading
+    import time
+
+    daemon = mod.MixcloudDaemon()
+    ok_box = [False]
+
+    def _spawn_from_worker() -> None:
+        ok_box[0] = daemon._spawn_deck(daemon._primary, initial_mix_gain=1.0)
+
+    t = threading.Thread(target=_spawn_from_worker)
+    t.start()
+    t.join(timeout=6.0)
+    time.sleep(0.35)
+    try:
+        assert ok_box[0] is True, "Failed to spawn mpv deck"
+        assert daemon._primary.is_alive(), (
+            f"mpv died immediately after worker thread exited (poll={daemon._primary.proc.poll() if daemon._primary.proc else None})"
+        )
+    finally:
+        daemon.shutdown()
+
+
 def main() -> None:
     test_pcm_analysis_and_mix_plan()
     test_crossfade_curves()
     test_lavfi_presets_in_mpv()
+    test_worker_thread_spawn_survives_thread_exit()
     print("PASS: All paithosh-mixcloud DSP, BPM, loudness, offset, crossfade & mpv checks passed.")
 
 
