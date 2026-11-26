@@ -12,6 +12,8 @@ Singleton {
     property bool fallbackCharging: false
     property bool initialized: false
     property bool lastCharging: false
+    property bool lastLowBatteryAlert: false
+    property double _lastLowBatSfxMs: 0
 
     readonly property int batteryPct: hasBattery ? Math.round(bat.percentage * 100) : fallbackPct
     readonly property bool charging: hasBattery ? !UPower.onBattery : fallbackCharging
@@ -53,12 +55,28 @@ Singleton {
         }
     }
 
+    onLowBatteryAlertChanged: {
+        if (!initialized) {
+            lastLowBatteryAlert = lowBatteryAlert;
+            return;
+        }
+        if (lowBatteryAlert && !lastLowBatteryAlert) {
+            const now = Date.now();
+            if (now - _lastLowBatSfxMs > 60000) {
+                _lastLowBatSfxMs = now;
+                SoundService.playBatteryLow();
+            }
+        }
+        lastLowBatteryAlert = lowBatteryAlert;
+    }
+
     Timer {
         interval: 800
         running: true
         repeat: false
         onTriggered: {
             root.lastCharging = root.charging;
+            root.lastLowBatteryAlert = root.lowBatteryAlert;
             root.initialized = true;
         }
     }

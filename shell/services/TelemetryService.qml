@@ -13,6 +13,19 @@ Singleton {
     property bool cpuHistorySeeded: false
     property bool ramHistorySeeded: false
     readonly property bool overheatAlert: cpuTempC >= 90
+    property bool _lastOverheatAlert: false
+    property double _lastOverheatSfxMs: 0
+
+    onOverheatAlertChanged: {
+        if (overheatAlert && !_lastOverheatAlert) {
+            const now = Date.now();
+            if (now - _lastOverheatSfxMs > 60000) {
+                _lastOverheatSfxMs = now;
+                SoundService.playOverheat();
+            }
+        }
+        _lastOverheatAlert = overheatAlert;
+    }
 
     property string memSummary: "Mem: -- / -- GB"
     property string memDetail: "-- / -- GB"

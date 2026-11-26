@@ -858,6 +858,9 @@ ShellRoot {
             if (islandApp !== "") collapseIslandApp();
             if (detachedApp !== "") detachedApp = "";
             SoundService.stopLockAmbient();
+            if (norm === "logout") SoundService.playSessionLogout();
+            else if (norm === "reboot") SoundService.playSessionRestart();
+            else if (norm === "shutdown") SoundService.playSessionShutdown();
 
             const speed = Math.max(0.5, Theme.speedMultiplier || 1.0);
             sessionGraceMs = Math.max(380, Math.round((norm === "shutdown" ? 720 : 620) / speed));
