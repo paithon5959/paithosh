@@ -3,12 +3,14 @@
 
 Reads newline-delimited JSON commands from stdin, resolves Mixcloud audio
 streams via yt-dlp, drives a headless mpv instance over its UNIX socket
-JSON IPC, and provides smooth event-driven media audio ducking when other
-applications (Discord, browsers, games, etc.) play audio.
+JSON IPC, and provides a low-overhead Hybrid Sidechain RMS audio ducking
+engine (pactl subscribe + 4kHz mono parec stream monitors) that ducks
+smoothly only when external apps actually emit audible sound.
 """
 
 from __future__ import annotations
 
+import array
 import atexit
 import json
 import math
@@ -34,6 +36,11 @@ IGNORED_DUCK_APPS = {
     "libcanberra",
     "canberra-gtk-play",
 }
+
+MAX_STREAM_MONITORS = 4
+MONITOR_RATE = 4000          # 4kHz mono s16le = 8 KB/s (ultra-low CPU)
+MONITOR_CHUNK_BYTES = 320    # 160 samples = 40ms per frame
+RMS_THRESHOLD = 0.005        # ~ -46 dBFS (ignores digital silence & noise floor)
 
 
 def _find_bin(name: str) -> str:
@@ -69,7 +76,7 @@ def _prettify_app_name(raw: str) -> str:
     if not s:
         return "External Audio"
     low = s.lower()
-    if "discord" in low or "vesktop" in low or "chromium" in low and "discord" in low:
+    if "discord" in low or "vesktop" in low:
         return "Discord"
     if "firefox" in low:
         return "Firefox"
@@ -86,6 +93,84 @@ def _prettify_app_name(raw: str) -> str:
     if "vlc" in low:
         return "VLC"
     return s[:28]
+
+
+class _StreamMonitor:
+    """Ultra-lightweight 4kHz mono RMS monitor for a single PipeWire sink-input."""
+
+    def __init__(self, sink_input_id: str, label: str, parec_path: str, on_audio_cb: Any) -> None:
+        self.sink_input_id = sink_input_id
+        self.label = label
+        self._parec_path = parec_path
+        self._on_audio_cb = on_audio_cb
+        self._stop_flag = False
+        self._proc: subprocess.Popen[bytes] | None = None
+        self.audible = False
+        self.last_audible_ts = 0.0
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            proc = subprocess.Popen(
+                [
+                    self._parec_path,
+                    f"--monitor-stream={self.sink_input_id}",
+                    f"--rate={MONITOR_RATE}",
+                    "--channels=1",
+                    "--format=s16le",
+                    "--latency-msec=40",
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+            )
+            self._proc = proc
+            assert proc.stdout is not None
+            while not self._stop_flag:
+                chunk = proc.stdout.read(MONITOR_CHUNK_BYTES)
+                if not chunk:
+                    break
+                n_samples = len(chunk) // 2
+                if n_samples == 0:
+                    continue
+                samples = array.array("h")
+                samples.frombytes(chunk[: n_samples * 2])
+                # Fast RMS on 160 int16 samples (~12us)
+                sum_sq = 0
+                for s in samples:
+                    sum_sq += s * s
+                rms = math.sqrt(sum_sq / n_samples) / 32768.0
+                now_audible = rms >= RMS_THRESHOLD
+                if now_audible:
+                    self.last_audible_ts = time.monotonic()
+                if now_audible != self.audible:
+                    self.audible = now_audible
+                    self._on_audio_cb()
+        except OSError:
+            pass
+        finally:
+            self.audible = False
+            self._terminate_proc()
+            self._on_audio_cb()
+
+    def _terminate_proc(self) -> None:
+        proc = self._proc
+        self._proc = None
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            except OSError:
+                pass
+
+    def stop(self) -> None:
+        self._stop_flag = True
+        self._terminate_proc()
 
 
 class MixcloudDaemon:
@@ -109,6 +194,7 @@ class MixcloudDaemon:
         self._mpv_path = _find_bin("mpv")
         self._yt_dlp_path = _find_bin("yt-dlp")
         self._pactl_path = _find_bin("pactl")
+        self._parec_path = _find_bin("parec")
         self._install_hint = _detect_install_hint()
 
         # Tracked mpv state
@@ -122,23 +208,26 @@ class MixcloudDaemon:
         self._core_idle = True
         self._last_pos_emit = 0.0
 
-        # Smooth Media Audio Ducking state
+        # Hybrid Sidechain RMS Audio Ducking state
         self._duck_lock = threading.Lock()
         self._duck_enabled = True
         self._duck_level = 0.24
-        self._duck_attack_delay_s = 0.18
-        self._duck_release_hold_s = 0.95
-        self._duck_down_s = 0.38
-        self._duck_up_s = 0.78
+        self._duck_attack_delay_s = 0.06   # 60ms snappy attack debounce (filters 1-frame pops)
+        self._duck_release_hold_s = 0.32   # 320ms musical hold (bridges word gaps, releases fast)
+        self._duck_down_s = 0.26           # 260ms smooth cosine duck-in
+        self._duck_up_s = 0.52             # 520ms lush cosine restore
 
         self._duck_gain = 1.0
         self._duck_active = False
         self._duck_source = ""
         self._duck_ramp_seq = 0
         self._ext_audio_present = False
-        self._ext_audio_source = ""
         self._ext_first_seen_ts = 0.0
         self._ext_last_seen_ts = 0.0
+
+        self._monitors_lock = threading.Lock()
+        self._monitors: dict[str, _StreamMonitor] = {}
+        self._need_rescan = True
 
         self._pactl_sub_proc: subprocess.Popen[str] | None = None
         self._duck_eval_event = threading.Event()
@@ -157,6 +246,7 @@ class MixcloudDaemon:
         self._mpv_path = _find_bin("mpv")
         self._yt_dlp_path = _find_bin("yt-dlp")
         self._pactl_path = _find_bin("pactl")
+        self._parec_path = _find_bin("parec")
         self.emit({
             "type": "deps",
             "mpv": bool(self._mpv_path),
@@ -222,6 +312,7 @@ class MixcloudDaemon:
             self._state = next_state
         if changed:
             self._emit_state(force=True)
+            self._need_rescan = True
             self._duck_eval_event.set()
 
     def _send_mpv(self, cmd: list[Any]) -> bool:
@@ -278,6 +369,13 @@ class MixcloudDaemon:
             except OSError:
                 pass
 
+    def _stop_all_monitors(self) -> None:
+        with self._monitors_lock:
+            mons = list(self._monitors.values())
+            self._monitors.clear()
+        for m in mons:
+            m.stop()
+
     def _ensure_duck_watcher(self) -> None:
         if self._duck_threads_started or not self._pactl_path:
             return
@@ -304,6 +402,7 @@ class MixcloudDaemon:
                     if not self._running:
                         break
                     if "sink-input" in line:
+                        self._need_rescan = True
                         self._duck_eval_event.set()
             except OSError:
                 pass
@@ -312,9 +411,10 @@ class MixcloudDaemon:
             if self._running:
                 time.sleep(1.0)
 
-    def _scan_external_audio(self) -> tuple[bool, str]:
+    def _list_external_sink_inputs(self) -> list[tuple[str, str]]:
+        """Return [(sink_input_id, pretty_label)] for active non-corked external streams."""
         if not self._pactl_path:
-            return False, ""
+            return []
         try:
             proc = subprocess.run(
                 [self._pactl_path, "list", "sink-inputs"],
@@ -323,13 +423,18 @@ class MixcloudDaemon:
                 timeout=2.0,
             )
         except (subprocess.TimeoutExpired, OSError):
-            return False, ""
+            return []
         if proc.returncode != 0 or not proc.stdout:
-            return False, ""
+            return []
 
         mpv_pid = str(self._mpv_proc.pid) if (self._mpv_proc and self._mpv_proc.poll() is None) else ""
-        blocks = re.split(r"(?m)^Sink Input #\d+", proc.stdout)
+        results: list[tuple[str, str]] = []
+        blocks = re.split(r"(?m)^Sink Input #", proc.stdout)
         for blk in blocks[1:]:
+            first_line = blk.split("\n", 1)[0].strip()
+            if not first_line.isdigit():
+                continue
+            sid = first_line
             if re.search(r"^\s*Corked:\s*yes\b", blk, re.MULTILINE):
                 continue
             if re.search(r"^\s*Mute:\s*yes\b", blk, re.MULTILINE):
@@ -358,8 +463,38 @@ class MixcloudDaemon:
                 continue
 
             label = _prettify_app_name(app_name or node_name or media_name)
-            return True, label
+            results.append((sid, label))
 
+        return results
+
+    def _sync_monitors(self, active_streams: list[tuple[str, str]]) -> None:
+        if not self._parec_path:
+            return
+        wanted = {sid: lbl for sid, lbl in active_streams[:MAX_STREAM_MONITORS]}
+        to_stop: list[_StreamMonitor] = []
+        with self._monitors_lock:
+            for sid in list(self._monitors.keys()):
+                if sid not in wanted:
+                    to_stop.append(self._monitors.pop(sid))
+            for sid, lbl in wanted.items():
+                if sid not in self._monitors:
+                    self._monitors[sid] = _StreamMonitor(
+                        sid,
+                        lbl,
+                        self._parec_path,
+                        self._duck_eval_event.set,
+                    )
+                else:
+                    self._monitors[sid].label = lbl
+        for m in to_stop:
+            m.stop()
+
+    def _query_rms_audible(self) -> tuple[bool, str]:
+        with self._monitors_lock:
+            mons = list(self._monitors.values())
+        for m in mons:
+            if m.audible:
+                return True, m.label
         return False, ""
 
     def _start_duck_ramp(self, target_gain: float, base_duration_s: float) -> None:
@@ -376,7 +511,7 @@ class MixcloudDaemon:
             self._apply_effective_volume()
             return
 
-        dur = max(0.09, base_duration_s * min(1.0, dist / full_span))
+        dur = max(0.07, base_duration_s * min(1.0, dist / full_span))
 
         def _ramp_worker() -> None:
             t0 = time.monotonic()
@@ -402,6 +537,9 @@ class MixcloudDaemon:
         threading.Thread(target=_ramp_worker, daemon=True).start()
 
     def _duck_supervisor_loop(self) -> None:
+        last_rescan_ts = 0.0
+        cached_streams: list[tuple[str, str]] = []
+
         while self._running:
             with self._state_lock:
                 is_active_playback = self._state in ("playing", "buffering")
@@ -410,13 +548,16 @@ class MixcloudDaemon:
                 was_ducking = self._duck_active
                 ext_present = self._ext_audio_present
 
-            # Choose a responsive wait timeout only when transitioning or actively playing
+            # Tight wait ONLY during short attack/release hold transitions; sleep cleanly otherwise
             if is_active_playback and enabled:
-                wait_s = 0.08 if (ext_present != was_ducking) else 1.8
+                if ext_present != was_ducking:
+                    wait_s = 0.04
+                else:
+                    wait_s = 2.0
             elif was_ducking:
-                wait_s = 0.1
+                wait_s = 0.05
             else:
-                wait_s = 2.5
+                wait_s = 3.0
 
             self._duck_eval_event.wait(timeout=wait_s)
             self._duck_eval_event.clear()
@@ -430,10 +571,11 @@ class MixcloudDaemon:
                 target_level = self._duck_level
 
             if not enabled or not is_active_playback:
+                self._stop_all_monitors()
+                cached_streams = []
                 need_restore = False
                 with self._duck_lock:
                     self._ext_audio_present = False
-                    self._ext_audio_source = ""
                     self._ext_first_seen_ts = 0.0
                     if self._duck_active or self._duck_gain < 0.995:
                         self._duck_active = False
@@ -445,7 +587,18 @@ class MixcloudDaemon:
                 continue
 
             now = time.monotonic()
-            ext_now, ext_src = self._scan_external_audio()
+            # Only invoke `pactl list sink-inputs` on actual PipeWire events or every 3s safety check
+            if self._need_rescan or (now - last_rescan_ts) >= 3.0:
+                self._need_rescan = False
+                last_rescan_ts = now
+                cached_streams = self._list_external_sink_inputs()
+                self._sync_monitors(cached_streams)
+
+            if self._parec_path:
+                ext_now, ext_src = self._query_rms_audible()
+            else:
+                ext_now = len(cached_streams) > 0
+                ext_src = cached_streams[0][1] if ext_now else ""
 
             action = ""  # "" | "duck" | "restore" | "source_changed"
             with self._duck_lock:
@@ -454,14 +607,13 @@ class MixcloudDaemon:
                         self._ext_first_seen_ts = now
                     self._ext_audio_present = True
                     self._ext_last_seen_ts = now
-                    self._ext_audio_source = ext_src
 
                     if not self._duck_active:
                         if (now - self._ext_first_seen_ts) >= self._duck_attack_delay_s:
                             self._duck_active = True
                             self._duck_source = ext_src
                             action = "duck"
-                    elif ext_src != self._duck_source:
+                    elif ext_src and ext_src != self._duck_source:
                         self._duck_source = ext_src
                         action = "source_changed"
                 else:
@@ -637,6 +789,7 @@ class MixcloudDaemon:
                     self._state = "buffering"
                     self._position = 0.0
             self._emit_state(force=True)
+            self._need_rescan = True
             self._duck_eval_event.set()
         elif ev == "playback-restart":
             with self._state_lock:
@@ -753,6 +906,7 @@ class MixcloudDaemon:
         self._send_mpv(["set_property", "mute", bool(muted)])
         self._send_mpv(["loadfile", stream_url, "replace"])
         self._send_mpv(["set_property", "pause", False])
+        self._need_rescan = True
         self._duck_eval_event.set()
 
     def handle_command(self, obj: dict[str, Any]) -> None:
@@ -765,6 +919,7 @@ class MixcloudDaemon:
                     self._duck_enabled = obj["enabled"]
                 if isinstance(obj.get("level"), (int, float)):
                     self._duck_level = max(0.08, min(0.75, float(obj["level"])))
+            self._need_rescan = True
             self._duck_eval_event.set()
             self._emit_duck()
         elif cmd == "play":
@@ -835,6 +990,7 @@ class MixcloudDaemon:
     def shutdown(self) -> None:
         self._running = False
         self._duck_eval_event.set()
+        self._stop_all_monitors()
         self._close_pactl_sub()
         self._close_mpv()
 
