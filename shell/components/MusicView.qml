@@ -2156,7 +2156,11 @@ FocusScope {
                                                 anchors.centerIn: parent
                                                 text: MixcloudService.mixStage === "blending"
                                                     ? ("Mix " + Math.round(MixcloudService.mixProgress * 100) + "%")
-                                                    : (MixcloudService.mixStage === "syncing" ? "Syncing" : "Cueing")
+                                                    : (MixcloudService.mixStage === "analyzing"
+                                                        ? "Analyzing"
+                                                        : (MixcloudService.mixStage === "syncing"
+                                                            ? "Syncing"
+                                                            : (MixcloudService.mixStage === "swapping" ? "Swapping" : "Cueing")))
                                                 color: Theme.accent
                                                 font.family: Theme.fontMono
                                                 font.pixelSize: 9
@@ -2305,6 +2309,52 @@ FocusScope {
                                 fixedHeight: 28
                                 radius: 8
                                 onClicked: if (MixcloudService.currentTrack) MixcloudService.toggleFavorite(MixcloudService.currentTrack)
+                            }
+
+                            // Compact Mix Now Trigger / Cancel Button
+                            Rectangle {
+                                id: mixBtn
+                                readonly property bool canMix: MixcloudService.isMixing || (MixcloudService.hasTrack && MixcloudService.peekNextQueueEntry() !== null)
+                                width: 28
+                                height: 28
+                                radius: 8
+                                clip: true
+                                opacity: canMix ? 1.0 : 0.38
+                                color: MixcloudService.isMixing
+                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.20)
+                                    : ((canMix && mixBtnMouse.containsMouse) ? Theme.cardHover : Theme.cardBg)
+                                border.width: (MixcloudService.isMixing || (canMix && mixBtnMouse.containsMouse)) ? 1 : 0
+                                border.color: MixcloudService.isMixing
+                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55)
+                                    : Theme.borderSubtle
+                                scale: (canMix && mixBtnMouse.pressed) ? 0.93 : 1.0
+
+                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    sourceName: "layers"
+                                    iconSize: 14
+                                    color: MixcloudService.isMixing
+                                        ? Theme.accent
+                                        : ((mixBtn.canMix && mixBtnMouse.containsMouse) ? Theme.text : Theme.textSub)
+                                    Behavior on color { ColorAnimation { duration: 160 } }
+                                }
+
+                                MouseArea {
+                                    id: mixBtnMouse
+                                    anchors.fill: parent
+                                    enabled: mixBtn.canMix
+                                    hoverEnabled: mixBtn.canMix
+                                    cursorShape: mixBtn.canMix ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onClicked: {
+                                        if (MixcloudService.isMixing) MixcloudService.cancelMix();
+                                        else MixcloudService.mixNow();
+                                    }
+                                }
                             }
 
                             // Auto-Ducking Toggle (highlights in Theme.info while actively ducking)

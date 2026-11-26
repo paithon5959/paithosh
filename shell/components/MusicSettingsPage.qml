@@ -81,6 +81,20 @@ Item {
         return "progressive";
     }
 
+    function eqModeLabel(m) {
+        if (m === "stem_eq") return "3-Band Vocal Pocket";
+        if (m === "filter_sweep") return "Warm Filter Sweep";
+        if (m === "clean") return "Clean Gain";
+        return "Bass Swap";
+    }
+
+    function eqModeId(label) {
+        if (label === "3-Band Vocal Pocket") return "stem_eq";
+        if (label === "Warm Filter Sweep") return "filter_sweep";
+        if (label === "Clean Gain") return "clean";
+        return "bass_swap";
+    }
+
     function bufferLabel(bp) {
         if (bp === "low") return "Low (16 MiB / 10s)";
         if (bp === "high") return "High (64 MiB / 45s)";
@@ -1412,15 +1426,26 @@ Item {
                                                 if (MixcloudService.mixBpmA > 0 || MixcloudService.mixBpmB > 0) {
                                                     parts.push("BPM " + MixcloudService.mixBpmA.toFixed(0) + "→" + MixcloudService.mixBpmB.toFixed(0));
                                                 }
+                                                if (MixcloudService.mixKeyA !== "" && MixcloudService.mixKeyB !== "") {
+                                                    const compat = MixcloudService.mixKeyCompat !== "" ? (" (" + MixcloudService.mixKeyCompat + ")") : "";
+                                                    parts.push("Key " + MixcloudService.mixKeyA + "→" + MixcloudService.mixKeyB + compat);
+                                                }
+                                                if (MixcloudService.mixActiveEqMode !== "") {
+                                                    parts.push(root.eqModeLabel(MixcloudService.mixActiveEqMode));
+                                                }
                                                 parts.push("Trim " + root.signedDb(MixcloudService.mixGainTrimDb));
-                                                parts.push("Off " + Math.round(MixcloudService.mixOffsetMs) + "ms");
+                                                if (MixcloudService.mixStage === "blending" && Math.abs(MixcloudService.mixPhaseErrMs) > 0.5) {
+                                                    parts.push("Phase " + root.signedMs(MixcloudService.mixPhaseErrMs));
+                                                } else {
+                                                    parts.push("Off " + Math.round(MixcloudService.mixOffsetMs) + "ms");
+                                                }
                                                 parts.push("Spd " + MixcloudService.mixSpeedRatio.toFixed(3) + "x");
                                                 if (MixcloudService.mixBufferMs > 0) parts.push("Buf " + Math.round(MixcloudService.mixBufferMs) + "ms");
                                                 return parts.join(" • ");
                                             }
                                             if (MixcloudService.mixNote !== "") return MixcloudService.mixNote;
                                             return MixcloudService.hasFfmpeg
-                                                ? "Cues Deck B silently at vol 0, matches loudness, tempo & beat offset"
+                                                ? "Cues Deck B silently at vol 0, matches loudness, key, EQ & beat phase"
                                                 : "ffmpeg missing — falls back to smooth gain crossfade";
                                         }
                                         color: Theme.textSub
@@ -1502,14 +1527,21 @@ Item {
                         }
                         MPresetCard {
                             title: "Progressive DJ"
-                            subtitle: "14s Blend • Vol, BPM & Phase"
+                            subtitle: "14s Blend • Bass Swap & Phrase"
                             iconName: "layers"
                             active: MixcloudService.mixPreset === "progressive"
                             onTriggered: MixcloudService.applyMixPreset("progressive")
                         }
                         MPresetCard {
+                            title: "Melodic Flow"
+                            subtitle: "16s Smooth • Warm Filter Sweep"
+                            iconName: "wind"
+                            active: MixcloudService.mixPreset === "melodic"
+                            onTriggered: MixcloudService.applyMixPreset("melodic")
+                        }
+                        MPresetCard {
                             title: "Long Club Blend"
-                            subtitle: "22s Extended • Harmonic sync"
+                            subtitle: "22s Extended • 3-Band Vocal Pocket"
                             iconName: "sparkles"
                             active: MixcloudService.mixPreset === "club"
                             onTriggered: MixcloudService.applyMixPreset("club")
@@ -1579,9 +1611,40 @@ Item {
                         }
 
                         MSettingRow {
+                            iconName: "sliders"
+                            title: "Transition EQ Style"
+                            subtitle: "Swap bass or carve vocal/melody pocket so tracks never clash"
+                            MCtrlSelect {
+                                enabled: MixcloudService.mixEnabled
+                                options: ["Bass Swap", "3-Band Vocal Pocket", "Warm Filter Sweep", "Clean Gain"]
+                                currentText: root.eqModeLabel(MixcloudService.mixEqMode)
+                                onSelected: (label) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixEqMode = root.eqModeId(label);
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
+                            iconName: "music"
+                            title: "Harmonic Key Continuity"
+                            subtitle: "Detect Camelot key & adapt overlap cleanly on harmonic clashes"
+                            MCtrlSwitch {
+                                enabled: MixcloudService.mixEnabled
+                                checked: MixcloudService.mixHarmonicAdapt
+                                onToggled: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixHarmonicAdapt = v;
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
                             iconName: "volume"
-                            title: "Match Volume (RMS Loudness)"
-                            subtitle: "Compare outro vs intro loudness & trim incoming track gain"
+                            title: "Match Volume (Perceptual Loudness)"
+                            subtitle: "Compare K-weighted outro vs intro loudness & trim incoming gain"
                             MCtrlSwitch {
                                 enabled: MixcloudService.mixEnabled
                                 checked: MixcloudService.mixMatchVolume
@@ -1595,8 +1658,8 @@ Item {
 
                         MSettingRow {
                             iconName: "gauge"
-                            title: "Match Tempo (BPM Sync)"
-                            subtitle: "Detect BPM of both tracks & gently glide Deck B to natural tempo"
+                            title: "Match Tempo (BPM + Micro-PLL)"
+                            subtitle: "Detect 3-band BPM, couple deck speeds & lock beat phase live"
                             MCtrlSwitch {
                                 enabled: MixcloudService.mixEnabled
                                 checked: MixcloudService.mixMatchTempo
@@ -1610,8 +1673,8 @@ Item {
 
                         MSettingRow {
                             iconName: "bolt"
-                            title: "Align Beat & Buffer Offset"
-                            subtitle: "Skip intro silence, lock beat phase & compensate stream buffer lag"
+                            title: "Align Beat, Phrase & Buffer Offset"
+                            subtitle: "Skip intro silence, exact-seek cue & lock beat/downbeat phase"
                             MCtrlSwitch {
                                 enabled: MixcloudService.mixEnabled
                                 checked: MixcloudService.mixMatchOffset
@@ -1627,10 +1690,89 @@ Item {
                     MAdvancedSection {
                         id: mixAdv
                         title: "Advanced Mix Calibration & Thresholds"
-                        subtitle: "Buffer lead time, analysis window, tempo cap & ms offset calibration"
+                        subtitle: "Spectral crossover, EQ depth, phrase lock, smart outro & ms calibration"
 
                         MSettingRow {
                             showDivider: false
+                            iconName: "sliders"
+                            title: "EQ Crossover Frequency"
+                            subtitle: "Sub-bass swap boundary frequency during transitions"
+                            MCtrlSlider {
+                                enabled: MixcloudService.mixEnabled && MixcloudService.mixEqMode !== "clean"
+                                from: 100; to: 320; stepSize: 10
+                                value: MixcloudService.mixEqCrossoverHz
+                                valueText: Math.round(MixcloudService.mixEqCrossoverHz) + " Hz"
+                                onMoved: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixEqCrossoverHz = Math.round(v);
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
+                            iconName: "sliders"
+                            title: "EQ Swap Depth"
+                            subtitle: "Bass attenuation depth during spectral transition"
+                            MCtrlSlider {
+                                enabled: MixcloudService.mixEnabled && MixcloudService.mixEqMode !== "clean"
+                                from: 6; to: 24; stepSize: 1
+                                value: MixcloudService.mixEqSwapDepthDb
+                                valueText: "-" + Math.round(MixcloudService.mixEqSwapDepthDb) + " dB"
+                                onMoved: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixEqSwapDepthDb = Math.round(v);
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
+                            iconName: "layers"
+                            title: "Phrase / Downbeat Sync (4-Beat)"
+                            subtitle: "Align Beat-1 downbeats across 4-beat bars on auto transitions"
+                            MCtrlSwitch {
+                                enabled: MixcloudService.mixEnabled && MixcloudService.mixMatchOffset
+                                checked: MixcloudService.mixPhraseSync
+                                onToggled: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixPhraseSync = v;
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
+                            iconName: "bolt"
+                            title: "Smart Outro Cue"
+                            subtitle: "Detect energy fade-outs and mix before quiet reverb tails"
+                            MCtrlSwitch {
+                                enabled: MixcloudService.mixEnabled
+                                checked: MixcloudService.mixSmartOutro
+                                onToggled: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixSmartOutro = v;
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
+                            iconName: "gauge"
+                            title: "Coupled Dual-Deck Tempo Glide"
+                            subtitle: "Nudge both decks smoothly in lockstep for zero beat drift"
+                            MCtrlSwitch {
+                                enabled: MixcloudService.mixEnabled && MixcloudService.mixMatchTempo
+                                checked: MixcloudService.mixCoupledTempo
+                                onToggled: (v) => {
+                                    MixcloudService.mixPreset = "custom";
+                                    MixcloudService.mixCoupledTempo = v;
+                                    MixcloudService.syncMixConfigNow();
+                                }
+                            }
+                        }
+
+                        MSettingRow {
                             iconName: "clock"
                             title: "Pre-Cue Lead Time"
                             subtitle: "Seconds before track end to start resolving & buffering Deck B"

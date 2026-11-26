@@ -88,10 +88,17 @@ Singleton {
     property int duckMonitoredCount: 0
 
     // Progressive Audio Mix Settings + Live Telemetry
-    property string mixPreset: "progressive" // "off" | "seamless" | "progressive" | "club" | "custom"
+    property string mixPreset: "progressive" // "off" | "seamless" | "progressive" | "melodic" | "club" | "custom"
     property bool mixEnabled: true
     property int mixDurationSec: 14
     property string mixCurve: "progressive" // "progressive" | "equal_power" | "smooth_s" | "linear"
+    property string mixEqMode: "bass_swap" // "bass_swap" | "stem_eq" | "filter_sweep" | "clean"
+    property bool mixHarmonicAdapt: true
+    property bool mixPhraseSync: true
+    property bool mixSmartOutro: true
+    property bool mixCoupledTempo: true
+    property int mixEqCrossoverHz: 180
+    property int mixEqSwapDepthDb: 18
     property bool mixMatchVolume: true
     property bool mixMatchTempo: true
     property bool mixMatchOffset: true
@@ -115,6 +122,11 @@ Singleton {
     property real mixOffsetMs: 0.0
     property real mixSpeedRatio: 1.0
     property real mixBufferMs: 0.0
+    property string mixKeyA: ""
+    property string mixKeyB: ""
+    property string mixKeyCompat: ""
+    property string mixActiveEqMode: ""
+    property real mixPhaseErrMs: 0.0
     property string mixNote: ""
     readonly property bool isMixing: mixStage !== "idle"
 
@@ -251,6 +263,13 @@ Singleton {
             if (typeof m.enabled === "boolean") root.mixEnabled = m.enabled;
             if (typeof m.durationSec === "number") root.mixDurationSec = Math.max(4, Math.min(30, Math.round(m.durationSec)));
             if (m.curve === "progressive" || m.curve === "equal_power" || m.curve === "smooth_s" || m.curve === "linear") root.mixCurve = m.curve;
+            if (m.eqMode === "bass_swap" || m.eqMode === "stem_eq" || m.eqMode === "filter_sweep" || m.eqMode === "clean") root.mixEqMode = m.eqMode;
+            if (typeof m.harmonicAdapt === "boolean") root.mixHarmonicAdapt = m.harmonicAdapt;
+            if (typeof m.phraseSync === "boolean") root.mixPhraseSync = m.phraseSync;
+            if (typeof m.smartOutro === "boolean") root.mixSmartOutro = m.smartOutro;
+            if (typeof m.coupledTempo === "boolean") root.mixCoupledTempo = m.coupledTempo;
+            if (typeof m.eqCrossoverHz === "number") root.mixEqCrossoverHz = Math.max(100, Math.min(320, Math.round(m.eqCrossoverHz)));
+            if (typeof m.eqSwapDepthDb === "number") root.mixEqSwapDepthDb = Math.max(6, Math.min(24, Math.round(m.eqSwapDepthDb)));
             if (typeof m.matchVolume === "boolean") root.mixMatchVolume = m.matchVolume;
             if (typeof m.matchTempo === "boolean") root.mixMatchTempo = m.matchTempo;
             if (typeof m.matchOffset === "boolean") root.mixMatchOffset = m.matchOffset;
@@ -457,6 +476,13 @@ Singleton {
                 enabled: root.mixEnabled,
                 durationSec: root.mixDurationSec,
                 curve: root.mixCurve,
+                eqMode: root.mixEqMode,
+                harmonicAdapt: root.mixHarmonicAdapt,
+                phraseSync: root.mixPhraseSync,
+                smartOutro: root.mixSmartOutro,
+                coupledTempo: root.mixCoupledTempo,
+                eqCrossoverHz: root.mixEqCrossoverHz,
+                eqSwapDepthDb: root.mixEqSwapDepthDb,
                 matchVolume: root.mixMatchVolume,
                 matchTempo: root.mixMatchTempo,
                 matchOffset: root.mixMatchOffset,
@@ -617,6 +643,13 @@ Singleton {
             enabled: root.mixEnabled,
             duration_s: root.mixDurationSec,
             curve: root.mixCurve,
+            eq_mode: root.mixEqMode,
+            harmonic_adapt: root.mixHarmonicAdapt,
+            phrase_sync: root.mixPhraseSync,
+            smart_outro: root.mixSmartOutro,
+            coupled_tempo: root.mixCoupledTempo,
+            eq_crossover_hz: root.mixEqCrossoverHz,
+            eq_swap_depth_db: root.mixEqSwapDepthDb,
             match_volume: root.mixMatchVolume,
             match_tempo: root.mixMatchTempo,
             match_offset: root.mixMatchOffset,
@@ -745,32 +778,69 @@ Singleton {
         if (presetId === "seamless") {
             root.mixDurationSec = 8;
             root.mixCurve = "equal_power";
+            root.mixEqMode = "clean";
             root.mixMatchVolume = true;
             root.mixMatchTempo = false;
             root.mixMatchOffset = true;
+            root.mixHarmonicAdapt = false;
+            root.mixPhraseSync = false;
+            root.mixSmartOutro = true;
+            root.mixCoupledTempo = true;
             root.mixCueLeadSec = 22;
             root.mixMaxTempoShiftPct = 4;
             root.mixTempoReleaseSec = 6;
-        } else if (presetId === "club") {
-            root.mixDurationSec = 22;
-            root.mixCurve = "progressive";
+            root.mixEqCrossoverHz = 180;
+            root.mixEqSwapDepthDb = 16;
+        } else if (presetId === "melodic") {
+            root.mixDurationSec = 16;
+            root.mixCurve = "smooth_s";
+            root.mixEqMode = "filter_sweep";
             root.mixMatchVolume = true;
             root.mixMatchTempo = true;
             root.mixMatchOffset = true;
+            root.mixHarmonicAdapt = true;
+            root.mixPhraseSync = false;
+            root.mixSmartOutro = true;
+            root.mixCoupledTempo = true;
+            root.mixCueLeadSec = 32;
+            root.mixMaxTempoShiftPct = 5;
+            root.mixTempoReleaseSec = 12;
+            root.mixEqCrossoverHz = 160;
+            root.mixEqSwapDepthDb = 14;
+        } else if (presetId === "club") {
+            root.mixDurationSec = 22;
+            root.mixCurve = "progressive";
+            root.mixEqMode = "stem_eq";
+            root.mixMatchVolume = true;
+            root.mixMatchTempo = true;
+            root.mixMatchOffset = true;
+            root.mixHarmonicAdapt = true;
+            root.mixPhraseSync = true;
+            root.mixSmartOutro = true;
+            root.mixCoupledTempo = true;
             root.mixCueLeadSec = 40;
             root.mixMaxTempoShiftPct = 8;
             root.mixTempoReleaseSec = 14;
+            root.mixEqCrossoverHz = 200;
+            root.mixEqSwapDepthDb = 20;
         } else {
             // "progressive"
             root.mixPreset = "progressive";
             root.mixDurationSec = 14;
             root.mixCurve = "progressive";
+            root.mixEqMode = "bass_swap";
             root.mixMatchVolume = true;
             root.mixMatchTempo = true;
             root.mixMatchOffset = true;
+            root.mixHarmonicAdapt = true;
+            root.mixPhraseSync = true;
+            root.mixSmartOutro = true;
+            root.mixCoupledTempo = true;
             root.mixCueLeadSec = 30;
             root.mixMaxTempoShiftPct = 6;
             root.mixTempoReleaseSec = 10;
+            root.mixEqCrossoverHz = 180;
+            root.mixEqSwapDepthDb = 18;
         }
         root.syncMixConfigNow();
     }
@@ -790,6 +860,11 @@ Singleton {
         root.mixOffsetMs = 0.0;
         root.mixSpeedRatio = 1.0;
         root.mixBufferMs = 0.0;
+        root.mixKeyA = "";
+        root.mixKeyB = "";
+        root.mixKeyCompat = "";
+        root.mixActiveEqMode = "";
+        root.mixPhaseErrMs = 0.0;
         root.mixNote = "";
         root._pendingMixEntry = null;
     }
@@ -924,11 +999,22 @@ Singleton {
             if (typeof msg.offset_ms === "number") root.mixOffsetMs = msg.offset_ms;
             if (typeof msg.speed_ratio === "number") root.mixSpeedRatio = msg.speed_ratio;
             if (typeof msg.buffer_ms === "number") root.mixBufferMs = msg.buffer_ms;
+            if (typeof msg.key_a === "string") root.mixKeyA = msg.key_a;
+            if (typeof msg.key_b === "string") root.mixKeyB = msg.key_b;
+            if (typeof msg.key_compat === "string") root.mixKeyCompat = msg.key_compat;
+            if (typeof msg.eq_mode === "string") root.mixActiveEqMode = msg.eq_mode;
+            if (typeof msg.phase_err_ms === "number") root.mixPhaseErrMs = msg.phase_err_ms;
             if (typeof msg.note === "string") root.mixNote = msg.note;
             if (st === "idle") {
                 root.mixNextTrack = null;
                 root.mixNextQueueIndex = -1;
                 root._pendingMixEntry = null;
+                root.mixProgress = 0.0;
+                root.mixKeyA = "";
+                root.mixKeyB = "";
+                root.mixKeyCompat = "";
+                root.mixActiveEqMode = "";
+                root.mixPhaseErrMs = 0.0;
             }
         } else if (msg.type === "mix_swapped") {
             const nextSeq = typeof msg.seq === "number" ? msg.seq : (root._playSeq + 1);
@@ -1432,7 +1518,7 @@ Singleton {
         if (!root.currentTrack || root.effectiveDuration <= 0) return;
         const clamped = Math.max(0, Math.min(root.effectiveDuration, Number(seconds) || 0));
         root.position = clamped;
-        if (root.isMixing && (root.effectiveDuration - clamped) > (root.mixCueLeadSec + 4)) {
+        if (root.mixStage === "blending" || (root.isMixing && (root.effectiveDuration - clamped) > (root.mixCueLeadSec + 4))) {
             root.cancelMix();
             root._lastAutoCueTag = "";
         }

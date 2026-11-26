@@ -165,6 +165,255 @@ def _prettify_app_name(raw: str) -> str:
 # Pure Audio DSP & Progressive Mix Analysis Helpers (importable for tests)
 # ---------------------------------------------------------------------------
 
+_NOTE_NAMES = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
+_CAMELOT_MAJOR = ("8B", "3B", "10B", "5B", "12B", "7B", "2B", "9B", "4B", "11B", "6B", "1B")
+_CAMELOT_MINOR = ("5A", "12A", "7A", "2A", "9A", "4A", "11A", "6A", "1A", "8A", "3A", "10A")
+_KS_MAJOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+_KS_MINOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
+_HANN_256 = tuple(0.5 - 0.5 * math.cos(2.0 * math.pi * k / 255.0) for k in range(256))
+_GOERTZEL_BINS_CACHE: dict[int, list[tuple[int, float]]] = {}
+
+
+def mpv_volume_from_linear(
+    base_vol: float,
+    duck_gain: float,
+    mix_gain: float,
+    loudness_trim: float,
+    max_vol: float = 150.0,
+) -> float:
+    """Convert linear mix/trim gain to mpv cubic volume curve (amp = (vol/100)^3)."""
+    mix_lin = max(0.0, float(mix_gain) * float(loudness_trim))
+    vol = float(base_vol) * float(duck_gain) * math.cbrt(mix_lin)
+    return round(_clamp(vol, 0.0, max_vol), 2)
+
+
+def _get_goertzel_bins(sample_rate: int) -> list[tuple[int, float]]:
+    cached = _GOERTZEL_BINS_CACHE.get(sample_rate)
+    if cached is not None:
+        return cached
+    dsr = float(sample_rate) / 4.0
+    bins = [
+        (midi % 12, 2.0 * math.cos(2.0 * math.pi * (440.0 * (2.0 ** ((midi - 69) / 12.0))) / dsr))
+        for midi in range(48, 84)  # C3..B5 across 3 octaves
+    ]
+    _GOERTZEL_BINS_CACHE[sample_rate] = bins
+    return bins
+
+
+def detect_key_chroma(samples: array.array, sample_rate: int = 11025) -> tuple[str, str, float]:
+    """Estimate musical key & Camelot code using 36-bin Goertzel chroma + Krumhansl templates.
+
+    ponytail: 36-bin Goertzel chroma on 4x-decimated PCM; swap to essentia only
+    if complex jazz/microtonal chord tracking is required.
+    """
+    dec = samples[::4]
+    n = len(dec)
+    win = 256
+    if n < win or sample_rate < 4000:
+        return "", "", 0.0
+
+    n_frames = min(24, max(8, n // win))
+    step = max(1, (n - win) // max(1, n_frames - 1))
+    bins = _get_goertzel_bins(sample_rate)
+    hann = _HANN_256
+    chroma = [0.0] * 12
+    inv = 1.0 / 32768.0
+    used_frames = 0
+
+    for f in range(n_frames):
+        off = f * step
+        frame = [dec[off + k] * inv * hann[k] for k in range(win)]
+        if sum(x * x for x in frame) <= 1e-6:
+            continue
+        used_frames += 1
+        for pc, coeff in bins:
+            s1 = 0.0
+            s2 = 0.0
+            for x in frame:
+                s0 = x + coeff * s1 - s2
+                s2 = s1
+                s1 = s0
+            pwr = s1 * s1 + s2 * s2 - coeff * s1 * s2
+            if pwr > 0.0:
+                chroma[pc] += math.sqrt(pwr)
+
+    if used_frames == 0:
+        return "", "", 0.0
+
+    c_mean = sum(chroma) / 12.0
+    c_norm = math.sqrt(sum((v - c_mean) ** 2 for v in chroma))
+    if c_norm <= 1e-9:
+        return "", "", 0.0
+
+    best = (-2.0, 0, "major")
+    second = -2.0
+    for mode, prof in (("major", _KS_MAJOR), ("minor", _KS_MINOR)):
+        pm = sum(prof) / 12.0
+        pn = math.sqrt(sum((v - pm) ** 2 for v in prof))
+        denom = c_norm * pn
+        for shift in range(12):
+            dot = sum((chroma[(i + shift) % 12] - c_mean) * (prof[i] - pm) for i in range(12))
+            r = dot / denom if denom > 1e-12 else 0.0
+            if r > best[0]:
+                second = best[0]
+                best = (r, shift, mode)
+            elif r > second:
+                second = r
+
+    conf = _clamp(best[0] * 0.70 + (best[0] - second) * 1.50, 0.0, 1.0)
+    idx = best[1]
+    key_name = f"{_NOTE_NAMES[idx]} {best[2]}"
+    camelot = _CAMELOT_MAJOR[idx] if best[2] == "major" else _CAMELOT_MINOR[idx]
+    return key_name, camelot, round(conf, 3)
+
+
+def camelot_compatibility(
+    cam_a: str,
+    cam_b: str,
+    conf_a: float = 1.0,
+    conf_b: float = 1.0,
+) -> tuple[float, str]:
+    """Return harmonic compatibility score [0..1] and label from two Camelot codes."""
+    if not cam_a or not cam_b or conf_a < 0.35 or conf_b < 0.35:
+        return 0.50, "Neutral"
+    ma = re.match(r"^(\d{1,2})([AB])$", cam_a.strip().upper())
+    mb = re.match(r"^(\d{1,2})([AB])$", cam_b.strip().upper())
+    if not ma or not mb:
+        return 0.50, "Neutral"
+    na, moda = int(ma.group(1)), ma.group(2)
+    nb, modb = int(mb.group(1)), mb.group(2)
+    if not (1 <= na <= 12 and 1 <= nb <= 12):
+        return 0.50, "Neutral"
+
+    d = min((na - nb) % 12, (nb - na) % 12)
+    if moda == modb:
+        if d == 0:
+            return 1.0, "Exact"
+        if d == 1:
+            return 0.85, "Harmonic ±1"
+        if d == 2:
+            return 0.60, "Energy ±2"
+        return 0.25, "Clash"
+    if d == 0:
+        return 0.92, "Relative"
+    if d == 1:
+        return 0.72, "Diagonal"
+    return 0.25, "Clash"
+
+
+def build_mix_eq_filter(
+    role: str,
+    eq_mode: str,
+    t_start: float,
+    span_s: float,
+    xover_hz: float = 180.0,
+    depth_db: float = 18.0,
+    swap_center: float = 0.50,
+    sample_rate: int = 44100,
+) -> str:
+    """Build native C-level mpv `@mixtr:lavfi=[asendcmd=...]` spectral EQ filter."""
+    mode = (eq_mode or "clean").strip().lower()
+    if mode == "clean" or span_s <= 0.4:
+        return ""
+    is_out = (role or "").strip().lower() == "out"
+    t0 = max(0.0, float(t_start))
+    sp = max(0.5, float(span_s))
+    nyq_cap = max(1200.0, float(sample_rate) * 0.40)
+    fc = min(nyq_cap * 0.5, _clamp(float(xover_hz), 100.0, 320.0))
+    dep = _clamp(float(depth_db), 6.0, 24.0)
+    sc = _clamp(float(swap_center), 0.25, 0.75)
+
+    def _iv(u0: float, u1: float) -> tuple[float, float]:
+        ta = max(0.01, t0 + u0 * sp)
+        tb = max(ta + 0.15, t0 + u1 * sp)
+        return ta, tb
+
+    def _cmd(target: str, u0: float, u1: float, depth: float) -> str:
+        ta, tb = _iv(u0, u1)
+        if is_out:
+            return f"{ta:.2f}-{tb:.2f} [expr] {target} g -{depth:.1f}*(0.5-0.5*cos(PI*TI)), [leave] {target} g -{depth:.1f}"
+        return f"{ta:.2f}-{tb:.2f} [expr] {target} g -{depth:.1f}*(0.5+0.5*cos(PI*TI)), [leave] {target} g 0"
+
+    cmds: list[str] = []
+    filters: list[str] = []
+
+    if mode in ("bass_swap", "stem_eq"):
+        su0 = max(0.05, sc - 0.14)
+        su1 = min(0.95, sc + 0.14)
+        b_init = 0.0 if is_out else -dep
+        filters.append(f"bass@mb=g={b_init:.1f}:f={fc:.0f}:t=q:w=0.70")
+        cmds.append(_cmd("bass@mb", su0, su1, dep))
+
+        if mode == "stem_eq":
+            mid_dep = min(6.0, dep * 0.28)
+            hi_dep = min(6.0, dep * 0.28)
+            m_init = 0.0 if is_out else -mid_dep
+            h_init = 0.0 if is_out else -hi_dep
+            mid_fc = min(1200.0, nyq_cap * 0.65)
+            hi_fc = min(6500.0, nyq_cap)
+            filters.append(f"equalizer@mm=f={mid_fc:.0f}:t=q:w=0.80:g={m_init:.1f}")
+            filters.append(f"treble@mt=g={h_init:.1f}:f={hi_fc:.0f}:t=q:w=0.70")
+            cmds.append(_cmd("equalizer@mm", 0.15 if is_out else 0.20, 0.75 if is_out else 0.80, mid_dep))
+            cmds.append(_cmd("treble@mt", 0.40 if is_out else 0.04, 0.96 if is_out else 0.60, hi_dep))
+    elif mode == "filter_sweep":
+        lo_dep = min(14.0, dep * 0.60)
+        hi_dep = min(14.0, dep * 0.68)
+        b_init = 0.0 if is_out else -lo_dep
+        h_init = 0.0 if is_out else -hi_dep
+        hi_fc = min(3600.0, nyq_cap)
+        filters.append(f"bass@mb=g={b_init:.1f}:f={fc:.0f}:t=q:w=0.70")
+        filters.append(f"treble@mt=g={h_init:.1f}:f={hi_fc:.0f}:t=q:w=0.60")
+        cmds.append(_cmd("bass@mb", 0.20 if is_out else 0.06, 0.96 if is_out else 0.80, lo_dep))
+        cmds.append(_cmd("treble@mt", 0.08 if is_out else 0.04, 0.92 if is_out else 0.88, hi_dep))
+    else:
+        return ""
+
+    return f"@mixtr:lavfi=[asendcmd=c='{'; '.join(cmds)}',{','.join(filters)}]"
+
+
+def compute_coupled_speeds(
+    u: float,
+    bpm_a: float,
+    bpm_b: float,
+    speed_b_init: float,
+    coupled: bool = True,
+) -> tuple[float, float]:
+    """Keep speed_a * bpm_a == speed_b * bpm_b across blend progress u in [0, 1]."""
+    if not coupled or bpm_a <= 0.0 or bpm_b <= 0.0 or abs(speed_b_init - 1.0) <= 0.001:
+        return 1.0, round(float(speed_b_init), 4)
+    target_a = _clamp(1.0 / float(speed_b_init), 0.97, 1.03)
+    su = _clamp((float(u) - 0.10) / 0.80, 0.0, 1.0)
+    e = 0.5 - 0.5 * math.cos(math.pi * su)
+    speed_a = 1.0 + (target_a - 1.0) * e
+    speed_b = float(speed_b_init) * speed_a
+    return round(speed_a, 4), round(speed_b, 4)
+
+
+def compute_phase_error_s(
+    pos_a: float,
+    anchor_a: float,
+    period_a: float,
+    pos_b: float,
+    anchor_b: float,
+    period_b: float,
+) -> float:
+    """Return wrapped signed phase difference (s): >0 means Deck B is ahead of Deck A."""
+    if period_a <= 0.05 or period_b <= 0.05:
+        return 0.0
+    frac_a = ((float(pos_a) - float(anchor_a)) % float(period_a)) / float(period_a)
+    frac_b = ((float(pos_b) - float(anchor_b)) % float(period_b)) / float(period_b)
+    diff = (frac_b - frac_a + 0.5) % 1.0 - 0.5
+    return diff * float(period_a)
+
+
+def next_grid_cue(min_pos_s: float, anchor_s: float, period_s: float) -> float:
+    """Snap `min_pos_s` forward onto the first grid beat/bar at or after `min_pos_s`."""
+    base = max(0.0, float(min_pos_s))
+    if period_s <= 0.05:
+        return base
+    rem = (float(anchor_s) - base) % float(period_s)
+    return base + rem
+
 def build_lavfi_chain(cfg: dict[str, Any]) -> str:
     """Build an mpv `lavfi=[...]` audio filter chain from DSP config.
 
@@ -228,10 +477,10 @@ def analyze_pcm_s16le(
     sample_rate: int = 11025,
     silence_thresh_db: float = -38.0,
 ) -> dict[str, Any]:
-    """Analyze mono s16le PCM bytes for loudness, active bounds, BPM, and beat phase.
+    """Analyze mono s16le PCM for loudness, BPM, beat/bar phase, key, and cue bounds.
 
-    ponytail: 11kHz mono low-pass onset autocorrelation in pure stdlib; upgrade to
-    essentia/aubio only if complex polyrhythmic beat-tracking becomes necessary.
+    ponytail: 11kHz 3-band onset autocorrelation + 36-bin Goertzel chroma in pure
+    stdlib; upgrade to essentia/aubio only if polyrhythmic/microtonal tracking is needed.
     """
     n_samples = len(pcm_bytes) // 2
     dur_s = n_samples / float(max(1, sample_rate))
@@ -239,11 +488,18 @@ def analyze_pcm_s16le(
         "valid": False,
         "duration_s": dur_s,
         "rms_dbfs": -60.0,
+        "lufs_est": -60.0,
         "active_start_s": 0.0,
         "active_end_s": dur_s,
+        "outro_cue_s": dur_s,
         "bpm": 0.0,
         "confidence": 0.0,
         "beat_phase_s": 0.0,
+        "bar_phase_s": 0.0,
+        "bar_confidence": 0.0,
+        "key_name": "",
+        "camelot": "",
+        "key_confidence": 0.0,
     }
     if n_samples < sample_rate or sample_rate < 2000:
         return empty_res
@@ -251,42 +507,68 @@ def analyze_pcm_s16le(
     samples = array.array("h")
     samples.frombytes(pcm_bytes[: n_samples * 2])
 
-    hop = max(1, int(round(sample_rate * 0.01)))  # 10ms blocks
-    hop_s = hop / float(sample_rate)
-    n_blocks = n_samples // hop
+    stride = 2 if sample_rate >= 8000 else 1
+    dec = samples[::stride] if stride > 1 else samples
+    sr_d = float(sample_rate) / float(stride)
+    hop = max(1, int(round(sr_d * 0.01)))  # ~10ms blocks
+    hop_s = hop / sr_d
+    n_blocks = len(dec) // hop
     if n_blocks < 40:
         return empty_res
 
-    # 1-pole low-pass (~180 Hz) emphasizes kick/bass transients for beat detection
-    alpha = 1.0 - math.exp(-2.0 * math.pi * 180.0 / float(sample_rate))
-    lp = 0.0
-    inv_scale = 1.0 / 32768.0
-    inv_hop = 1.0 / float(hop)
+    # Fast 3-filter split (<180Hz 2-pole, 180-1600Hz mid, >1600Hz high) on decimated stream
+    alpha_lo = 1.0 - math.exp(-2.0 * math.pi * 180.0 / sr_d)
+    alpha_hi = 1.0 - math.exp(-2.0 * math.pi * 1600.0 / sr_d)
+    lp1 = lp2 = m1 = 0.0
+    inv_blk = (1.0 / (32768.0 * 32768.0)) / float(hop)
 
-    block_e: list[float] = []
-    block_le: list[float] = []
+    block_e: list[float] = [0.0] * n_blocks
+    block_ke: list[float] = [0.0] * n_blocks
+    block_le: list[float] = [0.0] * n_blocks
+    block_me: list[float] = [0.0] * n_blocks
+    block_he: list[float] = [0.0] * n_blocks
+
     for b in range(n_blocks):
         start = b * hop
-        sum_e = 0.0
-        sum_le = 0.0
-        for s in samples[start : start + hop]:
-            x = s * inv_scale
-            lp += alpha * (x - lp)
+        sum_e = sum_ke = sum_le = sum_me = sum_he = 0.0
+        for s in dec[start : start + hop]:
+            x = float(s)
+            lp1 += alpha_lo * (x - lp1)
+            lp2 += alpha_lo * (lp1 - lp2)
+            m1 += alpha_hi * (x - m1)
+            mid_x = m1 - lp2
+            high_x = x - m1
+            k_x = (x - lp1) + 0.35 * high_x
             sum_e += x * x
-            sum_le += lp * lp
-        block_e.append(sum_e * inv_hop)
-        block_le.append(sum_le * inv_hop)
+            sum_ke += k_x * k_x
+            sum_le += lp2 * lp2
+            sum_me += mid_x * mid_x
+            sum_he += high_x * high_x
+        block_e[b] = sum_e * inv_blk
+        block_ke[b] = sum_ke * inv_blk
+        block_le[b] = sum_le * inv_blk
+        block_me[b] = sum_me * inv_blk
+        block_he[b] = sum_he * inv_blk
 
-    nf = n_blocks - 1  # 20ms overlapping frames at 10ms hop
+    nf = n_blocks - 1  # 20-30ms smoothed overlapping frames at 10ms hop
     e: list[float] = [0.0] * nf
+    ke: list[float] = [0.0] * nf
     low_e: list[float] = [0.0] * nf
+    mid_e: list[float] = [0.0] * nf
+    high_e: list[float] = [0.0] * nf
     db: list[float] = [-140.0] * nf
+    sqrt = math.sqrt
+    log10 = math.log10
+    inv3 = 1.0 / 3.0
     for i in range(nf):
-        ev = math.sqrt(0.5 * (block_e[i] + block_e[i + 1]))
-        lev = math.sqrt(0.5 * (block_le[i] + block_le[i + 1]))
+        ev = sqrt(0.5 * (block_e[i] + block_e[i + 1]))
         e[i] = ev
-        low_e[i] = lev
-        db[i] = 20.0 * math.log10(ev if ev > 1e-7 else 1e-7)
+        ke[i] = sqrt(0.5 * (block_ke[i] + block_ke[i + 1]))
+        i2 = i + 2 if i + 2 < n_blocks else i + 1
+        low_e[i] = sqrt((block_le[i] + block_le[i + 1] + block_le[i2]) * inv3)
+        mid_e[i] = sqrt((block_me[i] + block_me[i + 1] + block_me[i2]) * inv3)
+        high_e[i] = sqrt((block_he[i] + block_he[i + 1] + block_he[i2]) * inv3)
+        db[i] = 20.0 * log10(ev if ev > 1e-7 else 1e-7)
 
     # Sustained active music bounds (250ms sustained above silence threshold)
     thresh = _clamp(float(silence_thresh_db), -65.0, -15.0)
@@ -322,36 +604,82 @@ def analyze_pcm_s16le(
     active_start_s = _clamp(active_start_idx * hop_s, 0.0, dur_s)
     active_end_s = _clamp((active_end_idx + 12) * hop_s, active_start_s, dur_s)
 
-    # Robust trimmed loudness across audible region (20th-90th percentile median)
-    active_e = [e[i] for i in range(nf) if db[i] >= max(thresh, -55.0)]
+    # Robust trimmed loudness (raw RMS + perceptual K-weighted median across 20th-90th pct)
+    audible_mask_db = max(thresh, -55.0)
+    active_e = [e[i] for i in range(nf) if db[i] >= audible_mask_db]
+    active_ke = [ke[i] for i in range(nf) if db[i] >= audible_mask_db]
     if not active_e:
         active_e = sorted(e)
+        active_ke = sorted(ke)
     else:
         active_e.sort()
+        active_ke.sort()
     lo_p = int(len(active_e) * 0.20)
     hi_p = max(lo_p + 1, int(len(active_e) * 0.90))
     trimmed = active_e[lo_p:hi_p]
+    trimmed_k = active_ke[lo_p:hi_p]
     med_e = trimmed[len(trimmed) // 2] if trimmed else 1e-6
-    rms_dbfs = 20.0 * math.log10(med_e if med_e > 1e-7 else 1e-7)
+    med_ke = trimmed_k[len(trimmed_k) // 2] if trimmed_k else 1e-6
+    rms_dbfs = 20.0 * log10(med_e if med_e > 1e-7 else 1e-7)
+    lufs_est = 20.0 * log10(med_ke if med_ke > 1e-7 else 1e-7)
 
-    # Half-wave adaptive onset flux
-    raw_flux = [0.0] * nf
-    for i in range(1, nf):
-        dl = low_e[i] - low_e[i - 1]
-        de = e[i] - e[i - 1]
-        raw_flux[i] = 0.7 * (dl if dl > 0.0 else 0.0) + 0.3 * (de if de > 0.0 else 0.0)
+    # Smart outro cue: skip quiet reverb tail falling sustainably >=9dB below body loudness
+    outro_cue_s = active_end_s
+    if active_end_idx - active_start_idx >= 60:
+        drop_thresh = max(thresh + 3.0, rms_dbfs - 9.0)
+        cue_win = min(30, active_end_idx - active_start_idx)
+        win_sum = sum(db[active_end_idx - cue_win + 1 : active_end_idx + 1])
+        cue_idx = active_end_idx
+        for idx in range(active_end_idx, active_start_idx + cue_win - 1, -1):
+            if (win_sum / float(cue_win)) >= drop_thresh:
+                cue_idx = idx
+                break
+            win_sum -= db[idx]
+            win_sum += db[idx - cue_win]
+        outro_cue_s = _clamp((cue_idx + 15) * hop_s, active_start_s, active_end_s)
 
-    onset = [0.0] * nf
+    # Musical key detection over active region (using original full-rate samples)
+    samp_lo = max(0, active_start_idx * hop * stride)
+    samp_hi = min(n_samples, max(samp_lo + hop * stride, (active_end_idx + 12) * hop * stride))
+    key_name, camelot, key_conf = detect_key_chroma(samples[samp_lo:samp_hi], sample_rate)
+
+    # 3-band relative log-energy adaptive onset flux with crest-factor weighting
     avg_w = 8
-    prefix = [0.0] * (nf + 1)
-    for i, fv in enumerate(raw_flux):
-        prefix[i + 1] = prefix[i] + fv
-    for i in range(nf):
-        a = max(0, i - avg_w)
-        b = min(nf, i + avg_w + 1)
-        local_mean = (prefix[b] - prefix[a]) / float(b - a)
-        v = raw_flux[i] - 1.15 * local_mean
-        onset[i] = v if v > 0.0 else 0.0
+    log = math.log
+
+    def _band_onset(arr: list[float]) -> list[float]:
+        fl = [0.0] * nf
+        for i in range(1, nf):
+            d = log((arr[i] + 1e-4) / (arr[i - 1] + 1e-4))
+            fl[i] = d if d > 0.0 else 0.0
+        prefix = [0.0] * (nf + 1)
+        for i, fv in enumerate(fl):
+            prefix[i + 1] = prefix[i] + fv
+        out = [0.0] * nf
+        for i in range(nf):
+            a = max(0, i - avg_w)
+            b = min(nf, i + avg_w + 1)
+            local_mean = (prefix[b] - prefix[a]) / float(b - a)
+            v = fl[i] - 1.18 * local_mean
+            out[i] = v if v > 0.0 else 0.0
+        return out
+
+    def _band_crest(on: list[float]) -> float:
+        nz = sorted(v for v in on if v > 0.0)
+        if not nz:
+            return 0.0
+        p95 = nz[int(0.95 * (len(nz) - 1))]
+        med = nz[len(nz) // 2]
+        return min(3.0, p95 / max(1e-6, med))
+
+    on_l = _band_onset(low_e)
+    on_m = _band_onset(mid_e)
+    on_h = _band_onset(high_e)
+    wl = 0.55 * _band_crest(on_l)
+    wm = 0.30 * _band_crest(on_m)
+    wh = 0.25 * _band_crest(on_h)
+    w_tot = max(1e-6, wl + wm + wh)
+    onset = [(wl * on_l[i] + wm * on_m[i] + wh * on_h[i]) / w_tot for i in range(nf)]
 
     # Restrict tempo search to active span when sufficiently long
     s0 = active_start_idx if (active_end_idx - active_start_idx) >= 150 else 0
@@ -360,31 +688,30 @@ def analyze_pcm_s16le(
     seg_len = len(seg)
     energy = sum(v * v for v in seg)
 
+    base_out = {
+        "valid": True,
+        "duration_s": round(dur_s, 3),
+        "rms_dbfs": round(rms_dbfs, 2),
+        "lufs_est": round(lufs_est, 2),
+        "active_start_s": round(active_start_s, 3),
+        "active_end_s": round(active_end_s, 3),
+        "outro_cue_s": round(outro_cue_s, 3),
+        "bpm": 0.0,
+        "confidence": 0.0,
+        "beat_phase_s": 0.0,
+        "bar_phase_s": 0.0,
+        "bar_confidence": 0.0,
+        "key_name": key_name,
+        "camelot": camelot,
+        "key_confidence": key_conf,
+    }
     if seg_len < 120 or energy <= 1e-10:
-        return {
-            "valid": True,
-            "duration_s": dur_s,
-            "rms_dbfs": round(rms_dbfs, 2),
-            "active_start_s": round(active_start_s, 3),
-            "active_end_s": round(active_end_s, 3),
-            "bpm": 0.0,
-            "confidence": 0.0,
-            "beat_phase_s": 0.0,
-        }
+        return base_out
 
     lag_min = max(10, int(math.floor(60.0 / (175.0 * hop_s))))
     lag_max = min(seg_len // 2, int(math.ceil(60.0 / (65.0 * hop_s))))
     if lag_max <= lag_min:
-        return {
-            "valid": True,
-            "duration_s": dur_s,
-            "rms_dbfs": round(rms_dbfs, 2),
-            "active_start_s": round(active_start_s, 3),
-            "active_end_s": round(active_end_s, 3),
-            "bpm": 0.0,
-            "confidence": 0.0,
-            "beat_phase_s": 0.0,
-        }
+        return base_out
 
     ac_raw: dict[int, float] = {}
     ac_weighted: dict[int, float] = {}
@@ -399,7 +726,7 @@ def analyze_pcm_s16le(
             num += x * y
             n1 += x * x
             n2 += y * y
-        denom = math.sqrt(n1 * n2)
+        denom = sqrt(n1 * n2)
         corr = (num / denom) if denom > 1e-12 else 0.0
         bpm_cand = 60.0 / (lag * hop_s)
         prior = math.exp(-0.5 * (math.log2(bpm_cand / 120.0) / 0.65) ** 2)
@@ -455,16 +782,41 @@ def analyze_pcm_s16le(
     frac_bin = (best_bin + (off_sum / w_sum if w_sum > 1e-12 else 0.0) + 0.5) % n_bins
     beat_phase_s = (frac_bin / float(n_bins)) * period_s
 
-    return {
-        "valid": True,
-        "duration_s": round(dur_s, 3),
-        "rms_dbfs": round(rms_dbfs, 2),
-        "active_start_s": round(active_start_s, 3),
-        "active_end_s": round(active_end_s, 3),
+    # 4-beat downbeat phrase anchor via bass + onset accent across mod-4 beat slots
+    bar_scores = [0.0, 0.0, 0.0, 0.0]
+    bar_counts = [0, 0, 0, 0]
+    k_start = math.ceil((s0 * hop_s - beat_phase_s) / period_s)
+    k_end = math.floor(((s1 - 1) * hop_s - beat_phase_s) / period_s)
+    for k in range(k_start, k_end + 1):
+        center = int(round((beat_phase_s + k * period_s) / hop_s))
+        lo_i = max(s0, center - 2)
+        hi_i = min(s1, center + 3)
+        if lo_i >= hi_i:
+            continue
+        peak_val = max(0.65 * low_e[idx] + 0.35 * onset[idx] for idx in range(lo_i, hi_i))
+        slot = k % 4
+        bar_scores[slot] += peak_val
+        bar_counts[slot] += 1
+
+    total_beats = sum(bar_counts)
+    bar_phase_s = beat_phase_s
+    bar_conf = 0.0
+    if total_beats >= 6 and all(c > 0 for c in bar_counts):
+        avgs = [bar_scores[i] / float(bar_counts[i]) for i in range(4)]
+        best_slot = max(range(4), key=lambda i: avgs[i])
+        best_avg = avgs[best_slot]
+        mean_other = (sum(avgs) - best_avg) / 3.0
+        bar_phase_s = (beat_phase_s + best_slot * period_s) % (4.0 * period_s)
+        bar_conf = _clamp((best_avg - mean_other) / max(1e-6, best_avg), 0.0, 1.0)
+
+    base_out.update({
         "bpm": round(bpm, 2),
         "confidence": round(confidence, 3),
         "beat_phase_s": round(beat_phase_s, 4),
-    }
+        "bar_phase_s": round(bar_phase_s, 4),
+        "bar_confidence": round(bar_conf, 3),
+    })
+    return base_out
 
 
 def compute_mix_plan(
@@ -472,20 +824,27 @@ def compute_mix_plan(
     analysis_b: dict[str, Any],
     cfg: dict[str, Any],
 ) -> dict[str, Any]:
-    """Compute matched gain trim, tempo speed ratio, and beat/intro offset plan."""
+    """Compute matched gain trim, tempo ratio, harmonic adaptation, EQ mode & beat plan."""
     match_vol = bool(cfg.get("match_volume", True))
     match_tempo = bool(cfg.get("match_tempo", True))
     match_offset = bool(cfg.get("match_offset", True))
+    harmonic_adapt = bool(cfg.get("harmonic_adapt", True))
+    want_phrase = bool(cfg.get("phrase_sync", True))
     max_trim_db = _clamp(float(cfg.get("max_gain_trim_db", 6.0)), 0.0, 12.0)
     max_shift_pct = _clamp(float(cfg.get("max_tempo_shift_pct", 6.0)), 0.0, 12.0)
+    base_dur = _clamp(float(cfg.get("duration_s", 14.0)), 4.0, 30.0)
+    req_eq_mode = str(cfg.get("eq_mode", "bass_swap")).strip().lower()
+    if req_eq_mode not in ("bass_swap", "stem_eq", "filter_sweep", "clean"):
+        req_eq_mode = "bass_swap"
 
     valid_a = bool(analysis_a and analysis_a.get("valid"))
     valid_b = bool(analysis_b and analysis_b.get("valid"))
 
     gain_trim_db = 0.0
     if match_vol and valid_a and valid_b:
-        raw_delta = float(analysis_a.get("rms_dbfs", -18.0)) - float(analysis_b.get("rms_dbfs", -18.0))
-        gain_trim_db = _clamp(raw_delta, -max_trim_db, max_trim_db)
+        lvl_a = float(analysis_a.get("lufs_est", analysis_a.get("rms_dbfs", -18.0)))
+        lvl_b = float(analysis_b.get("lufs_est", analysis_b.get("rms_dbfs", -18.0)))
+        gain_trim_db = _clamp(lvl_a - lvl_b, -max_trim_db, max_trim_db)
     loudness_trim_b = _clamp(10.0 ** (gain_trim_db / 20.0), 0.25, 2.5)
 
     bpm_a = float(analysis_a.get("bpm", 0.0)) if valid_a else 0.0
@@ -515,6 +874,23 @@ def compute_mix_plan(
         and period_b > 0.0
     )
 
+    bar_conf_a = float(analysis_a.get("bar_confidence", 0.0)) if valid_a else 0.0
+    bar_conf_b = float(analysis_b.get("bar_confidence", 0.0)) if valid_b else 0.0
+    phrase_sync = bool(phase_sync and want_phrase and bar_conf_a >= 0.20 and bar_conf_b >= 0.20)
+
+    cam_a = str(analysis_a.get("camelot", "")) if valid_a else ""
+    cam_b = str(analysis_b.get("camelot", "")) if valid_b else ""
+    kconf_a = float(analysis_a.get("key_confidence", 0.0)) if valid_a else 0.0
+    kconf_b = float(analysis_b.get("key_confidence", 0.0)) if valid_b else 0.0
+    key_compat, key_compat_label = camelot_compatibility(cam_a, cam_b, kconf_a, kconf_b)
+
+    eff_dur = base_dur
+    eff_eq = req_eq_mode
+    if harmonic_adapt and valid_a and valid_b and key_compat_label == "Clash":
+        eff_dur = max(5.0, round(base_dur * 0.65, 1))
+        if eff_eq == "bass_swap":
+            eff_eq = "stem_eq"
+
     notes: list[str] = []
     if not (valid_a and valid_b):
         notes.append("Fallback crossfade")
@@ -525,8 +901,12 @@ def compute_mix_plan(
             notes.append(f"BPM {bpm_a:.0f}->{bpm_b:.0f} ({speed_b:.3f}x)")
         elif match_tempo and bpm_a > 0 and bpm_b > 0:
             notes.append("BPM outside cap")
-        if phase_sync:
-            notes.append("Phase locked")
+        if cam_a and cam_b and kconf_a >= 0.35 and kconf_b >= 0.35:
+            notes.append(f"{cam_a}->{cam_b} {key_compat_label}")
+        if phrase_sync:
+            notes.append("Phrase locked")
+        elif phase_sync:
+            notes.append("Beat locked")
         elif intro_offset_b > 0.05:
             notes.append(f"Intro +{intro_offset_b:.2f}s")
 
@@ -541,12 +921,22 @@ def compute_mix_plan(
         "speed_b": round(speed_b, 4),
         "tempo_matched": tempo_matched,
         "phase_sync": phase_sync,
+        "phrase_sync": phrase_sync,
         "intro_offset_b": round(intro_offset_b, 3),
         "beat_phase_a": float(analysis_a.get("beat_phase_s", 0.0)) if valid_a else 0.0,
         "beat_phase_b": float(analysis_b.get("beat_phase_s", 0.0)) if valid_b else 0.0,
+        "bar_phase_a": float(analysis_a.get("bar_phase_s", 0.0)) if valid_a else 0.0,
+        "bar_phase_b": float(analysis_b.get("bar_phase_s", 0.0)) if valid_b else 0.0,
         "beat_period_a": period_a,
         "beat_period_b": period_b,
         "outro_active_end_s": float(analysis_a.get("active_end_s", 0.0)) if valid_a else 0.0,
+        "outro_cue_s": float(analysis_a.get("outro_cue_s", analysis_a.get("active_end_s", 0.0))) if valid_a else 0.0,
+        "key_a": cam_a,
+        "key_b": cam_b,
+        "key_compat": key_compat,
+        "key_compat_label": key_compat_label,
+        "effective_duration_s": eff_dur,
+        "effective_eq_mode": eff_eq,
         "note": " • ".join(notes) if notes else "Smooth blend",
     }
 
@@ -613,6 +1003,10 @@ def probe_stream_pcm(
         "error",
         "-ss",
         f"{max(0.0, float(start_sec)):.2f}",
+    ]
+    if stream_url.startswith(("http://", "https://")):
+        cmd.extend(["-rw_timeout", "6000000"])
+    cmd.extend([
         "-i",
         stream_url,
         "-t",
@@ -625,7 +1019,7 @@ def probe_stream_pcm(
         "-f",
         "s16le",
         "pipe:1",
-    ]
+    ])
     try:
         proc = subprocess.run(
             cmd,
@@ -750,6 +1144,8 @@ class _MpvDeck:
         self.stream_url = ""
         self.seq = 0
         self.position = 0.0
+        self.pos_ts = 0.0
+        self.cache_duration = 0.0
         self.duration = 0.0
         self.pending_start_pos = 0.0
         self.paused = False
@@ -757,10 +1153,20 @@ class _MpvDeck:
         self.core_idle = True
         self.muted = False
 
-        # Progressive mix multipliers
+        # Progressive mix multipliers & IPC dedup tracking
         self.mix_gain = 1.0
         self.loudness_trim = 1.0
         self.speed = 1.0
+        self.sample_rate = 44100
+        self.last_sent_vol = -1.0
+        self.last_sent_speed = -1.0
+
+    def interp_pos(self, now: float | None = None) -> float:
+        if self.paused or self.paused_for_cache or self.core_idle or self.pos_ts <= 0.0:
+            return self.position
+        t = time.monotonic() if now is None else now
+        dt = _clamp(t - self.pos_ts, 0.0, 0.35)
+        return self.position + dt * self.speed
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None and self.ipc_sock is not None
@@ -909,6 +1315,13 @@ class MixcloudDaemon:
             "enabled": True,
             "duration_s": 14.0,
             "curve": "progressive",
+            "eq_mode": "bass_swap",
+            "harmonic_adapt": True,
+            "phrase_sync": True,
+            "smart_outro": True,
+            "coupled_tempo": True,
+            "eq_crossover_hz": 180.0,
+            "eq_swap_depth_db": 18.0,
             "match_volume": True,
             "match_tempo": True,
             "match_offset": True,
@@ -976,6 +1389,11 @@ class MixcloudDaemon:
         speed_ratio: float = 1.0,
         buffer_ms: float = 0.0,
         note: str = "",
+        key_a: str = "",
+        key_b: str = "",
+        key_compat: str = "",
+        eq_mode: str = "",
+        phase_err_ms: float = 0.0,
     ) -> None:
         self._mix_stage = stage
         self.emit({
@@ -989,6 +1407,11 @@ class MixcloudDaemon:
             "speed_ratio": round(speed_ratio, 4),
             "buffer_ms": round(buffer_ms, 0),
             "note": note,
+            "key_a": key_a,
+            "key_b": key_b,
+            "key_compat": key_compat,
+            "eq_mode": eq_mode,
+            "phase_err_ms": round(phase_err_ms, 0),
         })
 
     def _emit_state(self, state: str | None = None, seq: int | None = None, force: bool = True) -> None:
@@ -1017,16 +1440,26 @@ class MixcloudDaemon:
             base = float(self._user_volume)
         with self._duck_lock:
             dgain = float(self._duck_gain)
-        vol = base * dgain * float(deck.loudness_trim) * float(deck.mix_gain)
-        return round(_clamp(vol, 0.0, 100.0), 2)
+        return mpv_volume_from_linear(base, dgain, deck.mix_gain, deck.loudness_trim, 150.0)
 
-    def _apply_effective_volume(self) -> None:
+    def _apply_effective_volume(self, force: bool = True) -> None:
         with self._state_lock:
             primary = self._primary
             staging = self._staging
-        primary.send(["set_property", "volume", self._effective_deck_volume(primary)])
-        if staging is not None and staging.is_alive():
-            staging.send(["set_property", "volume", self._effective_deck_volume(staging)])
+        for d in (primary, staging):
+            if d is None or not d.is_alive():
+                continue
+            vol = self._effective_deck_volume(d)
+            if force or abs(vol - d.last_sent_vol) >= 0.02:
+                if d.send(["set_property", "volume", vol]):
+                    d.last_sent_vol = vol
+
+    def _send_deck_speed(self, deck: _MpvDeck, speed: float, force: bool = False) -> None:
+        spd = round(_clamp(float(speed), 0.5, 2.0), 4)
+        deck.speed = spd
+        if force or abs(spd - deck.last_sent_speed) >= 0.0004:
+            if deck.send(["set_property", "speed", spd]):
+                deck.last_sent_speed = spd
 
     def _recompute_playback_state(self) -> None:
         with self._state_lock:
@@ -1363,6 +1796,11 @@ class MixcloudDaemon:
         deck.mix_gain = initial_mix_gain
         deck.loudness_trim = 1.0
         deck.speed = 1.0
+        deck.sample_rate = 44100
+        deck.pos_ts = 0.0
+        deck.cache_duration = 0.0
+        deck.last_sent_vol = -1.0
+        deck.last_sent_speed = -1.0
         deck.paused = False
         deck.paused_for_cache = False
         deck.core_idle = True
@@ -1373,6 +1811,7 @@ class MixcloudDaemon:
             muted = self._muted
             pitch_corr = self._pitch_correction
 
+        init_vol = self._effective_deck_volume(deck)
         cmd = [
             self._mpv_path,
             "--no-video",
@@ -1385,12 +1824,15 @@ class MixcloudDaemon:
             f"--demuxer-max-bytes={max_bytes}",
             f"--demuxer-readahead-secs={readahead_s}",
             f"--audio-pitch-correction={'yes' if pitch_corr else 'no'}",
-            f"--volume={self._effective_deck_volume(deck)}",
+            "--volume-max=150",
+            f"--volume={init_vol}",
             f"--mute={'yes' if muted else 'no'}",
             f"--input-ipc-server={deck.sock_path}",
         ]
         if af_chain:
-            cmd.append(f"--af={af_chain}")
+            cmd.append(f"--af=@dsp:{af_chain}")
+        deck.last_sent_vol = init_vol
+        deck.last_sent_speed = 1.0
 
         try:
             # NOTE: Never set PR_SET_PDEATHSIG here because _spawn_deck is called from
@@ -1448,6 +1890,8 @@ class MixcloudDaemon:
             (4, "paused-for-cache"),
             (5, "core-idle"),
             (6, "mute"),
+            (7, "demuxer-cache-duration"),
+            (8, "audio-params"),
         ):
             deck.send(["observe_property", prop_id, prop_name])
 
@@ -1510,6 +1954,7 @@ class MixcloudDaemon:
             data = msg.get("data")
             if name == "time-pos" and isinstance(data, (int, float)) and data >= 0:
                 deck.position = float(data)
+                deck.pos_ts = time.monotonic()
                 if is_primary:
                     self._emit_state(force=False)
             elif name == "duration" and isinstance(data, (int, float)) and data > 0:
@@ -1534,7 +1979,15 @@ class MixcloudDaemon:
                     with self._state_lock:
                         self._muted = data
                     self._emit_state(force=True)
+            elif name == "demuxer-cache-duration" and isinstance(data, (int, float)) and data >= 0:
+                deck.cache_duration = float(data)
+            elif name == "audio-params" and isinstance(data, dict):
+                sr_val = data.get("samplerate")
+                if isinstance(sr_val, (int, float)) and sr_val >= 4000:
+                    deck.sample_rate = int(sr_val)
         elif ev == "start-file":
+            deck.pos_ts = 0.0
+            deck.cache_duration = 0.0
             if is_primary:
                 with self._state_lock:
                     if self._state != "idle":
@@ -1550,6 +2003,7 @@ class MixcloudDaemon:
         elif ev == "playback-restart":
             deck.core_idle = False
             deck.paused_for_cache = False
+            deck.pos_ts = time.monotonic()
             if is_primary:
                 self._recompute_playback_state()
         elif ev == "end-file":
@@ -1680,47 +2134,75 @@ class MixcloudDaemon:
     # Progressive Audio Mix Engine
     # ------------------------------------------------------------------
 
-    def _cancel_mix_internal(self, emit_idle: bool = True) -> None:
+    def _cancel_mix_internal(self, emit_idle: bool = True, sync_close: bool = False) -> None:
         with self._mix_lock:
             self._mix_seq += 1
             was_active = self._mix_stage != "idle"
         with self._state_lock:
+            primary = self._primary
             staging = self._staging
             self._staging = None
-            self._primary.mix_gain = 1.0
+            primary.mix_gain = 1.0
+        primary.send(["af", "remove", "@mixtr"])
+        self._send_deck_speed(primary, 1.0, force=True)
         if staging is not None:
-            staging.close()
-        self._apply_effective_volume()
+            staging.send(["set_property", "volume", 0.0])
+            staging.send(["set_property", "pause", True])
+            if sync_close:
+                staging.close()
+            else:
+                threading.Thread(target=staging.close, daemon=True).start()
+        self._apply_effective_volume(force=True)
         self._need_rescan = True
         if emit_idle and was_active:
             self._emit_mix("idle")
 
-    def _post_swap_release(self, deck: _MpvDeck, release_s: float) -> None:
-        """Gently glide promoted deck's speed back to 1.00 and loudness trim to 1.00."""
+    def _post_swap_release(
+        self,
+        deck: _MpvDeck,
+        release_s: float,
+        mixtr_end_pts: float = 0.0,
+    ) -> None:
+        """Remove finished `@mixtr` cleanly, then glide speed & loudness trim back to 1.00."""
+        if mixtr_end_pts > 0.0:
+            deadline = time.monotonic() + 0.85
+            while self._running and time.monotonic() < deadline:
+                with self._state_lock:
+                    if deck is not self._primary or self._state == "idle":
+                        return
+                if deck.interp_pos() >= (mixtr_end_pts + 0.10):
+                    break
+                time.sleep(0.05)
+        deck.send(["af", "remove", "@mixtr"])
+
         start_speed = deck.speed
         start_trim = deck.loudness_trim
         if abs(start_speed - 1.0) < 0.002 and abs(start_trim - 1.0) < 0.005:
-            deck.speed = 1.0
             deck.loudness_trim = 1.0
-            deck.send(["set_property", "speed", 1.0])
-            self._apply_effective_volume()
+            self._send_deck_speed(deck, 1.0, force=True)
+            self._apply_effective_volume(force=True)
             return
 
-        dur = max(2.0, float(release_s))
+        dur = max(4.0, float(release_s))
         t0 = time.monotonic()
         while self._running:
             with self._state_lock:
                 if deck is not self._primary or self._state == "idle":
                     return
+                paused = deck.paused
+            if paused:
+                time.sleep(0.08)
+                t0 += 0.08
+                continue
             u = min(1.0, (time.monotonic() - t0) / dur)
             e = 0.5 - 0.5 * math.cos(math.pi * u)
-            deck.speed = start_speed + (1.0 - start_speed) * e
+            spd = start_speed + (1.0 - start_speed) * e
             deck.loudness_trim = start_trim + (1.0 - start_trim) * e
-            deck.send(["set_property", "speed", round(deck.speed, 4)])
-            self._apply_effective_volume()
+            self._send_deck_speed(deck, spd, force=(u >= 1.0))
+            self._apply_effective_volume(force=(u >= 1.0))
             if u >= 1.0:
                 return
-            time.sleep(0.1)
+            time.sleep(0.08)
 
     def _progressive_mix_worker(
         self,
@@ -1738,7 +2220,7 @@ class MixcloudDaemon:
             primary = self._primary
             url_a = primary.stream_url
             dur_a = primary.duration
-            pos_a_now = primary.position
+            pos_a_now = primary.interp_pos()
             next_deck_id = "B" if primary.deck_id == "A" else "A"
 
         if not url_a or not url_b:
@@ -1752,6 +2234,10 @@ class MixcloudDaemon:
         silence_db = _clamp(float(cfg.get("silence_threshold_db", -38.0)), -55.0, -24.0)
         manual_off_ms = _clamp(float(cfg.get("manual_offset_ms", 0.0)), -250.0, 250.0)
         tempo_release_s = _clamp(float(cfg.get("tempo_release_s", 10.0)), 4.0, 24.0)
+        coupled_tempo = bool(cfg.get("coupled_tempo", True))
+        smart_outro = bool(cfg.get("smart_outro", True))
+        xover_hz = _clamp(float(cfg.get("eq_crossover_hz", 180.0)), 100.0, 320.0)
+        swap_depth_db = _clamp(float(cfg.get("eq_swap_depth_db", 18.0)), 6.0, 24.0)
 
         self._emit_mix("cueing", note="Resolving next track...")
         ok_b, stream_url_b, err_b = self._resolve_url_ytdlp(url_b, timeout_s=25.0)
@@ -1776,13 +2262,14 @@ class MixcloudDaemon:
         staging.stream_url = stream_url_b
         staging.mix_gain = 0.0
         staging.send(["set_property", "volume", 0.0])
+        staging.last_sent_vol = 0.0
         staging.send(["set_property", "start", "none"])
         staging.send(["loadfile", stream_url_b, "replace"])
         staging.send(["set_property", "pause", False])
         self._need_rescan = True
 
-        # Parallel ffmpeg PCM probing for Track A outro & Track B intro while Deck B buffers
-        self._emit_mix("analyzing", note="Matching loudness, tempo & offset...")
+        # Parallel ffmpeg PCM probing (live position for Mix Now, outro for auto-cue)
+        self._emit_mix("analyzing", note="Analyzing loudness, BPM, key & phrase...")
         buf_t0 = time.monotonic()
         self._ffmpeg_path = _find_bin("ffmpeg")
 
@@ -1792,20 +2279,23 @@ class MixcloudDaemon:
         def _probe_a() -> None:
             if not self._ffmpeg_path:
                 return
-            if dur_a > win_s + 2.0:
-                start_a = max(0.0, dur_a - win_s - 4.0)
+            if immediate:
+                probe_dur_a = win_s
+                start_a = max(0.0, min(pos_a_now + 1.5, max(0.0, dur_a - probe_dur_a))) if dur_a > 0.0 else max(0.0, pos_a_now)
             else:
-                start_a = max(0.0, pos_a_now)
-            pcm = probe_stream_pcm(self._ffmpeg_path, url_a, start_a, win_s, timeout_s=8.5)
+                probe_dur_a = _clamp(max(win_s, blend_dur + 4.0), 6.0, 24.0)
+                start_a = max(0.0, dur_a - probe_dur_a - 2.0) if dur_a > (probe_dur_a + 2.0) else max(0.0, pos_a_now)
+            pcm = probe_stream_pcm(self._ffmpeg_path, url_a, start_a, probe_dur_a, timeout_s=8.5)
             if pcm:
                 an = analyze_pcm_s16le(pcm, 11025, silence_db)
                 if an.get("valid"):
-                    # Shift local slice phase/bounds into Track A's absolute timeline
                     an["active_start_s"] = start_a + float(an["active_start_s"])
                     an["active_end_s"] = start_a + float(an["active_end_s"])
+                    an["outro_cue_s"] = start_a + float(an.get("outro_cue_s", an["active_end_s"]))
                     if float(an.get("bpm", 0.0)) > 0.0:
                         period = 60.0 / float(an["bpm"])
                         an["beat_phase_s"] = (start_a + float(an["beat_phase_s"])) % period
+                        an["bar_phase_s"] = (start_a + float(an.get("bar_phase_s", 0.0))) % (4.0 * period)
                     res_a.update(an)
 
         def _probe_b() -> None:
@@ -1827,14 +2317,19 @@ class MixcloudDaemon:
             return
 
         plan = compute_mix_plan(res_a, res_b, cfg)
+        eff_blend_dur = float(plan.get("effective_duration_s", blend_dur))
+        eff_eq_mode = str(plan.get("effective_eq_mode", cfg.get("eq_mode", "bass_swap")))
         bpm_a = float(plan["bpm_a"])
         bpm_b = float(plan["bpm_b"])
         gain_trim_db = float(plan["gain_trim_db"])
         speed_b = float(plan["speed_b"])
         intro_offset_b = float(plan["intro_offset_b"])
+        key_a = str(plan.get("key_a", ""))
+        key_b = str(plan.get("key_b", ""))
+        key_compat_label = str(plan.get("key_compat_label", "Neutral"))
+
         staging.loudness_trim = float(plan["loudness_trim_b"])
-        staging.speed = speed_b
-        staging.send(["set_property", "speed", speed_b])
+        self._send_deck_speed(staging, speed_b, force=True)
 
         self._emit_mix(
             "syncing",
@@ -1843,12 +2338,22 @@ class MixcloudDaemon:
             gain_trim_db=gain_trim_db,
             speed_ratio=speed_b,
             note=plan["note"],
+            key_a=key_a,
+            key_b=key_b,
+            key_compat=key_compat_label,
+            eq_mode=eff_eq_mode,
         )
 
-        # Wait for Deck B initial stream buffer to become ready (still silent at vol=0)
+        # Wait until Deck B has healthy stream buffer (still silent at vol=0)
         buf_deadline = time.monotonic() + 12.0
         while time.monotonic() < buf_deadline and not _cancelled():
-            if not staging.core_idle and not staging.paused_for_cache:
+            elapsed_buf = time.monotonic() - buf_t0
+            cache_ok = (
+                staging.cache_duration >= 2.0
+                or (staging.duration > 0.0 and staging.cache_duration >= max(0.2, staging.duration - 0.5))
+                or elapsed_buf >= 2.5
+            )
+            if not staging.core_idle and not staging.paused_for_cache and cache_ok:
                 break
             time.sleep(0.05)
 
@@ -1856,72 +2361,152 @@ class MixcloudDaemon:
         if _cancelled():
             return
 
-        # Hold silently paused at intro_offset_b until Deck A reaches blend_start_pos (when auto-cued)
+        # Pre-cue Deck B exact-seeked on its nearest intro beat / downbeat while PAUSED
+        if plan["phrase_sync"] and not immediate:
+            cue_b = next_grid_cue(intro_offset_b, float(plan["bar_phase_b"]), 4.0 * float(plan["beat_period_b"]))
+        elif plan["phase_sync"]:
+            cue_b = next_grid_cue(intro_offset_b, float(plan["beat_phase_b"]), float(plan["beat_period_b"]))
+        else:
+            cue_b = intro_offset_b
+        if staging.duration > 10.0 and cue_b > (staging.duration - eff_blend_dur - 2.0):
+            cue_b = intro_offset_b
+
+        staging.send(["set_property", "pause", True])
+        if cue_b > 0.05:
+            seek_t0 = time.monotonic()
+            staging.send(["seek", round(cue_b, 3), "absolute+exact"])
+            settle_deadline = time.monotonic() + 1.2
+            while time.monotonic() < settle_deadline and not _cancelled():
+                if (
+                    not staging.paused_for_cache
+                    and abs(staging.position - cue_b) < 0.35
+                    and (time.monotonic() - seek_t0) >= 0.08
+                ):
+                    break
+                time.sleep(0.03)
+        else:
+            time.sleep(0.06)
+
+        if _cancelled():
+            return
+
+        # Auto-cue wait until Track A reaches smart outro / active end minus blend duration
+        outro_cue = float(plan.get("outro_cue_s", 0.0))
         outro_end = float(plan.get("outro_active_end_s", 0.0))
-        effective_end = outro_end if (outro_end > 5.0 and dur_a > 0.0) else dur_a
-        blend_start_pos = max(primary.position, effective_end - blend_dur) if effective_end > 0.0 else primary.position
+        effective_end = (
+            outro_cue
+            if (smart_outro and outro_cue > 5.0 and dur_a > 0.0)
+            else (outro_end if (outro_end > 5.0 and dur_a > 0.0) else dur_a)
+        )
+        blend_start_pos = max(primary.interp_pos(), effective_end - eff_blend_dur) if effective_end > 0.0 else primary.interp_pos()
 
         if not immediate and dur_a > 0.0:
-            if intro_offset_b > 0.2:
-                staging.send(["seek", intro_offset_b, "absolute"])
-            staging.send(["set_property", "pause", True])
             while not _cancelled():
                 with self._state_lock:
-                    cur_a = primary.position
+                    cur_a = primary.interp_pos()
                     a_paused = primary.paused
                     st = self._state
                 if st in ("idle", "error"):
                     self._cancel_mix_internal(emit_idle=True)
                     return
-                if not a_paused and cur_a >= (blend_start_pos - 0.35):
+                if not a_paused and cur_a >= (blend_start_pos - 0.10):
                     break
-                time.sleep(0.05)
+                time.sleep(0.04)
 
         if _cancelled():
             return
 
-        # Compute exact beat-phase + buffer/seek latency alignment right before blend opens
+        # Beat/Phrase launch sync: wait for Deck A to hit Deck B's exact phase before unpausing Deck B
+        actual_b = max(0.0, staging.position)
+        manual_s = (manual_off_ms / 1000.0) * max(0.5, speed_b)
+        if plan["phase_sync"]:
+            if plan["phrase_sync"] and not immediate:
+                anchor_a = float(plan["bar_phase_a"])
+                period_a_grid = 4.0 * float(plan["beat_period_a"])
+                anchor_b = float(plan["bar_phase_b"])
+                period_b_grid = 4.0 * float(plan["beat_period_b"])
+                max_wait = 2.2
+            else:
+                anchor_a = float(plan["beat_phase_a"])
+                period_a_grid = float(plan["beat_period_a"])
+                anchor_b = float(plan["beat_phase_b"])
+                period_b_grid = float(plan["beat_period_b"])
+                max_wait = 0.9
+
+            if period_a_grid > 0.05 and period_b_grid > 0.05:
+                b_frac = ((actual_b - anchor_b) % period_b_grid) / period_b_grid
+                cur_a = primary.interp_pos()
+                cur_eff = cur_a + 0.025 - manual_s
+                cur_frac = ((cur_eff - anchor_a) % period_a_grid) / period_a_grid
+                wait_a_s = ((b_frac - cur_frac) % 1.0) * period_a_grid
+                if wait_a_s <= max_wait and wait_a_s > 0.012:
+                    target_a = cur_a + wait_a_s
+                    wait_deadline = time.monotonic() + (wait_a_s / max(0.5, primary.speed)) + 0.20
+                    while not _cancelled() and time.monotonic() < wait_deadline:
+                        with self._state_lock:
+                            a_paused = primary.paused
+                            st = self._state
+                        if st in ("idle", "error"):
+                            self._cancel_mix_internal(emit_idle=True)
+                            return
+                        if not a_paused and primary.interp_pos() >= target_a:
+                            break
+                        time.sleep(0.01)
+
+        if _cancelled():
+            return
+
+        actual_a = max(0.0, primary.interp_pos())
+        if dur_a > 0.0:
+            avail_a = max(0.5, dur_a - actual_a - 0.60)
+            if 2.0 <= avail_a < eff_blend_dur:
+                eff_blend_dur = avail_a
+
+        # Attach native C-level @mixtr EQ sweeps before unpausing Deck B (0 click, 0 Python CPU)
+        avg_spd_a, avg_spd_b = compute_coupled_speeds(0.5, bpm_a, bpm_b, speed_b, coupled_tempo)
+        span_a = eff_blend_dur * avg_spd_a
+        span_b = eff_blend_dur * avg_spd_b
+        eq_a = build_mix_eq_filter("out", eff_eq_mode, actual_a, span_a, xover_hz, swap_depth_db, sample_rate=primary.sample_rate)
+        eq_b = build_mix_eq_filter("in", eff_eq_mode, actual_b, span_b, xover_hz, swap_depth_db, sample_rate=staging.sample_rate)
+        if eq_a:
+            primary.send(["af", "pre", eq_a])
+        if eq_b:
+            staging.send(["af", "pre", eq_b])
+        mixtr_end_pts = (actual_b + span_b) if eq_b else 0.0
+
         staging.send(["set_property", "pause", False])
-        pos_a_ref = primary.position
-        target_b = align_deck_b_target(
-            pos_a=pos_a_ref,
-            beat_anchor_a=float(plan["beat_phase_a"]) if plan["phase_sync"] else 0.0,
-            beat_period_a=float(plan["beat_period_a"]) if plan["phase_sync"] else 0.0,
-            intro_offset_b=intro_offset_b,
-            beat_anchor_b=float(plan["beat_phase_b"]) if plan["phase_sync"] else 0.0,
-            beat_period_b=float(plan["beat_period_b"]) if plan["phase_sync"] else 0.0,
-            speed_b=speed_b,
-            seek_comp_s=0.14,
-            manual_offset_ms=manual_off_ms,
-        )
+        staging.paused = False
+        staging.pos_ts = time.monotonic()
 
-        seek_t0 = time.monotonic()
-        if target_b > 0.05:
-            staging.send(["seek", round(target_b, 3), "absolute"])
-            settle_deadline = time.monotonic() + 1.5
-            while time.monotonic() < settle_deadline and not _cancelled():
-                if (
-                    not staging.paused_for_cache
-                    and not staging.core_idle
-                    and abs(staging.position - target_b) < 2.0
-                    and (time.monotonic() - seek_t0) >= 0.10
-                ):
-                    break
-                time.sleep(0.03)
-        else:
-            time.sleep(0.08)
-
-        if _cancelled():
-            return
-
-        applied_offset_ms = round(target_b * 1000.0)
-        # Active 30 Hz Progressive Blend Loop (respects pause cleanly)
+        applied_offset_ms = round(actual_b * 1000.0)
         elapsed_blend = 0.0
         last_tick = time.monotonic()
         last_emit = 0.0
-        step_s = 1.0 / 30.0
-        tempo_glide_start_u = 0.45
+        step_s = 1.0 / 45.0
+        period_a = float(plan["beat_period_a"])
+        period_b = float(plan["beat_period_b"])
+        beat_a = float(plan["beat_phase_a"])
+        beat_b = float(plan["beat_phase_b"])
+        last_phase_err_ms = 0.0
 
+        self._emit_mix(
+            "blending",
+            progress=0.0,
+            bpm_a=bpm_a,
+            bpm_b=bpm_b,
+            gain_trim_db=gain_trim_db,
+            offset_ms=applied_offset_ms,
+            speed_ratio=staging.speed,
+            buffer_ms=buffer_ms,
+            note=plan["note"],
+            key_a=key_a,
+            key_b=key_b,
+            key_compat=key_compat_label,
+            eq_mode=eff_eq_mode,
+            phase_err_ms=0.0,
+        )
+
+        # Active 45 Hz Coupled Blend Loop + Closed-Loop Micro-PLL
         while not _cancelled():
             now = time.monotonic()
             dt = now - last_tick
@@ -1929,20 +2514,40 @@ class MixcloudDaemon:
 
             with self._state_lock:
                 a_paused = primary.paused or self._state == "idle"
-            if not a_paused:
-                elapsed_blend += dt
+            if a_paused:
+                time.sleep(0.05)
+                continue
 
-            u = min(1.0, elapsed_blend / blend_dur)
+            elapsed_blend += dt
+            u = min(1.0, elapsed_blend / eff_blend_dur)
             ga, gb = crossfade_gains(u, curve)
             primary.mix_gain = ga
             staging.mix_gain = gb
 
-            if plan["tempo_matched"] and abs(speed_b - 1.0) > 0.002 and u >= tempo_glide_start_u:
-                tu = min(1.0, (u - tempo_glide_start_u) / max(0.25, 1.0 - tempo_glide_start_u)) * 0.5
-                staging.speed = speed_b + (1.0 - speed_b) * tu
-                staging.send(["set_property", "speed", round(staging.speed, 4)])
+            if plan["tempo_matched"]:
+                spd_a, spd_b = compute_coupled_speeds(u, bpm_a, bpm_b, speed_b, coupled_tempo)
+            else:
+                spd_a, spd_b = 1.0, 1.0
 
-            self._apply_effective_volume()
+            # Closed-loop micro-PLL corrects any decoder/unpause jitter early while Deck B is quiet
+            if plan["phase_sync"] and 0.15 <= elapsed_blend <= 1.80 and gb < 0.50:
+                err_s = compute_phase_error_s(
+                    primary.interp_pos(now),
+                    beat_a,
+                    period_a,
+                    staging.interp_pos(now),
+                    beat_b,
+                    period_b,
+                )
+                last_phase_err_ms = round(err_s * 1000.0)
+                if abs(err_s) > 0.012:
+                    spd_b = round(spd_b + _clamp(-err_s * 0.45, -0.025, 0.025), 4)
+
+            if plan["tempo_matched"]:
+                self._send_deck_speed(primary, spd_a)
+                self._send_deck_speed(staging, spd_b)
+
+            self._apply_effective_volume(force=False)
 
             if (now - last_emit) >= 0.10 or u >= 1.0:
                 last_emit = now
@@ -1956,6 +2561,11 @@ class MixcloudDaemon:
                     speed_ratio=staging.speed,
                     buffer_ms=buffer_ms,
                     note=plan["note"],
+                    key_a=key_a,
+                    key_b=key_b,
+                    key_compat=key_compat_label,
+                    eq_mode=eff_eq_mode,
+                    phase_err_ms=last_phase_err_ms,
                 )
 
             if u >= 1.0:
@@ -1965,7 +2575,7 @@ class MixcloudDaemon:
         if _cancelled():
             return
 
-        # Atomic Deck Swap: Staging -> Primary
+        # Atomic Deck Swap: silence & pause old Deck A immediately, promote Staging -> Primary
         self._emit_mix(
             "swapping",
             progress=1.0,
@@ -1976,6 +2586,11 @@ class MixcloudDaemon:
             speed_ratio=staging.speed,
             buffer_ms=buffer_ms,
             note=plan["note"],
+            key_a=key_a,
+            key_b=key_b,
+            key_compat=key_compat_label,
+            eq_mode=eff_eq_mode,
+            phase_err_ms=last_phase_err_ms,
         )
 
         with self._state_lock:
@@ -1989,13 +2604,11 @@ class MixcloudDaemon:
             staging.mix_gain = 1.0
             self._state = "paused" if staging.paused else "playing"
 
-        old_primary.close()
-        self._apply_effective_volume()
+        old_primary.send(["set_property", "volume", 0.0])
+        old_primary.send(["set_property", "pause", True])
+        self._apply_effective_volume(force=True)
         self._need_rescan = True
         self._duck_eval_event.set()
-
-        # Continue gentle tempo/gain release into normalized 1.00x post-swap
-        threading.Thread(target=self._post_swap_release, args=(staging, tempo_release_s), daemon=True).start()
 
         self.emit({
             "type": "mix_swapped",
@@ -2006,6 +2619,14 @@ class MixcloudDaemon:
         })
         self._emit_state(force=True)
         self._emit_mix("idle")
+
+        # Async cleanup of old deck + gentle post-swap release of tempo/gain & @mixtr removal
+        threading.Thread(target=old_primary.close, daemon=True).start()
+        threading.Thread(
+            target=self._post_swap_release,
+            args=(staging, tempo_release_s, mixtr_end_pts),
+            daemon=True,
+        ).start()
 
     # ------------------------------------------------------------------
     # Command Dispatch
@@ -2030,7 +2651,9 @@ class MixcloudDaemon:
                 decks = [self._primary, self._staging]
             for d in decks:
                 if d is not None and d.is_alive():
-                    d.send(["set_property", "af", chain])
+                    d.send(["af", "remove", "@dsp"])
+                    if chain:
+                        d.send(["af", "add", f"@dsp:{chain}"])
         elif cmd == "set_playback_config":
             bp = str(obj.get("buffer_preset", self._buffer_preset)).strip().lower()
             if bp in BUFFER_PROFILES:
@@ -2070,10 +2693,13 @@ class MixcloudDaemon:
             self._emit_duck()
         elif cmd == "set_mix_config":
             for k in (
-                "enabled", "duration_s", "curve", "match_volume", "match_tempo",
-                "match_offset", "cue_lead_s", "analysis_window_s",
-                "max_tempo_shift_pct", "tempo_release_s", "max_gain_trim_db",
-                "silence_threshold_db", "manual_offset_ms", "min_track_duration_s",
+                "enabled", "duration_s", "curve", "eq_mode", "harmonic_adapt",
+                "phrase_sync", "smart_outro", "coupled_tempo",
+                "eq_crossover_hz", "eq_swap_depth_db",
+                "match_volume", "match_tempo", "match_offset", "cue_lead_s",
+                "analysis_window_s", "max_tempo_shift_pct", "tempo_release_s",
+                "max_gain_trim_db", "silence_threshold_db", "manual_offset_ms",
+                "min_track_duration_s",
             ):
                 if k in obj:
                     self._mix_cfg[k] = obj[k]
@@ -2126,19 +2752,19 @@ class MixcloudDaemon:
             ).start()
         elif cmd == "pause":
             with self._state_lock:
-                decks = [self._primary, self._staging]
+                decks = [self._primary, self._staging if self._mix_stage == "blending" else None]
             for d in decks:
                 if d is not None and d.is_alive():
                     d.send(["set_property", "pause", True])
         elif cmd == "resume":
             with self._state_lock:
-                decks = [self._primary, self._staging]
+                decks = [self._primary, self._staging if self._mix_stage == "blending" else None]
             for d in decks:
                 if d is not None and d.is_alive():
                     d.send(["set_property", "pause", False])
         elif cmd == "toggle":
             self._primary.send(["cycle", "pause"])
-            if self._staging is not None and self._staging.is_alive():
+            if self._mix_stage == "blending" and self._staging is not None and self._staging.is_alive():
                 self._staging.send(["set_property", "pause", not self._primary.paused])
         elif cmd == "seek":
             pos = obj.get("position")
@@ -2147,6 +2773,7 @@ class MixcloudDaemon:
                 if self._primary.send(["seek", target, "absolute"]):
                     with self._state_lock:
                         self._primary.position = target
+                        self._primary.pos_ts = time.monotonic()
                     self._emit_state(force=True)
         elif cmd == "volume":
             val = obj.get("value")
@@ -2180,7 +2807,7 @@ class MixcloudDaemon:
     def shutdown(self) -> None:
         self._running = False
         self._duck_eval_event.set()
-        self._cancel_mix_internal(emit_idle=False)
+        self._cancel_mix_internal(emit_idle=False, sync_close=True)
         self._stop_all_monitors()
         self._close_pactl_sub()
         self._primary.close()
