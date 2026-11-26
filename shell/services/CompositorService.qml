@@ -108,6 +108,57 @@ Singleton {
         return false;
     }
 
+    property var _islandDragSuppressors: ({})
+    property bool _islandDragSuppressed: false
+
+    function setIslandDragSuppressedFor(screenKey, suppressed) {
+        if (!isHyprland) return;
+        const key = String(screenKey || "default");
+        const next = Object.assign({}, _islandDragSuppressors);
+        if (suppressed) {
+            next[key] = true;
+        } else {
+            delete next[key];
+        }
+        _islandDragSuppressors = next;
+        const shouldSuppress = Object.keys(next).length > 0;
+        if (shouldSuppress === _islandDragSuppressed) return;
+        _islandDragSuppressed = shouldSuppress;
+        if (shouldSuppress) {
+            Quickshell.execDetached(["hyprctl", "eval", "hl.unbind(\"SUPER + mouse:272\"); hl.unbind(\"SUPER + mouse:273\")"]);
+        } else {
+            Quickshell.execDetached(["hyprctl", "eval", "hl.bind(\"SUPER + mouse:272\", hl.dsp.window.drag(), { mouse = true }); hl.bind(\"SUPER + mouse:273\", hl.dsp.window.resize(), { mouse = true })"]);
+        }
+    }
+
+    Component.onDestruction: {
+        if (_islandDragSuppressed && isHyprland) {
+            _islandDragSuppressed = false;
+            _islandDragSuppressors = ({});
+            Quickshell.execDetached(["hyprctl", "eval", "hl.bind(\"SUPER + mouse:272\", hl.dsp.window.drag(), { mouse = true }); hl.bind(\"SUPER + mouse:273\", hl.dsp.window.resize(), { mouse = true })"]);
+        }
+    }
+
+    function monitorBoundsFor(screen) {
+        if (isHyprland && screen) {
+            const mon = Hyprland.monitorFor(screen);
+            if (mon) {
+                return {
+                    x: mon.x || 0,
+                    y: mon.y || 0,
+                    width: mon.width || screen.width || 1920,
+                    height: mon.height || screen.height || 1080
+                };
+            }
+        }
+        return {
+            x: 0,
+            y: 0,
+            width: screen ? (screen.width || 1920) : 1920,
+            height: screen ? (screen.height || 1080) : 1080
+        };
+    }
+
     function isOverlappedFor(screen, barPosition) {
         if (isHyprland && screen) {
             const mon = Hyprland.monitorFor(screen);

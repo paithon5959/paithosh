@@ -102,6 +102,7 @@ ShellRoot {
                     const obj = JSON.parse(raw);
                     if (typeof obj.hideBarFullscreen === "boolean") stateObj.hideBarFullscreen = obj.hideBarFullscreen;
                     if (typeof obj.autoHideOnOverlap === "boolean") stateObj.autoHideOnOverlap = obj.autoHideOnOverlap;
+                    if (typeof obj.dodgeCursor === "boolean") stateObj.dodgeCursor = obj.dodgeCursor;
                     if (typeof obj.recordAudio === "boolean") {
                         stateObj.recordAudio = obj.recordAudio;
                         ScreenRecordService.recordAudio = obj.recordAudio;
@@ -722,6 +723,7 @@ ShellRoot {
         property bool manualHideBar: false
         property bool hideBarFullscreen: true
         property bool autoHideOnOverlap: true
+        property bool dodgeCursor: false
         property bool recordAudio: true
         property bool recordMic: false
         property string recordPreset: "standard"
@@ -759,6 +761,8 @@ ShellRoot {
         property string globalSurfaceTheme: "OLED Pure"
         property bool superPeekBar: false
         property bool superPeekWasHidden: false
+        property bool superHeld: false
+        property bool superUsedWithIsland: false
         property double lastSuperComboMs: 0
         property bool settingsLoaded: false
         property bool _applyingExternalState: false
@@ -940,6 +944,7 @@ ShellRoot {
             topEdgeOffset = d.topEdgeOffset;
             hideBarFullscreen = d.hideBarFullscreen;
             autoHideOnOverlap = d.autoHideOnOverlap;
+            if (typeof d.dodgeCursor === "boolean") dodgeCursor = d.dodgeCursor;
             activeBorderHighlight = d.activeBorderHighlight;
 
             CompositorService.setActiveThemePresetName(compositorKeyForPreset(d.presetName));
@@ -1039,6 +1044,7 @@ ShellRoot {
             const data = {
                 hideBarFullscreen: hideBarFullscreen,
                 autoHideOnOverlap: autoHideOnOverlap,
+                dodgeCursor: dodgeCursor,
                 recordAudio: recordAudio,
                 recordMic: recordMic,
                 recordPreset: recordPreset,
@@ -1089,6 +1095,7 @@ ShellRoot {
 
         onHideBarFullscreenChanged: saveSettings()
         onAutoHideOnOverlapChanged: saveSettings()
+        onDodgeCursorChanged: saveSettings()
         onIslandCornerRadiusChanged: { applyIslandMetrics(); saveSettings(); }
         onBarPositionChanged: saveSettings()
         onTopEdgeOffsetChanged: { applyIslandMetrics(); saveSettings(); }
@@ -1293,6 +1300,8 @@ ShellRoot {
         function superPressed() {
             const scr = CompositorService.focusedScreen();
             ensureScreen(scr);
+            superHeld = true;
+            superUsedWithIsland = false;
             if (Date.now() - lastSuperComboMs < 350) {
                 superPeekBar = false;
                 superPeekWasHidden = false;
@@ -1310,10 +1319,13 @@ ShellRoot {
         function superReleased() {
             const scr = CompositorService.focusedScreen();
             superPeekSafetyTimer.stop();
+            const usedWithIsland = superUsedWithIsland;
+            superHeld = false;
+            superUsedWithIsland = false;
             if (superPeekWasHidden) {
                 superPeekBar = false;
                 superPeekWasHidden = false;
-            } else {
+            } else if (!usedWithIsland) {
                 togglePopover("launcher", scr);
             }
         }
@@ -1322,6 +1334,8 @@ ShellRoot {
             superPeekSafetyTimer.stop();
             superPeekBar = false;
             superPeekWasHidden = false;
+            superHeld = false;
+            superUsedWithIsland = false;
         }
 
         function collapseIslandApp() {
@@ -1476,12 +1490,37 @@ ShellRoot {
                 stateObj.lastSuperComboMs = Date.now();
                 if (stateObj.superPeekBar) {
                     stateObj.clearSuperPeek();
+                } else if (stateObj.superHeld && !superHeldSyncProc.running) {
+                    superHeldSyncProc.running = true;
                 }
             }
             if (event.name !== "workspacev2") return;
             if (stateObj.openPopover === "search") stateObj.closePopovers();
             stateObj.wsSlotOpen = true;
             wsHideTimer.restart();
+        }
+    }
+
+    Timer {
+        id: superHeldSyncTimer
+        interval: 250
+        repeat: true
+        running: stateObj.superHeld && CompositorService.isHyprland
+        onTriggered: {
+            if (!superHeldSyncProc.running) superHeldSyncProc.running = true;
+        }
+    }
+
+    Process {
+        id: superHeldSyncProc
+        command: ["hyprctl", "repl", "return tostring(hl.is_key_down(\"Super_L\") or hl.is_key_down(\"Super_R\"))"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if ((text || "").trim() === "false") {
+                    stateObj.superHeld = false;
+                    stateObj.superUsedWithIsland = false;
+                }
+            }
         }
     }
 

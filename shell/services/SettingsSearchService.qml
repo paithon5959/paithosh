@@ -302,7 +302,7 @@ QtObject {
             pageLabel: "Personalization",
             title: "Dynamic Island Auto-Hide",
             subtitle: "Hide status bar when fullscreen or overlapped",
-            keywords: "dynamic island notch status bar autohide fullscreen overlap",
+            keywords: "dynamic island notch status bar autohide fullscreen overlap dodge cursor hover ghost",
             icon: "maximize"
         },
         {

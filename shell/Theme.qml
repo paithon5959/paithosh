@@ -1198,6 +1198,7 @@ Singleton {
             topEdgeOffset: stateObj ? Boolean(stateObj.topEdgeOffset) : true,
             hideBarFullscreen: stateObj ? Boolean(stateObj.hideBarFullscreen) : true,
             autoHideOnOverlap: stateObj ? Boolean(stateObj.autoHideOnOverlap) : false,
+            dodgeCursor: stateObj ? Boolean(stateObj.dodgeCursor) : false,
             // 4. Cursor
             cursorStyle: cursorSvc ? cursorSvc.style : "sharp",
             cursorSize: cursorSvc ? Math.round(cursorSvc.size) : 24,

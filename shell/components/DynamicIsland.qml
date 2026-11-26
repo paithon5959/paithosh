@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Widgets
 import ".."
@@ -33,7 +34,46 @@ PanelWindow {
     readonly property bool isSearchOnThisScreen: isActiveScreen && shellState.openPopover === "search"
     readonly property bool isAppExpandedOnScreen: isActiveScreen && shellState.islandApp !== ""
     readonly property bool hasActivity: anyTransientSlot || isPopoverOpenOnThisScreen || isAppExpandedOnScreen || hasAlert || ScreenRecordService.recording
-    readonly property bool isHidden: (shellState.manualHideBar || (shellState.hideBarFullscreen && CompositorService.isFullscreenFor(modelData)) || (shellState.autoHideOnOverlap && CompositorService.isOverlappedFor(modelData, shellState.barPosition))) && !root.hovered && !topEdgeHover.hovered && !hasActivity && !(shellState.superPeekBar && isActiveScreen)
+    property bool isDodged: false
+    property bool dodgeUnlocked: false
+    readonly property bool dodgeEligible: shellState.dodgeCursor && !isPopoverOpenOnThisScreen && !isAppExpandedOnScreen && !shellState.superHeld && !dodgeUnlocked
+    readonly property bool pointerOverIsland: topEdgeHover.hovered
+    readonly property bool suppressSuperDrag: !root.isHidden && root.pointerOverIsland && root.shellState.superHeld
+    readonly property bool isHidden: root.isDodged || ((shellState.manualHideBar || (shellState.hideBarFullscreen && CompositorService.isFullscreenFor(modelData)) || (shellState.autoHideOnOverlap && CompositorService.isOverlappedFor(modelData, shellState.barPosition))) && !root.hovered && !topEdgeHover.hovered && !hasActivity && !(shellState.superPeekBar && isActiveScreen))
+
+    onSuppressSuperDragChanged: {
+        if (suppressSuperDrag) {
+            dodgeUnlocked = true;
+            shellState.superUsedWithIsland = true;
+        }
+        CompositorService.setIslandDragSuppressedFor(modelData ? modelData.name : "default", suppressSuperDrag);
+    }
+
+    Component.onDestruction: {
+        CompositorService.setIslandDragSuppressedFor(modelData ? modelData.name : "default", false);
+    }
+
+    onPointerOverIslandChanged: {
+        if (pointerOverIsland) {
+            if (dodgeEligible) {
+                isDodged = true;
+            } else if (shellState.superHeld) {
+                dodgeUnlocked = true;
+                shellState.superUsedWithIsland = true;
+            }
+        } else {
+            dodgeUnlocked = false;
+            root.hovered = false;
+        }
+    }
+
+    onDodgeEligibleChanged: {
+        if (!dodgeEligible) {
+            isDodged = false;
+        } else if (pointerOverIsland) {
+            isDodged = true;
+        }
+    }
 
     readonly property string attachedTitle: {
         if (shellState.islandApp === "settings") return "Settings (Island)";
@@ -195,10 +235,11 @@ PanelWindow {
 
     Item {
         id: hoverTrigger
+        z: 50
         y: root.isBottom ? (parent.height - height) : 0
         anchors.horizontalCenter: parent.horizontalCenter
         width: Math.max(contentRow.width + 16, 260)
-        height: Theme.topOffsetRest + Theme.islandHeight
+        height: Math.max(Theme.topOffsetHover, Theme.topOffsetRest) + Theme.islandHeight + 10
 
         HoverHandler {
             id: topEdgeHover
@@ -218,8 +259,48 @@ PanelWindow {
         height: 710
     }
 
+    Item {
+        id: emptyMask
+        width: 0
+        height: 0
+    }
+
+    Timer {
+        id: dodgeCursorPollTimer
+        interval: 100
+        repeat: true
+        running: root.isDodged && CompositorService.isHyprland
+        onTriggered: {
+            if (!dodgeCursorProc.running) dodgeCursorProc.running = true;
+        }
+    }
+
+    Process {
+        id: dodgeCursorProc
+        command: ["hyprctl", "cursorpos"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (!root.isDodged) return;
+                const raw = (text || "").trim();
+                const parts = raw.split(",");
+                if (parts.length < 2) return;
+                const cx = parseFloat(parts[0].trim());
+                const cy = parseFloat(parts[1].trim());
+                if (isNaN(cx) || isNaN(cy)) return;
+                const mon = CompositorService.monitorBoundsFor(root.modelData);
+                const x0 = mon.x + hoverTrigger.x;
+                const x1 = x0 + hoverTrigger.width;
+                const y0 = root.isBottom ? (mon.y + mon.height - hoverTrigger.height) : mon.y;
+                const y1 = y0 + hoverTrigger.height;
+                if (cx < x0 || cx > x1 || cy < y0 || cy > y1) {
+                    root.isDodged = false;
+                }
+            }
+        }
+    }
+
     mask: Region {
-        item: root.isHidden ? hoverTrigger : (root.isAppExpandedOnScreen ? (root.shellState.islandApp === "files" ? filesCardMask : fullScreenMask) : hitbox)
+        item: root.isDodged ? emptyMask : (root.isHidden ? hoverTrigger : (root.isAppExpandedOnScreen ? (root.shellState.islandApp === "files" ? filesCardMask : fullScreenMask) : hitbox))
     }
 
     Item {

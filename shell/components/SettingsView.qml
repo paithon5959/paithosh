@@ -7358,6 +7358,7 @@ Item {
                                             root.shellState.islandCornerRadius = "18px";
                                             root.shellState.hideBarFullscreen = true;
                                             root.shellState.autoHideOnOverlap = true;
+                                            root.shellState.dodgeCursor = false;
                                         }
                                     }
                                 }
@@ -7383,11 +7384,12 @@ Item {
                                     showDivider: false
                                     iconName: "maximize"
                                     title: "Behavior"
-                                    subtitle: "Control when Dynamic Island hides on fullscreen or window overlap"
+                                    subtitle: "Control when Dynamic Island hides on cursor hover (hold Super to interact), fullscreen, or overlap"
                                     CtrlSelect {
-                                        options: ["Always Show", "Hide in Fullscreen", "Auto-Hide (Overlap)"]
+                                        options: ["Always Show", "Dodge Cursor", "Hide in Fullscreen", "Auto-Hide (Overlap)"]
                                         currentText: {
                                             if (root.shellState) {
+                                                if (root.shellState.dodgeCursor) return "Dodge Cursor";
                                                 if (root.shellState.autoHideOnOverlap) return "Auto-Hide (Overlap)";
                                                 if (root.shellState.hideBarFullscreen) return "Hide in Fullscreen";
                                                 return "Always Show";
@@ -7401,6 +7403,15 @@ Item {
                                                 if (root.shellState) {
                                                     root.shellState.hideBarFullscreen = false;
                                                     root.shellState.autoHideOnOverlap = false;
+                                                    root.shellState.dodgeCursor = false;
+                                                }
+                                            } else if (v === "Dodge Cursor") {
+                                                root.hideBarFullscreen = false;
+                                                root.islandAutoHide = false;
+                                                if (root.shellState) {
+                                                    root.shellState.hideBarFullscreen = false;
+                                                    root.shellState.autoHideOnOverlap = false;
+                                                    root.shellState.dodgeCursor = true;
                                                 }
                                             } else if (v === "Hide in Fullscreen") {
                                                 root.hideBarFullscreen = true;
@@ -7408,6 +7419,7 @@ Item {
                                                 if (root.shellState) {
                                                     root.shellState.hideBarFullscreen = true;
                                                     root.shellState.autoHideOnOverlap = false;
+                                                    root.shellState.dodgeCursor = false;
                                                 }
                                             } else {
                                                 root.hideBarFullscreen = true;
@@ -7415,6 +7427,7 @@ Item {
                                                 if (root.shellState) {
                                                     root.shellState.hideBarFullscreen = true;
                                                     root.shellState.autoHideOnOverlap = true;
+                                                    root.shellState.dodgeCursor = false;
                                                 }
                                             }
                                             root.markAppearanceChanged();
