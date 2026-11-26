@@ -835,6 +835,7 @@ Item {
     component SettingRow: Item {
         id: sRow
         property string iconName: ""
+        property color iconColor: Theme.textSub
         property string title: ""
         property string subtitle: ""
         property string searchKeywords: ""
@@ -887,7 +888,7 @@ Item {
                     anchors.centerIn: parent
                     sourceName: sRow.iconName
                     iconSize: 15
-                    color: Theme.textSub
+                    color: sRow.iconColor
                 }
             }
 
@@ -4594,7 +4595,14 @@ Item {
                                         required property var modelData
                                         required property int index
                                         showDivider: index > 0
-                                        iconName: modelData.inUse ? "circle-dot" : "circle"
+                                        iconName: {
+                                            const s = Number(modelData.signal || 0);
+                                            if (s >= 75) return "wifi-4";
+                                            if (s >= 50) return "wifi-3";
+                                            if (s >= 25) return "wifi-2";
+                                            return "wifi-1";
+                                        }
+                                        iconColor: modelData.inUse ? Theme.accent : Theme.textSub
                                         title: modelData.ssid
                                         subtitle: {
                                             const parts = [];
