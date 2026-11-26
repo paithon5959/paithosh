@@ -2313,7 +2313,7 @@ Item {
                                 onTriggered: root.openPage("storage")
                             }
                             HubCard {
-                                iconName: "hard-drive"; title: "Accessibility"; subtitle: "Screen recording presets, resolution, fps & audio"
+                                iconName: "hard-drive"; title: "Accessibility"; subtitle: "Input indicators, screen recording presets & audio"
                                 pillText: ScreenRecordService.preset === "low" ? "Low Storage" : (ScreenRecordService.preset === "high" ? "High Quality" : (ScreenRecordService.preset === "custom" ? "Custom" : "Standard"))
                                 onTriggered: root.openPage("accessibility")
                             }
@@ -2624,6 +2624,54 @@ Item {
                                         onToggled: (v) => {
                                             ScreenRecordService.recordMic = v;
                                             if (root.shellState) root.shellState.recordMic = v;
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 5. Dynamic Island Input Indicators (Caps Lock & Fcitx5)
+                            SectionLabel { text: "Dynamic Island Input Indicators" }
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconName: "keyboard"
+                                    title: "Input Indicators on Dynamic Island"
+                                    subtitle: "Show Caps Lock and input method switches on the Dynamic Island"
+                                    CtrlSwitch {
+                                        checked: root.shellState ? root.shellState.inputIndicatorEnabled : InputIndicatorService.enabled
+                                        onToggled: (v) => {
+                                            InputIndicatorService.enabled = v;
+                                            if (root.shellState) root.shellState.inputIndicatorEnabled = v;
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "keyboard"
+                                    title: "Caps Lock Indicator"
+                                    subtitle: "Display ON/OFF status pill when toggling Caps Lock"
+                                    opacity: (root.shellState ? root.shellState.inputIndicatorEnabled : InputIndicatorService.enabled) ? 1.0 : 0.45
+                                    enabled: root.shellState ? root.shellState.inputIndicatorEnabled : InputIndicatorService.enabled
+                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    CtrlSwitch {
+                                        checked: root.shellState ? root.shellState.capsLockIndicatorEnabled : InputIndicatorService.capsLockEnabled
+                                        onToggled: (v) => {
+                                            InputIndicatorService.capsLockEnabled = v;
+                                            if (root.shellState) root.shellState.capsLockIndicatorEnabled = v;
+                                        }
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "globe"
+                                    title: "Fcitx5 Input Method Indicator"
+                                    subtitle: "Show EN / Unikey switches on Dynamic Island and hide the default Fcitx5 popup"
+                                    opacity: (root.shellState ? root.shellState.inputIndicatorEnabled : InputIndicatorService.enabled) ? 1.0 : 0.45
+                                    enabled: root.shellState ? root.shellState.inputIndicatorEnabled : InputIndicatorService.enabled
+                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    CtrlSwitch {
+                                        checked: root.shellState ? root.shellState.fcitxIndicatorEnabled : InputIndicatorService.fcitxEnabled
+                                        onToggled: (v) => {
+                                            InputIndicatorService.fcitxEnabled = v;
+                                            if (root.shellState) root.shellState.fcitxIndicatorEnabled = v;
                                         }
                                     }
                                 }

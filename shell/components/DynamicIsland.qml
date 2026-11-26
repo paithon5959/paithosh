@@ -100,7 +100,7 @@ PanelWindow {
     }
     readonly property bool hasAlert: alertMode > 0 && !isAppExpandedOnScreen
 
-    readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen || shellState.reloadSlotOpen || PackageService.statusEventOpen || PackageService.activeOpText !== "" || BackupService.busy
+    readonly property bool anyTransientSlot: isSearchOnThisScreen || shellState.osdOpen || shellState.inputSlotOpen || shellState.wsSlotOpen || shellState.kdeSlotOpen || shellState.chargeSlotOpen || shellState.reloadSlotOpen || PackageService.statusEventOpen || PackageService.activeOpText !== "" || BackupService.busy
 
     property bool bootEntered: false
     readonly property bool isReloadExiting: shellState.reloadPhase === "exiting" || shellState.reloadPhase === "committing" || shellState.reloadPhase === "revealing"
@@ -818,6 +818,62 @@ PanelWindow {
                         }
 
                         Item { width: 14; height: 1 }
+                    }
+
+                    // 3b. Inline Input Indicator Slot (Caps Lock & Fcitx5 IM)
+                    IslandSlot {
+                        id: slotInputIndicator
+                        open: shellState.inputSlotOpen && !root.isSearchOnThisScreen
+                        maxSlotWidth: 250
+
+                        Item { width: 16; height: 1 }
+
+                        SvgIcon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            sourceName: shellState.inputSlotKind === "fcitx" ? "globe" : "keyboard"
+                            iconSize: 18
+                            color: (shellState.inputSlotKind === "fcitx" || shellState.inputSlotActive) ? Theme.text : Theme.textSub
+                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        }
+
+                        Item { width: 10; height: 1 }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: shellState.inputSlotLabel
+                            color: Theme.text
+                            font.family: Theme.fontSans
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                            width: Math.min(implicitWidth, 124)
+                        }
+
+                        Item { width: 8; height: 1 }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "•"
+                            color: Theme.textMuted
+                            font.family: Theme.fontSans
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                        }
+
+                        Item { width: 8; height: 1 }
+
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: shellState.inputSlotBadge
+                            color: (shellState.inputSlotKind === "fcitx" || shellState.inputSlotActive) ? Theme.text : Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 14
+                            font.weight: Font.DemiBold
+                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        }
+
+                        Item { width: 16; height: 1 }
                     }
 
                     // 4. Inline Workspace Switcher Slot

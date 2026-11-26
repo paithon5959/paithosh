@@ -125,6 +125,18 @@ ShellRoot {
                         stateObj.recordFps = obj.recordFps;
                         ScreenRecordService.fps = obj.recordFps;
                     }
+                    if (typeof obj.inputIndicatorEnabled === "boolean") {
+                        stateObj.inputIndicatorEnabled = obj.inputIndicatorEnabled;
+                        InputIndicatorService.enabled = obj.inputIndicatorEnabled;
+                    }
+                    if (typeof obj.capsLockIndicatorEnabled === "boolean") {
+                        stateObj.capsLockIndicatorEnabled = obj.capsLockIndicatorEnabled;
+                        InputIndicatorService.capsLockEnabled = obj.capsLockIndicatorEnabled;
+                    }
+                    if (typeof obj.fcitxIndicatorEnabled === "boolean") {
+                        stateObj.fcitxIndicatorEnabled = obj.fcitxIndicatorEnabled;
+                        InputIndicatorService.fcitxEnabled = obj.fcitxIndicatorEnabled;
+                    }
                     if (typeof obj.recordSaveDir === "string") {
                         stateObj.recordSaveDir = obj.recordSaveDir;
                         ScreenRecordService.saveDir = obj.recordSaveDir;
@@ -753,6 +765,22 @@ ShellRoot {
         property string recordResolution: "native"
         property int recordFps: 30
         property string recordSaveDir: ""
+        property bool inputIndicatorEnabled: true
+        property bool capsLockIndicatorEnabled: true
+        property bool fcitxIndicatorEnabled: true
+        onInputIndicatorEnabledChanged: {
+            InputIndicatorService.enabled = inputIndicatorEnabled;
+            if (!inputIndicatorEnabled) inputSlotOpen = false;
+            if (!stateObj._applyingExternalState) saveSettings();
+        }
+        onCapsLockIndicatorEnabledChanged: {
+            InputIndicatorService.capsLockEnabled = capsLockIndicatorEnabled;
+            if (!stateObj._applyingExternalState) saveSettings();
+        }
+        onFcitxIndicatorEnabledChanged: {
+            InputIndicatorService.fcitxEnabled = fcitxIndicatorEnabled;
+            if (!stateObj._applyingExternalState) saveSettings();
+        }
         onRecordAudioChanged: {
             ScreenRecordService.recordAudio = recordAudio;
             if (!stateObj._applyingExternalState) saveSettings();
@@ -1077,6 +1105,9 @@ ShellRoot {
                 recordResolution: recordResolution,
                 recordFps: recordFps,
                 recordSaveDir: recordSaveDir,
+                inputIndicatorEnabled: inputIndicatorEnabled,
+                capsLockIndicatorEnabled: capsLockIndicatorEnabled,
+                fcitxIndicatorEnabled: fcitxIndicatorEnabled,
                 islandCornerRadius: islandCornerRadius,
                 barPosition: barPosition,
                 topEdgeOffset: topEdgeOffset,
@@ -1144,6 +1175,12 @@ ShellRoot {
 
         property bool kdeSlotOpen: false
         property string kdeText: ""
+
+        property bool inputSlotOpen: false
+        property string inputSlotKind: "capslock" // "capslock" | "fcitx"
+        property string inputSlotLabel: "Caps Lock"
+        property string inputSlotBadge: "ON"
+        property bool inputSlotActive: false
 
         property string searchQuery: ""
         property int searchSel: 0
@@ -1429,6 +1466,17 @@ ShellRoot {
             osdHideTimer.restart();
         }
 
+        function showInputIndicator(kind, label, badge, active) {
+            if (!inputIndicatorEnabled || LockService.locked) return;
+            if (openPopover === "search") closePopovers();
+            inputSlotKind = kind;
+            inputSlotLabel = label;
+            inputSlotBadge = badge;
+            inputSlotActive = active;
+            inputSlotOpen = true;
+            inputIndicatorHideTimer.restart();
+        }
+
         function showWorkspace(id) {
             if (openPopover === "search") closePopovers();
             CompositorService.switchWorkspace(id);
@@ -1507,6 +1555,20 @@ ShellRoot {
         interval: 1600
         repeat: false
         onTriggered: stateObj.osdOpen = false
+    }
+
+    Timer {
+        id: inputIndicatorHideTimer
+        interval: 1500
+        repeat: false
+        onTriggered: stateObj.inputSlotOpen = false
+    }
+
+    Connections {
+        target: InputIndicatorService
+        function onIndicatorTriggered(kind, label, badge, active) {
+            stateObj.showInputIndicator(kind, label, badge, active);
+        }
     }
 
     // Show the workspace slot when workspace is changed natively in Hyprland (keybinds etc.)
