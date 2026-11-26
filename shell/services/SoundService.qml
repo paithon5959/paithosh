@@ -685,6 +685,11 @@ Singleton {
     function playLockError() { play("lock-error.wav", 0.75); }
     function playPowerPlug() { play("power-plug.wav", 0.80, true); }
     function playPowerUnplug() { play("power-unplug.wav", 0.72, true); }
+    function playBatteryLow() { play("battery-low.wav", 0.82, true); }
+    function playOverheat() { play("overheat-gentle.wav", 0.72, true); }
+    function playSessionLogout() { play("session-logout.wav", 0.82, true); }
+    function playSessionRestart() { play("session-restart.wav", 0.85, true); }
+    function playSessionShutdown() { play("session-shutdown.wav", 0.85, true); }
 
     function startLockAmbient(preset) {
         previewRestartTimer.stop();
