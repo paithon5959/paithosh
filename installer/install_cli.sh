@@ -115,6 +115,10 @@ fi
 echo ""
 
 # 3. Distro-filtered additional packages (core packages are always auto-installed if missing)
+if [[ -n "$MISSING_CORE" ]]; then
+    echo -e "${YELLOW}[!] Mandatory core packages missing (will be auto-installed): $MISSING_CORE${RESET}"
+    echo ""
+fi
 echo -e "${BOLD}Additional Packages:${RESET}"
 python3 - "$AUDIT_JSON" <<'PY'
 import json, sys

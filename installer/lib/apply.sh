@@ -56,7 +56,7 @@ cleanup() {
         rm -rf "$ASKPASS_DIR"
     fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 emit_step() {
     printf 'STEP|%s|%s\n' "$1" "$2"
@@ -79,12 +79,12 @@ run_privileged() {
     if [[ "$EUID" -eq 0 ]]; then
         "$@"
     elif [[ "$SUDO_STDIN" == "true" ]]; then
-        printf '%s\n' "$SUDO_PWD" | sudo -S -p "" "$@"
+        sudo -S -k -p "" "$@" <<<"$SUDO_PWD"
     elif [[ -t 0 ]]; then
         sudo "$@"
     elif sudo -n true 2>/dev/null; then
         sudo -n "$@"
-    elif command -v pkexec >/dev/null 2>&1 && pgrep -f 'polkit.*agent|polkit-gnome|hyprpolkitagent|lxpolkit|mate-polkit|xfce-polkit' >/dev/null 2>&1; then
+    elif command -v pkexec >/dev/null 2>&1 && has_active_polkit_agent; then
         pkexec "$@"
     else
         echo "[paithosh] Privilege escalation requires a TTY, active Polkit agent, or --sudo-stdin." >&2
@@ -115,9 +115,9 @@ cat "$(dirname "$0")/pw"
 EOF
             chmod 700 "$ASKPASS_DIR/askpass.sh"
         fi
-        SUDO_ASKPASS="$ASKPASS_DIR/askpass.sh" "$helper" --sudoflags "-A" "$@"
+        SUDO_ASKPASS="$ASKPASS_DIR/askpass.sh" "$helper" --sudoloop --sudoflags "-A" "$@"
     elif [[ -t 0 ]] || sudo -n true 2>/dev/null; then
-        "$helper" "$@"
+        "$helper" --sudoloop "$@"
     else
         echo "[paithosh] AUR helper ($helper) requires a TTY or --sudo-stdin." >&2
         return 1
@@ -127,13 +127,22 @@ EOF
 IFS='|' read -r DISTRO_ID FAMILY PKG_MGR PRETTY_NAME <<<"$(detect_distro)"
 echo "[paithosh] Distro: $PRETTY_NAME ($FAMILY / $PKG_MGR)"
 
-# Sanitize & deduplicate selected packages (handles comma or space separated tokens)
+# Sanitize & deduplicate selected packages (handles comma or space separated tokens without globbing)
 declare -a PKG_LIST=()
 declare -A _SEEN_PKG=()
-for raw_tok in ${INSTALL_PKGS//,/ }; do
-    if [[ "$raw_tok" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]] && [[ -z "${_SEEN_PKG[$raw_tok]:-}" ]]; then
-        _SEEN_PKG["$raw_tok"]=1
-        PKG_LIST+=("$raw_tok")
+declare -a _RAW_PKGS=()
+set -f
+IFS=', ' read -r -a _RAW_PKGS <<< "$INSTALL_PKGS"
+set +f
+for raw_tok in ${_RAW_PKGS[@]+"${_RAW_PKGS[@]}"}; do
+    [[ -z "$raw_tok" ]] && continue
+    if [[ "$raw_tok" =~ ^[a-zA-Z0-9][a-zA-Z0-9._+-]*$ ]]; then
+        if [[ -z "${_SEEN_PKG[$raw_tok]:-}" ]]; then
+            _SEEN_PKG["$raw_tok"]=1
+            PKG_LIST+=("$raw_tok")
+        fi
+    else
+        echo "[paithosh] Warning: ignoring invalid package token '$raw_tok'" >&2
     fi
 done
 
@@ -182,14 +191,12 @@ fi
 emit_step "2/6" "Installing selected system packages..."
 if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
     echo "[paithosh] Installing packages (${#PKG_LIST[@]}): ${PKG_LIST[*]}"
-    if [[ "$FAMILY" == "fedora" ]]; then
+    NEED_FEDORA_COPR="false"
+    if [[ "$FAMILY" == "fedora" ]] && ! fedora_hypr_copr_enabled; then
         for pkg in "${PKG_LIST[@]}"; do
             case "$pkg" in
                 quickshell|hyprland|hyprcursor|hyprlock|hyprpolkitagent|xdg-desktop-portal-hyprland)
-                    if ! grep -qs "enabled=1" /etc/yum.repos.d/*copr*[Hh]yprland*.repo 2>/dev/null; then
-                        echo "[paithosh] Enabling Fedora COPR lionheartp/Hyprland..."
-                        run_privileged "$PKG_MGR" copr enable -y lionheartp/Hyprland
-                    fi
+                    NEED_FEDORA_COPR="true"
                     break
                     ;;
             esac
@@ -198,41 +205,75 @@ if [[ ${#PKG_LIST[@]} -gt 0 ]]; then
 
     INSTALL_MGR="$PKG_MGR"
     if [[ "$EUID" -eq 0 && ( "$INSTALL_MGR" == "paru" || "$INSTALL_MGR" == "yay" ) ]]; then
+        if [[ "$DRY_RUN" != "true" ]]; then
+            if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
+                pacman -Syu --noconfirm >/dev/null 2>&1 || true
+            fi
+            declare -a _AUR_ONLY=()
+            for pkg in "${PKG_LIST[@]}"; do
+                if ! pacman -Si "$pkg" >/dev/null 2>&1; then
+                    _AUR_ONLY+=("$pkg")
+                fi
+            done
+            if [[ ${#_AUR_ONLY[@]} -gt 0 ]]; then
+                echo "[paithosh] AUR package(s) cannot be built as root: ${_AUR_ONLY[*]}. Re-run as a normal user." >&2
+                exit 1
+            fi
+        fi
         INSTALL_MGR="pacman"
     fi
 
     case "$INSTALL_MGR" in
         pacman)
             if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
-                run_privileged pacman -Sy --needed --noconfirm "${PKG_LIST[@]}"
+                run_privileged pacman -Syu --needed --noconfirm "${PKG_LIST[@]}"
             else
-                run_privileged pacman -S --needed --noconfirm "${PKG_LIST[@]}"
+                if ! run_privileged pacman -S --needed --noconfirm "${PKG_LIST[@]}"; then
+                    echo "[paithosh] Retrying pacman with full system sync (-Syu)..."
+                    run_privileged pacman -Syu --needed --noconfirm "${PKG_LIST[@]}"
+                fi
             fi
             ;;
-        paru)
+        paru|yay)
+            declare -a AUR_EXTRA_FLAGS=()
             if [[ ! -t 0 ]]; then
-                run_aur_helper paru -S --needed --noconfirm --skipreview "${PKG_LIST[@]}"
+                if [[ "$INSTALL_MGR" == "paru" ]]; then
+                    AUR_EXTRA_FLAGS+=(--skipreview)
+                else
+                    AUR_EXTRA_FLAGS+=(--answerdiff None --answerclean None)
+                fi
+            fi
+            if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
+                run_aur_helper "$INSTALL_MGR" -Syu --needed --noconfirm ${AUR_EXTRA_FLAGS[@]+"${AUR_EXTRA_FLAGS[@]}"} "${PKG_LIST[@]}"
             else
-                run_aur_helper paru -S --needed --noconfirm "${PKG_LIST[@]}"
+                if ! run_aur_helper "$INSTALL_MGR" -S --needed --noconfirm ${AUR_EXTRA_FLAGS[@]+"${AUR_EXTRA_FLAGS[@]}"} "${PKG_LIST[@]}"; then
+                    echo "[paithosh] Retrying $INSTALL_MGR with full system sync (-Syu)..."
+                    run_aur_helper "$INSTALL_MGR" -Syu --needed --noconfirm ${AUR_EXTRA_FLAGS[@]+"${AUR_EXTRA_FLAGS[@]}"} "${PKG_LIST[@]}"
+                fi
             fi
             ;;
-        yay)
-            if [[ ! -t 0 ]]; then
-                run_aur_helper yay -S --needed --noconfirm --answerdiff None --answerclean None "${PKG_LIST[@]}"
+        dnf|dnf5)
+            if [[ "$NEED_FEDORA_COPR" == "true" ]]; then
+                echo "[paithosh] Enabling Fedora COPR lionheartp/Hyprland..."
+                run_privileged sh -c 'mgr="$1"; shift; "$mgr" copr enable -y lionheartp/Hyprland && exec "$mgr" install -y -- "$@"' _ "$PKG_MGR" "${PKG_LIST[@]}"
             else
-                run_aur_helper yay -S --needed --noconfirm "${PKG_LIST[@]}"
+                run_privileged "$PKG_MGR" install -y -- "${PKG_LIST[@]}"
             fi
             ;;
-        dnf|dnf5) run_privileged "$PKG_MGR" install -y "${PKG_LIST[@]}" ;;
         apt)
-            run_privileged env DEBIAN_FRONTEND=noninteractive apt-get update
-            run_privileged env DEBIAN_FRONTEND=noninteractive apt-get install -y "${PKG_LIST[@]}"
+            run_privileged env DEBIAN_FRONTEND=noninteractive sh -c 'apt-get update && exec apt-get install -y -- "$@"' _ "${PKG_LIST[@]}"
             ;;
         *)
             echo "[paithosh] Unsupported package manager '$PKG_MGR' — cannot install: ${PKG_LIST[*]}" >&2
             exit 1
             ;;
     esac
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "[dry-run] Verify installed packages: ${PKG_LIST[*]}"
+    else
+        verify_installed_packages "${PKG_LIST[@]}"
+    fi
 else
     echo "[paithosh] No packages selected for installation."
 fi
@@ -253,6 +294,9 @@ PKG_SETTINGS_FILE="${PAITHOSH_DIR}/package-settings.json"
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "[dry-run] Write $SETTINGS_FILE (theme=$THEME_PRESET, barPosition=$BAR_POSITION)"
     echo "[dry-run] Write $PKG_SETTINGS_FILE (shellUpdateStream=$UPDATE_STREAM)"
+    if [[ "$UPDATE_STREAM" == "release" ]]; then
+        echo "[dry-run] Switch $REPO_ROOT to latest release tag"
+    fi
 else
     python3 - "$SETTINGS_FILE" "$THEME_PRESET" "$BAR_POSITION" "$PKG_SETTINGS_FILE" "$UPDATE_STREAM" <<'PY'
 import json, os, sys
@@ -298,8 +342,27 @@ with open(pkg_path, "w", encoding="utf-8") as f:
     f.write("\n")
 print(f"[paithosh] Saved {pkg_path} (shellUpdateStream={pkg_data['shellUpdateStream']})")
 PY
-    if command -v hyprcursor-util >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" ]]; then
-        python3 "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" apply --style sharp --size 24 --color-mode auto --no-live >/dev/null 2>&1 || true
+    if [[ "$UPDATE_STREAM" == "release" ]] && git -C "$REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        if git -C "$REPO_ROOT" diff --quiet && git -C "$REPO_ROOT" diff --cached --quiet; then
+            remote="$(git -C "$REPO_ROOT" remote 2>/dev/null | head -n1 || true)"
+            remote="${remote:-origin}"
+            if [[ "$(git -C "$REPO_ROOT" rev-parse --is-shallow-repository 2>/dev/null || echo false)" == "true" ]]; then
+                GIT_TERMINAL_PROMPT=0 timeout 45 git -C "$REPO_ROOT" fetch --unshallow --tags --quiet "$remote" 2>/dev/null || true
+            else
+                GIT_TERMINAL_PROMPT=0 timeout 30 git -C "$REPO_ROOT" fetch --tags --quiet "$remote" 2>/dev/null || true
+            fi
+            latest_tag="$(git -C "$REPO_ROOT" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1 || true)"
+            [[ -z "$latest_tag" ]] && latest_tag="$(git -C "$REPO_ROOT" tag -l --sort=-v:refname 2>/dev/null | head -n1 || true)"
+            if [[ -n "$latest_tag" ]]; then
+                if git -C "$REPO_ROOT" checkout --quiet "$latest_tag" 2>/dev/null; then
+                    echo "[paithosh] Checked out release tag $latest_tag"
+                else
+                    echo "[paithosh] Warning: could not check out release tag $latest_tag" >&2
+                fi
+            fi
+        else
+            echo "[paithosh] Repo has local modifications; skipping release tag checkout."
+        fi
     fi
 fi
 
@@ -314,6 +377,10 @@ if [[ "$SYNC_HYPR" == "true" ]]; then
     bash "$SCRIPT_DIR/sync-hypr.sh" "${SYNC_ARGS[@]}"
 else
     echo "[paithosh] Skipping default Hyprland config sync (keeping existing config)."
+fi
+
+if [[ "$DRY_RUN" != "true" ]] && command -v hyprcursor-util >/dev/null 2>&1 && [[ -f "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" ]]; then
+    python3 "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" apply --style sharp --size 24 --color-mode auto --no-live >/dev/null 2>&1 || true
 fi
 
 # 5. Hyprland autostart integration (supports both Hyprland Lua & classic .conf)

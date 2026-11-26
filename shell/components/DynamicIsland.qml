@@ -1027,6 +1027,7 @@ PanelWindow {
                         readonly property color pkgTint: {
                             if (PackageService.statusEventOpen) {
                                 if (PackageService.statusEventKind === "ok") return Theme.ok;
+                                if (PackageService.statusEventKind === "warn") return Theme.warn;
                                 if (PackageService.statusEventKind === "danger") return Theme.dangerText;
                             }
                             return Theme.info;

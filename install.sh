@@ -35,7 +35,12 @@ run_priv() {
         sudo "$@" </dev/tty
     elif sudo -n true 2>/dev/null; then
         sudo -n "$@"
-    elif command -v pkexec >/dev/null 2>&1 && pgrep -f 'polkit.*agent|polkit-gnome|hyprpolkitagent|lxpolkit|mate-polkit|xfce-polkit' >/dev/null 2>&1; then
+    elif command -v pkexec >/dev/null 2>&1 && {
+        local _uid
+        _uid="$(id -u)"
+        pgrep -u "$_uid" -x 'hyprpolkitagent|lxpolkit|xfce-polkit' >/dev/null 2>&1 ||
+        pgrep -u "$_uid" -f '(^|/)(hyprpolkitagent|polkit-gnome-authentication-agent-1|polkit-kde-authentication-agent-1|polkit-mate-authentication-agent-1|lxpolkit|xfce-polkit)($|[[:space:]])' >/dev/null 2>&1
+    }; then
         pkexec "$@"
     else
         echo "[paithosh] Privilege escalation requires a TTY, passwordless sudo, or active Polkit agent." >&2
@@ -94,9 +99,9 @@ bootstrap_detect_pkg_mgr() {
 
 pacman_install() {
     if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
-        run_priv pacman -Sy --needed --noconfirm "$@"
+        run_priv pacman -Syu --needed --noconfirm "$@"
     else
-        run_priv pacman -S --needed --noconfirm "$@"
+        run_priv pacman -S --needed --noconfirm "$@" || run_priv pacman -Syu --needed --noconfirm "$@"
     fi
 }
 
@@ -158,9 +163,16 @@ bootstrap_and_reexec() {
 
     if [[ -d "$target_dir/.git" ]]; then
         if [[ -z "$(git -C "$target_dir" status --porcelain 2>/dev/null || true)" ]]; then
-            echo "[paithosh] Updating Paithosh in $target_dir..."
-            if ! git -C "$target_dir" pull --ff-only origin "$repo_branch"; then
-                echo "[paithosh] Warning: could not fast-forward update $target_dir; using existing checkout." >&2
+            local cur_branch=""
+            cur_branch="$(git -C "$target_dir" symbolic-ref --short HEAD 2>/dev/null || true)"
+            if [[ -z "$cur_branch" ]]; then
+                echo "[paithosh] Existing checkout in $target_dir is on a release tag (detached HEAD); fetching tags..."
+                git -C "$target_dir" fetch --tags --quiet origin 2>/dev/null || true
+            else
+                echo "[paithosh] Updating Paithosh in $target_dir..."
+                if ! git -C "$target_dir" pull --ff-only origin "$repo_branch"; then
+                    echo "[paithosh] Warning: could not fast-forward update $target_dir; using existing checkout." >&2
+                fi
             fi
         else
             echo "[paithosh] Existing checkout in $target_dir has local modifications; preserving it."
@@ -175,7 +187,7 @@ bootstrap_and_reexec() {
     else
         mkdir -p "$(dirname "$target_dir")"
         echo "[paithosh] Cloning Paithosh into $target_dir..."
-        git clone --depth 1 --branch "$repo_branch" "$repo_url" "$target_dir"
+        git clone --branch "$repo_branch" "$repo_url" "$target_dir"
     fi
 
     if [[ ! -f "$target_dir/install.sh" || ! -f "$target_dir/installer/lib/audit.sh" ]]; then
@@ -238,7 +250,7 @@ ensure_python3() {
 }
 
 ensure_quickshell() {
-    if command -v qs >/dev/null 2>&1; then
+    if command -v qs >/dev/null 2>&1 || command -v quickshell >/dev/null 2>&1; then
         return 0
     fi
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -262,18 +274,27 @@ ensure_quickshell() {
                 echo "[paithosh] Warning: AUR helper '$PKG_MGR' cannot run as root. Install quickshell-git as a non-root user." >&2
                 return 1
             fi
+            local -a aur_args=(-S --needed --noconfirm --sudoloop)
+            if ! compgen -G "/var/lib/pacman/sync/*.db" >/dev/null 2>&1; then
+                aur_args=(-Syu --needed --noconfirm --sudoloop)
+            fi
+            local qs_pkg="quickshell-git"
+            if pacman -Si quickshell >/dev/null 2>&1; then
+                qs_pkg="quickshell"
+            fi
             if [[ ! -t 0 ]] && can_open_tty; then
-                "$PKG_MGR" -S --needed --noconfirm quickshell-git </dev/tty || return 1
+                "$PKG_MGR" "${aur_args[@]}" "$qs_pkg" </dev/tty || return 1
             else
-                "$PKG_MGR" -S --needed --noconfirm quickshell-git || return 1
+                "$PKG_MGR" "${aur_args[@]}" "$qs_pkg" || return 1
             fi
             ;;
         dnf|dnf5)
-            if ! grep -qs "enabled=1" /etc/yum.repos.d/*copr*[Hh]yprland*.repo 2>/dev/null; then
+            if ! fedora_hypr_copr_enabled; then
                 echo "[paithosh] Enabling Fedora COPR lionheartp/Hyprland..."
-                run_priv "$PKG_MGR" copr enable -y lionheartp/Hyprland || return 1
+                run_priv sh -c 'mgr="$1"; "$mgr" copr enable -y lionheartp/Hyprland && exec "$mgr" install -y quickshell' _ "$PKG_MGR" || return 1
+            else
+                run_priv "$PKG_MGR" install -y quickshell || return 1
             fi
-            run_priv "$PKG_MGR" install -y quickshell || return 1
             ;;
         apt)
             echo "[paithosh] Quickshell is not in official Debian/Ubuntu apt repos (see https://quickshell.org)."
@@ -284,6 +305,11 @@ ensure_quickshell() {
             return 1
             ;;
     esac
+
+    if ! command -v qs >/dev/null 2>&1 && ! command -v quickshell >/dev/null 2>&1; then
+        echo "[paithosh] Warning: Quickshell installation completed but 'qs' binary was not found." >&2
+        return 1
+    fi
 }
 
 main() {
@@ -374,13 +400,15 @@ EOF
 
     if [[ "$RUN_GUI" == "true" ]]; then
         echo "[paithosh] Wayland session detected — launching Paithosh GUI Installer..."
+        local qs_bin="qs"
+        command -v qs >/dev/null 2>&1 || qs_bin="quickshell"
         GUI_ENV=()
         [[ "$DRY_RUN" == "true" || "${PAITHOSH_INSTALLER_DRY_RUN:-0}" == "1" ]] && GUI_ENV+=("PAITHOSH_INSTALLER_DRY_RUN=1")
         local rc=0
         if [[ ${#GUI_ENV[@]} -gt 0 ]]; then
-            env "${GUI_ENV[@]}" qs -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
+            env "${GUI_ENV[@]}" "$qs_bin" -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
         else
-            qs -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
+            "$qs_bin" -p "$SCRIPT_DIR/shell/InstallerWindow.qml" || rc=$?
         fi
         if [[ "$rc" -eq 0 ]]; then
             exit 0

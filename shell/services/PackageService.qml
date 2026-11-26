@@ -6,18 +6,20 @@ import Quickshell.Io
 Singleton {
     id: root
 
-    // Internal backend detection ("dnf5" | "dnf" | "pacman" | ""); never exposed in UI
+    // Internal backend detection ("dnf5" | "dnf" | "pacman" | "apt" | ""); never exposed in UI
     property string backendTool: ""
     readonly property bool isFedora: backendTool === "dnf5" || backendTool === "dnf"
     readonly property bool isArch: backendTool === "pacman"
+    readonly property bool isDebian: backendTool === "apt"
+    property bool previewMode: false
     property bool checking: false
     property bool updating: false
     property bool cleaningCache: false
     property int cleanCacheProgress: 0
     property string cacheSizeText: ""
-    property bool sudoPromptOpen: false
-    property string sudoPromptError: ""
     property bool manualCheckPending: false
+    property bool _verifyCheckPending: false
+    property var _pendingVerifyPkgs: []
     property var packages: []
     property string lastError: ""
     property string lastCheckedText: ""
@@ -26,7 +28,7 @@ Singleton {
     property string autoUpdateSchedule: "weekly"
     property bool betaUpdatesEnabled: false
     property double lastAutoUpdateMs: 0
-    readonly property string settingsPath: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/package-settings.json"
+    readonly property string settingsPath: (Quickshell.env("XDG_CONFIG_HOME") || ((Quickshell.env("HOME") || "/tmp") + "/.config")) + "/paithosh/package-settings.json"
 
     // Paithosh Shell git repo updates ("main" | "release", default "main")
     readonly property string shellProjectRoot: Quickshell.shellDir.replace(/\/shell\/?$/, "")
@@ -193,9 +195,10 @@ Singleton {
         });
         saveSettingsProc.command = [
             "sh", "-c",
-            'mkdir -p "$(dirname "$1")" && printf "%s" "$2" > "$1"',
+            'd=$(dirname "$1"); mkdir -p "$d" && tmp="$1.tmp.$$" && printf "%s" "$2" > "$tmp" && mv -f "$tmp" "$1"',
             "_", settingsPath, payload
         ];
+        saveSettingsProc.running = false;
         saveSettingsProc.running = true;
     }
 
@@ -234,14 +237,14 @@ Singleton {
 
     function maybeRunScheduledUpdate() {
         const interval = scheduleIntervalMs(autoUpdateSchedule);
-        if (interval <= 0) return;
+        if (interval <= 0) return false;
         const now = Date.now();
-        if (lastAutoUpdateMs > 0 && (now - lastAutoUpdateMs) < interval) return;
+        if (lastAutoUpdateMs > 0 && (now - lastAutoUpdateMs) < interval) return false;
+        if (updating || checking || backingUpBeforeUpdate) return false;
         lastAutoUpdateMs = now;
         saveSettings();
-        if (!updating && !checking && !backingUpBeforeUpdate) {
-            checkUpdates(true);
-        }
+        checkUpdates(true);
+        return true;
     }
 
     function checkUpdates(isManual) {
@@ -249,6 +252,13 @@ Singleton {
         manualCheckPending = !!isManual;
         checking = true;
         lastError = "";
+        checkProc.outBuf = "";
+        checkProc.errBuf = "";
+        checkProc._stdoutDone = false;
+        checkProc._stderrDone = false;
+        checkProc._exited = false;
+        checkProc._exitCode = -1;
+        checkProc.running = false;
         checkProc.running = true;
     }
 
@@ -279,20 +289,14 @@ Singleton {
         root.updating = false;
         BackupService.refreshAll();
         if (ok && (!parsed || parsed.ok !== false)) {
-            const remaining = [];
-            for (let i = 0; i < root.packages.length; ++i) {
-                if (!root.packages[i].selected) remaining.push(root.packages[i]);
-            }
-            root.packages = remaining;
             root.userOverrodeBackupToggle = false;
-            root.syncBackupRecommendation();
             root.lastError = "";
-            root.lastCheckedText = Qt.formatTime(new Date(), "hh:mm");
-            root.triggerStatusEvent(remaining.length === 0 ? "Updates installed" : (remaining.length + " updates left"), "ok", true);
-            if (remaining.length === 0) {
-                root.checkUpdates(false);
-            }
+            root._verifyCheckPending = true;
+            root.triggerStatusEvent("Verifying updated packages...", "info", false);
+            root.checkUpdates(false);
         } else {
+            root._verifyCheckPending = false;
+            root._pendingVerifyPkgs = [];
             const msg = BackupService.cleanErrorMessage(parsed, errMsg, "Authentication cancelled or update failed");
             root.lastError = msg;
             root.triggerStatusEvent("Update failed", "danger", true);
@@ -302,6 +306,10 @@ Singleton {
     function installSelected() {
         if (updating || checking || backingUpBeforeUpdate || selectedCount === 0) return;
         if (backendTool === "") {
+            if (!previewMode) {
+                lastError = "No supported package manager detected";
+                return;
+            }
             if (backupBeforeUpdate) {
                 backingUpBeforeUpdate = true;
                 lastError = "";
@@ -325,12 +333,30 @@ Singleton {
             return;
         }
 
+        const pkgRe = /^[a-zA-Z0-9][a-zA-Z0-9._+:~-]*$/;
         const selectedIds = [];
+        const selectedObjs = [];
+        const unselectedNames = [];
         for (let i = 0; i < packages.length; ++i) {
-            if (packages[i].selected) selectedIds.push(packages[i].id);
+            const p = packages[i];
+            if (p.selected) {
+                if (pkgRe.test(String(p.id || ""))) {
+                    selectedIds.push(p.id);
+                    selectedObjs.push({ id: p.id, name: p.name, oldVersion: p.oldVersion, newVersion: p.newVersion });
+                }
+            } else if (pkgRe.test(String(p.name || ""))) {
+                unselectedNames.push(p.name);
+            }
+        }
+        if (selectedIds.length === 0) {
+            lastError = "No valid package IDs selected";
+            return;
         }
         const allSelected = selectedIds.length === packages.length;
         const useBeta = (betaUpdatesEnabled && isFedora) ? "1" : "0";
+        const ignoreCsv = isArch ? unselectedNames.join(",") : "";
+        _pendingVerifyPkgs = selectedObjs;
+        _verifyCheckPending = false;
         lastError = "";
 
         if (backupBeforeUpdate) {
@@ -354,12 +380,17 @@ Singleton {
                 "--tool", backendTool,
                 "--all", allSelected ? "1" : "0",
                 "--beta", useBeta,
+                "--ignore", ignoreCsv,
                 "--"
             ].concat(selectedIds);
 
+            const backupDesc = (withBtrfs === "1")
+                ? ("Creates a verified Btrfs snapshot (" + sysId + ") before upgrading " + selectedCount + " package(s). Upgrade aborts if snapshot fails.")
+                : ("Creates a system state archive (" + sysId + ") before upgrading " + selectedCount + " package(s).");
+
             BackupService.runPrivileged(
                 "Pre-Update Snapshot & Upgrade",
-                "Creates a verified Btrfs snapshot (" + sysId + ") before upgrading " + selectedCount + " package(s). Upgrade aborts if snapshot fails.",
+                backupDesc,
                 "Backup & Update",
                 argv,
                 (ok, parsed, out, err) => root._finishInstall(ok, parsed, err),
@@ -375,12 +406,16 @@ Singleton {
         }
 
         const script = [
-            'TOOL="$1"; ALL="$2"; USE_BETA="$3"; shift 3',
+            'TOOL="$1"; ALL="$2"; USE_BETA="$3"; IGNORE_CSV="$4"; shift 4',
             'if [ "$TOOL" = "dnf5" ] || [ "$TOOL" = "dnf" ]; then',
             '    BETA_FLAG=""; [ "$USE_BETA" = "1" ] && BETA_FLAG="--enablerepo=updates-testing"',
-            '    if [ "$ALL" = "1" ]; then exec "$TOOL" upgrade -y $BETA_FLAG; else exec "$TOOL" upgrade -y $BETA_FLAG "$@"; fi',
+            '    if [ "$ALL" = "1" ]; then exec "$TOOL" upgrade -y $BETA_FLAG; else exec "$TOOL" upgrade -y $BETA_FLAG -- "$@"; fi',
             'elif [ "$TOOL" = "pacman" ]; then',
-            '    if [ "$ALL" = "1" ]; then exec pacman -Syu --noconfirm; else exec pacman -S --noconfirm "$@"; fi',
+            '    if [ -n "$IGNORE_CSV" ]; then exec pacman -Syu --noconfirm --ignore "$IGNORE_CSV"; else exec pacman -Syu --noconfirm; fi',
+            'elif [ "$TOOL" = "apt" ]; then',
+            '    export DEBIAN_FRONTEND=noninteractive',
+            '    apt-get update || exit $?',
+            '    if [ "$ALL" = "1" ]; then exec apt-get upgrade -y; else exec apt-get install -y --only-upgrade -- "$@"; fi',
             'fi',
             'exit 1'
         ].join("\n");
@@ -389,14 +424,15 @@ Singleton {
             "System Package Upgrade",
             "Authorize upgrading " + selectedCount + " selected package(s) using " + backendTool + ".",
             "Install Updates",
-            ["sh", "-c", script, "_", backendTool, allSelected ? "1" : "0", useBeta].concat(selectedIds),
+            ["sh", "-c", script, "_", backendTool, allSelected ? "1" : "0", useBeta, ignoreCsv].concat(selectedIds),
             (ok, parsed, out, err) => root._finishInstall(ok, parsed, err)
         );
     }
 
     function refreshCacheSize() {
         if (backendTool === "") {
-            if (cacheSizeText === "") cacheSizeText = "1.2 GB";
+            if (previewMode && cacheSizeText === "") cacheSizeText = "1.2 GB";
+            else if (!previewMode) cacheSizeText = "";
             return;
         }
         const script = [
@@ -408,6 +444,8 @@ Singleton {
             '    [ -d "$DIR" ] || DIR="/var/cache/dnf"',
             'elif [ "$TOOL" = "dnf" ]; then',
             '    DIR="/var/cache/dnf"',
+            'elif [ "$TOOL" = "apt" ]; then',
+            '    DIR="/var/cache/apt/archives"',
             'else',
             '    exit 0',
             'fi',
@@ -418,6 +456,7 @@ Singleton {
             'fi'
         ].join("\n");
         cacheSizeProc.command = ["sh", "-c", script, "_", backendTool];
+        cacheSizeProc.running = false;
         cacheSizeProc.running = true;
     }
 
@@ -425,48 +464,54 @@ Singleton {
         if (checking || updating || backingUpBeforeUpdate || cleaningCache) return;
         cleanCacheProgress = 0;
         if (backendTool === "") {
+            if (!previewMode) {
+                lastError = "No supported package backend";
+                return;
+            }
             cleaningCache = true;
             cleanCacheProgressTimer.restart();
             previewCleanCacheTimer.restart();
             return;
         }
-        sudoPromptError = "";
-        sudoPromptOpen = true;
-    }
-
-    function cancelSudoPrompt() {
-        sudoPromptOpen = false;
-        sudoPromptError = "";
-    }
-
-    function submitSudoPassword(password) {
-        if (!password || password.length === 0) {
-            sudoPromptError = "Password cannot be empty";
-            return;
-        }
         let targetCmd = [];
         if (backendTool === "dnf5" || backendTool === "dnf") {
-            targetCmd = ["sudo", "-S", "-k", "-p", "", backendTool, "clean", "all"];
+            targetCmd = [backendTool, "clean", "all"];
         } else if (backendTool === "pacman") {
-            targetCmd = ["sudo", "-S", "-k", "-p", "", "pacman", "-Sc", "--noconfirm"];
+            targetCmd = ["pacman", "-Sc", "--noconfirm"];
+        } else if (backendTool === "apt") {
+            targetCmd = ["apt-get", "clean"];
         } else {
-            sudoPromptError = "No supported package backend";
+            lastError = "No supported package backend";
             return;
         }
-        sudoPromptOpen = false;
-        sudoPromptError = "";
-        cleaningCache = true;
-        cleanCacheProgress = 0;
         lastError = "";
-        cleanCacheProc.errBuf = "";
-        cleanCacheProc.pendingStdin = password + "\n";
-        cleanCacheProc.stdinEnabled = true;
-        cleanCacheProc.command = targetCmd;
+        cleaningCache = true;
         cleanCacheProgressTimer.restart();
-        cleanCacheProc.running = true;
+        BackupService.runPrivileged(
+            "Clean Package Cache",
+            "Remove cached package manager files using " + backendTool + ".",
+            "Clean Cache",
+            targetCmd,
+            (ok, parsed, out, err) => {
+                cleanCacheProgressTimer.stop();
+                root.cleaningCache = false;
+                root.refreshCacheSize();
+                if (ok) {
+                    root.cleanCacheProgress = 100;
+                    root.lastError = "";
+                    root.triggerStatusEvent("Package cache cleaned (100%)", "ok", true);
+                } else {
+                    root.cleanCacheProgress = 0;
+                    const msg = BackupService.cleanErrorMessage(parsed, err, "Authentication cancelled or cache clean failed");
+                    root.lastError = msg;
+                    root.triggerStatusEvent("Cache clean failed", "danger", true);
+                }
+            }
+        );
     }
 
     function triggerPreviewUpdates(count) {
+        previewMode = true;
         const n = (typeof count === "number") ? count : 4;
         if (n <= 0) {
             packages = [];
@@ -504,6 +549,7 @@ Singleton {
         running: true
         repeat: false
         onTriggered: {
+            BackupService.refreshSystemBackups();
             root.checkUpdates(false);
             root.checkShellUpdate();
             root.checkHyprSyncStatus();
@@ -516,9 +562,10 @@ Singleton {
         running: true
         repeat: true
         onTriggered: {
-            root.checkUpdates(false);
+            if (!root.maybeRunScheduledUpdate()) {
+                root.checkUpdates(false);
+            }
             root.checkShellUpdate();
-            root.maybeRunScheduledUpdate();
         }
     }
 
@@ -579,59 +626,138 @@ Singleton {
 
     Process {
         id: checkProc
+        property string outBuf: ""
+        property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
+            const lines = (outBuf || "").trim().split("\n");
+            const parsed = [];
+            let errMsg = "";
+            for (let i = 0; i < lines.length; ++i) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const parts = line.split("|");
+                if (parts[0] === "BACKEND" && parts.length >= 2) {
+                    root.backendTool = parts[1];
+                    root.previewMode = false;
+                } else if (parts[0] === "PKG" && parts.length >= 5) {
+                    parsed.push({
+                        name: parts[1],
+                        oldVersion: parts[2],
+                        newVersion: parts[3],
+                        id: parts[4],
+                        selected: true
+                    });
+                } else if (parts[0] === "ERR" && parts.length >= 2) {
+                    errMsg = parts.slice(1).join("|");
+                }
+            }
+            if (_exitCode !== 0 && errMsg === "") {
+                const fb = root.extractShellError(errBuf);
+                errMsg = fb !== "" ? fb : ("Update check failed (exit " + _exitCode + ")");
+            }
+
+            root.checking = false;
+            root.lastCheckedText = Qt.formatTime(new Date(), "hh:mm");
+            root.refreshCacheSize();
+
+            const wasVerify = root._verifyCheckPending;
+            const verifyReq = root._pendingVerifyPkgs.slice();
+            root._verifyCheckPending = false;
+            root._pendingVerifyPkgs = [];
+
+            if (errMsg !== "") {
+                root.lastError = wasVerify ? ("Post-update verification failed: " + errMsg) : errMsg;
+                if (wasVerify) {
+                    root.triggerStatusEvent("Verification failed", "danger", true);
+                } else if (root.manualCheckPending) {
+                    root.triggerStatusEvent("Update check failed", "danger", true);
+                }
+            } else {
+                const prevCount = root.packages.length;
+                root.packages = parsed;
+                root.userOverrodeBackupToggle = false;
+                root.syncBackupRecommendation();
+
+                if (wasVerify) {
+                    const byId = {};
+                    const byName = {};
+                    for (let j = 0; j < parsed.length; ++j) {
+                        byId[parsed[j].id] = parsed[j];
+                        byName[parsed[j].name] = parsed[j];
+                    }
+                    const unverified = [];
+                    for (let j = 0; j < verifyReq.length; ++j) {
+                        const r = verifyReq[j];
+                        const still = byId[r.id] || byName[r.name];
+                        if (still && (still.oldVersion === r.oldVersion || (r.oldVersion === "" && still.newVersion === r.newVersion))) {
+                            unverified.push(r.name);
+                        }
+                    }
+                    if (unverified.length > 0) {
+                        const head = unverified.slice(0, 4).join(", ");
+                        const tail = unverified.length > 4 ? (" +" + (unverified.length - 4)) : "";
+                        root.lastError = "Verification failed: " + unverified.length + " package(s) not upgraded (" + head + tail + ")";
+                        root.triggerStatusEvent("Partial update (" + unverified.length + " skipped)", "warn", true);
+                    } else {
+                        root.lastError = "";
+                        root.triggerStatusEvent(parsed.length === 0 ? "Updates installed" : (parsed.length + (parsed.length === 1 ? " update left" : " updates left")), "ok", true);
+                    }
+                } else {
+                    root.lastError = "";
+                    if (parsed.length > 0 && (parsed.length !== prevCount || root.manualCheckPending)) {
+                        root.triggerStatusEvent(parsed.length + (parsed.length === 1 ? " update ready" : " updates ready"), "info", true);
+                    } else if (parsed.length === 0 && root.manualCheckPending) {
+                        root.triggerStatusEvent("System up to date", "ok", true);
+                    }
+                }
+            }
+            root.manualCheckPending = false;
+        }
+
         command: [
             "sh", "-c",
             [
-                'BETA_FLAG=""; [ "$1" = "1" ] && BETA_FLAG="--enablerepo=updates-testing"',
+                'DNF_PY=$(cat <<\'PY\'\nimport re, subprocess, sys\ntool, use_beta, is_manual = sys.argv[1:4]\ncmd = [tool, "check-upgrade", "-q"]\nif use_beta == "1": cmd.append("--enablerepo=updates-testing")\nif is_manual == "1": cmd.append("--refresh")\nres = subprocess.run(cmd, capture_output=True, text=True)\nif res.returncode == 0: sys.exit(0)\nif res.returncode != 100:\n    errs = [ln.strip() for ln in (res.stderr or res.stdout or "").splitlines() if ln.strip()]\n    print("ERR|" + (errs[-1] if errs else "Unable to check for updates"))\n    sys.exit(1)\ndef evr_key(evr):\n    epoch = 0\n    if ":" in evr:\n        ep, evr = evr.split(":", 1)\n        try: epoch = int(ep)\n        except ValueError: epoch = 0\n    def segs(s):\n        out = []\n        for x in re.findall(r"\\d+|[A-Za-z]+|~", s):\n            if x == "~": out.append((-1, ""))\n            elif x.isdigit(): out.append((1, int(x)))\n            else: out.append((0, x))\n        return out\n    ver, _, rel = evr.partition("-")\n    return (epoch, segs(ver), segs(rel))\nrpm_out = subprocess.check_output(["rpm", "-qa", "--qf", "%{NAME}.%{ARCH}\\t%{NAME}\\t%{EPOCH}\\t%{VERSION}-%{RELEASE}\\n"], text=True)\nby_id, by_name = {}, {}\nfor ln in rpm_out.splitlines():\n    ps = ln.split("\\t")\n    if len(ps) != 4: continue\n    pid, nm, ep, vr = ps\n    evr = f"{ep}:{vr}" if (ep and ep != "(none)") else vr\n    k = evr_key(evr)\n    if pid not in by_id or k > by_id[pid][0]: by_id[pid] = (k, evr)\n    if nm not in by_name or k > by_name[nm][0]: by_name[nm] = (k, evr)\nentries, pending_id = [], None\nfor raw in res.stdout.splitlines():\n    s = raw.strip()\n    if not s:\n        pending_id = None\n        continue\n    low = s.lower()\n    if low.startswith("obsoleting"): break\n    if low in ("upgrades", "security:", "bugfix:", "enhancement:") or low.startswith("last metadata"):\n        pending_id = None\n        continue\n    parts = s.split()\n    if raw[0].isspace():\n        if pending_id and len(parts) >= 2 and not parts[1].startswith("@"):\n            entries.append((pending_id, parts[0]))\n        pending_id = None\n        continue\n    if len(parts) == 1 and "." in parts[0]:\n        pending_id = parts[0]\n        continue\n    pending_id = None\n    if len(parts) >= 3 and "." in parts[0] and not parts[2].startswith("@"):\n        entries.append((parts[0], parts[1]))\n    elif len(parts) == 2 and "." in parts[0]:\n        entries.append((parts[0], parts[1]))\nfor pkg_id, new_ver in entries:\n    name = pkg_id.rsplit(".", 1)[0]\n    old_ver = (by_id.get(pkg_id) or by_name.get(name) or (None, ""))[1]\n    print(f"PKG|{name}|{old_ver}|{new_ver}|{pkg_id}")\nPY\n)',
                 'if command -v dnf5 >/dev/null 2>&1; then',
                 '    echo "BACKEND|dnf5"',
-                '    OUT=$(dnf5 check-upgrade -q $BETA_FLAG 2>/dev/null); RC=$?',
-                '    if [ $RC -eq 0 ]; then exit 0; fi',
-                '    if [ $RC -eq 100 ]; then',
-                '        printf "%s\\n" "$OUT" | while IFS= read -r line; do',
-                '            set -- $line',
-                '            [ $# -lt 2 ] && continue',
-                '            case "$1" in *.*) ;; *) continue ;; esac',
-                '            PKG_ID="$1"; NEW_VER="$2"; NAME="${1%.*}"',
-                '            OLD_VER=$(rpm -q --qf "%{VERSION}-%{RELEASE}" "$NAME" 2>/dev/null || true)',
-                '            printf "PKG|%s|%s|%s|%s\\n" "$NAME" "$OLD_VER" "$NEW_VER" "$PKG_ID"',
-                '        done',
-                '        exit 0',
-                '    fi',
-                '    echo "ERR|Unable to check for updates"',
-                '    exit 1',
+                '    python3 -c "$DNF_PY" dnf5 "$1" "$2"',
+                '    exit $?',
                 'elif command -v dnf >/dev/null 2>&1; then',
                 '    echo "BACKEND|dnf"',
-                '    OUT=$(dnf check-upgrade -q $BETA_FLAG 2>/dev/null); RC=$?',
-                '    if [ $RC -eq 0 ]; then exit 0; fi',
-                '    if [ $RC -eq 100 ]; then',
-                '        printf "%s\\n" "$OUT" | while IFS= read -r line; do',
-                '            set -- $line',
-                '            [ $# -lt 2 ] && continue',
-                '            case "$1" in *.*) ;; *) continue ;; esac',
-                '            PKG_ID="$1"; NEW_VER="$2"; NAME="${1%.*}"',
-                '            OLD_VER=$(rpm -q --qf "%{VERSION}-%{RELEASE}" "$NAME" 2>/dev/null || true)',
-                '            printf "PKG|%s|%s|%s|%s\\n" "$NAME" "$OLD_VER" "$NEW_VER" "$PKG_ID"',
-                '        done',
-                '        exit 0',
-                '    fi',
-                '    echo "ERR|Unable to check for updates"',
-                '    exit 1',
+                '    python3 -c "$DNF_PY" dnf "$1" "$2"',
+                '    exit $?',
                 'elif command -v pacman >/dev/null 2>&1; then',
                 '    echo "BACKEND|pacman"',
                 '    if command -v checkupdates >/dev/null 2>&1; then',
-                '        OUT=$(checkupdates 2>/dev/null); RC=$?',
+                '        ERR_FILE=$(mktemp)',
+                '        OUT=$(checkupdates 2>"$ERR_FILE"); RC=$?',
+                '        ERR_TXT=$(tr "\\r\\n" "  " < "$ERR_FILE" | sed "s/[[:space:]]*$//")',
+                '        rm -f "$ERR_FILE"',
                 '        if [ $RC -eq 2 ]; then exit 0; fi',
-                '        if [ $RC -ne 0 ]; then echo "ERR|Unable to check for updates"; exit 1; fi',
+                '        if [ $RC -ne 0 ]; then echo "ERR|${ERR_TXT:-Unable to check for updates}"; exit 1; fi',
                 '    else',
                 '        OUT=$(pacman -Qu 2>/dev/null); RC=$?',
                 '        if [ $RC -ne 0 ] && [ -z "$OUT" ]; then exit 0; fi',
                 '    fi',
                 '    printf "%s\\n" "$OUT" | while IFS= read -r line; do',
-                '        set -- $line',
+                '        case "$line" in *"[ignored]"*) continue ;; esac',
+                '        set -f; set -- $line; set +f',
                 '        [ $# -lt 4 ] && continue',
                 '        printf "PKG|%s|%s|%s|%s\\n" "$1" "$2" "$4" "$1"',
                 '    done',
+                '    exit 0',
+                'elif command -v apt-get >/dev/null 2>&1 && command -v apt >/dev/null 2>&1; then',
+                '    echo "BACKEND|apt"',
+                '    OUT=$(LANGUAGE=C LC_ALL=C apt list --upgradable 2>/dev/null); RC=$?',
+                '    if [ $RC -ne 0 ]; then echo "ERR|Unable to check for apt updates"; exit 1; fi',
+                '    printf "%s\\n" "$OUT" | python3 -c \'import re, sys\nfor ln in sys.stdin:\n    m = re.match(r"^([^/\\s]+)/\\S+\\s+(\\S+)\\s+\\S+\\s+\\[upgradable from:\\s*([^\\]]+)\\]", ln.strip())\n    if m: print(f"PKG|{m.group(1)}|{m.group(3).strip()}|{m.group(2)}|{m.group(1)}")\'',
                 '    exit 0',
                 'else',
                 '    echo "ERR|No supported package system found"',
@@ -639,56 +765,28 @@ Singleton {
                 'fi'
             ].join("\n"),
             "_",
-            root.betaUpdatesEnabled ? "1" : "0"
+            root.betaUpdatesEnabled ? "1" : "0",
+            root.manualCheckPending ? "1" : "0"
         ]
 
         stdout: StdioCollector {
             onStreamFinished: {
-                const lines = text.trim().split("\n");
-                const parsed = [];
-                let errMsg = "";
-                for (let i = 0; i < lines.length; ++i) {
-                    const line = lines[i].trim();
-                    if (!line) continue;
-                    const parts = line.split("|");
-                    if (parts[0] === "BACKEND" && parts.length >= 2) {
-                        root.backendTool = parts[1];
-                    } else if (parts[0] === "PKG" && parts.length >= 5) {
-                        parsed.push({
-                            name: parts[1],
-                            oldVersion: parts[2],
-                            newVersion: parts[3],
-                            id: parts[4],
-                            selected: true
-                        });
-                    } else if (parts[0] === "ERR" && parts.length >= 2) {
-                        errMsg = parts[1];
-                    }
-                }
-
-                root.checking = false;
-                root.lastCheckedText = Qt.formatTime(new Date(), "hh:mm");
-                root.refreshCacheSize();
-
-                if (errMsg !== "") {
-                    root.lastError = errMsg;
-                    if (root.manualCheckPending) {
-                        root.triggerStatusEvent("Update check failed", "danger", true);
-                    }
-                } else {
-                    root.lastError = "";
-                    const prevCount = root.packages.length;
-                    root.packages = parsed;
-                    root.userOverrodeBackupToggle = false;
-                    root.syncBackupRecommendation();
-                    if (parsed.length > 0 && (parsed.length !== prevCount || root.manualCheckPending)) {
-                        root.triggerStatusEvent(parsed.length + (parsed.length === 1 ? " update ready" : " updates ready"), "info", true);
-                    } else if (parsed.length === 0 && root.manualCheckPending) {
-                        root.triggerStatusEvent("System up to date", "ok", true);
-                    }
-                }
-                root.manualCheckPending = false;
+                checkProc.outBuf = text || "";
+                checkProc._stdoutDone = true;
+                checkProc.tryFinish();
             }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                checkProc.errBuf = text || "";
+                checkProc._stderrDone = true;
+                checkProc.tryFinish();
+            }
+        }
+        onExited: function(exitCode) {
+            checkProc._exitCode = exitCode;
+            checkProc._exited = true;
+            checkProc.tryFinish();
         }
     }
 
@@ -728,44 +826,6 @@ Singleton {
             onStreamFinished: {
                 const val = text.trim();
                 if (val !== "") root.cacheSizeText = val;
-            }
-        }
-    }
-
-    Process {
-        id: cleanCacheProc
-        property string pendingStdin: ""
-        property string errBuf: ""
-        onStarted: {
-            if (pendingStdin !== "") {
-                cleanCacheProc.write(pendingStdin);
-                cleanCacheProc.pendingStdin = "";
-                cleanCacheProc.stdinEnabled = false;
-            }
-        }
-        stderr: SplitParser {
-            onRead: data => {
-                cleanCacheProc.errBuf += (cleanCacheProc.errBuf !== "" ? "\n" : "") + data;
-            }
-        }
-        onExited: function(exitCode) {
-            cleanCacheProgressTimer.stop();
-            root.cleaningCache = false;
-            root.refreshCacheSize();
-            if (exitCode === 0) {
-                root.cleanCacheProgress = 100;
-                root.lastError = "";
-                root.triggerStatusEvent("Package cache cleaned (100%)", "ok", true);
-            } else {
-                root.cleanCacheProgress = 0;
-                const isBadPwd = /incorrect password|sorry, try again|authentication failure/i.test(cleanCacheProc.errBuf || "");
-                if (isBadPwd) {
-                    root.sudoPromptError = "Incorrect sudo password. Please try again.";
-                    root.sudoPromptOpen = true;
-                } else {
-                    root.lastError = "Authentication cancelled or cache clean failed";
-                    root.triggerStatusEvent("Cache clean failed", "danger", true);
-                }
             }
         }
     }
@@ -892,6 +952,10 @@ Singleton {
         depsAuditProc._callbacks = typeof onDone === "function" ? [onDone] : [];
         depsAuditProc.outBuf = "";
         depsAuditProc.errBuf = "";
+        depsAuditProc._stdoutDone = false;
+        depsAuditProc._stderrDone = false;
+        depsAuditProc._exited = false;
+        depsAuditProc._exitCode = -1;
         depsAuditProc.running = true;
     }
 
@@ -905,26 +969,36 @@ Singleton {
             if (cb) cb(true);
             return;
         }
+        const aurRawStdin = missingCorePkgs.split(",").indexOf("quickshell-git") !== -1;
+        const argv = [
+            "bash", root.shellProjectRoot + "/installer/lib/apply.sh",
+            "--packages-only",
+            "--packages", missingCorePkgs
+        ];
+        if (aurRawStdin) argv.push("--sudo-stdin");
         installingDeps = true;
         depsError = "";
         BackupService.runPrivileged(
             "Install Required Shell Packages",
-            "Install mandatory Paithosh dependencies (" + missingCorePkgs + "), including Hyprcursor.",
+            "Install mandatory Paithosh dependencies (" + missingCorePkgs + ").",
             "Install Required",
-            [
-                "bash", root.shellProjectRoot + "/installer/lib/apply.sh",
-                "--packages-only",
-                "--packages", missingCorePkgs
-            ],
+            argv,
             (ok, parsed, out, err) => {
                 root.installingDeps = false;
                 if (ok) {
-                    root.depsError = "";
-                    root.checkRequiredDeps(() => {
+                    root.checkRequiredDeps((hasMissing) => {
                         CursorService.checkDeps(() => {
                             if (CursorService.depsReady) CursorService.applyNow(true);
                         });
-                        if (cb) cb(true);
+                        if (hasMissing) {
+                            root.depsError = "Verification failed — still missing: " + root.missingCorePkgs;
+                            root.triggerStatusEvent("Required packages incomplete", "danger", true);
+                            if (cb) cb(false);
+                        } else {
+                            root.depsError = "";
+                            root.triggerStatusEvent("Required packages installed", "ok", true);
+                            if (cb) cb(true);
+                        }
                     });
                 } else {
                     const msg = BackupService.cleanErrorMessage(parsed, err, "Authentication cancelled or package install failed");
@@ -932,7 +1006,10 @@ Singleton {
                     root.triggerStatusEvent("Required package install failed", "danger", true);
                     if (cb) cb(false);
                 }
-            }
+            },
+            null,
+            aurRawStdin,
+            aurRawStdin
         );
     }
 
@@ -1012,6 +1089,9 @@ Singleton {
             "cur_tag=$(git -C \"$dir\" describe --tags --exact-match HEAD 2>/dev/null || echo ''); " +
             "remote=$(git -C \"$dir\" config \"branch.$branch.remote\" 2>/dev/null || echo origin); " +
             "git -C \"$dir\" remote get-url \"$remote\" >/dev/null 2>&1 || remote=origin; " +
+            "if [ \"$(git -C \"$dir\" rev-parse --is-shallow-repository 2>/dev/null || echo false)\" = \"true\" ]; then " +
+                "GIT_TERMINAL_PROMPT=0 timeout 60 git -C \"$dir\" fetch --unshallow --tags --quiet \"$remote\" 2>/dev/null || true; " +
+            "fi; " +
             "if [ \"$stream\" = \"release\" ]; then " +
                 "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --tags --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch releases from $remote\"; exit 1; }; " +
                 "latest_tag=$(git -C \"$dir\" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1); " +
@@ -1074,22 +1154,39 @@ Singleton {
             _exited = false;
             root.shellUpdating = false;
             if (_exitCode === 0) {
+                const lines = (outBuf || "").trim().split("\n");
+                let hyprSyncWarn = false;
+                for (let i = 0; i < lines.length; ++i) {
+                    const eq = lines[i].indexOf("=");
+                    if (eq === -1) continue;
+                    const k = lines[i].slice(0, eq);
+                    const v = lines[i].slice(eq + 1).trim();
+                    if (k === "BRANCH") root.shellBranch = v;
+                    else if (k === "LOCAL") root.shellCommit = v;
+                    else if (k === "CUR_TAG") root.shellCurrentTag = v;
+                    else if (k === "HYPR_SYNC_WARN") hyprSyncWarn = true;
+                }
                 root.shellUpdateBehind = 0;
                 root.shellUpdateAhead = 0;
                 root.shellLatestSummary = "";
                 root.shellReleaseChangelog = "";
                 root.shellCommits = [];
                 root.shellUpdateError = "";
+                if (hyprSyncWarn) {
+                    root.hyprSyncError = "Hyprland config auto-sync reported a warning after shell update";
+                }
                 root.checkHyprSyncStatus();
                 root.checkRequiredDeps((hasMissing) => {
                     if (hasMissing) {
                         root.triggerStatusEvent("Installing required shell packages...", "info", false);
                         root.installMissingCoreDeps((ok) => {
                             root.triggerStatusEvent(ok ? "Paithosh Shell updated — reloading..." : "Updated shell (install missing deps in Updates)", ok ? "ok" : "warn", true);
+                            shellReloadTimer.interval = ok ? 400 : 2200;
                             shellReloadTimer.restart();
                         });
                     } else {
                         root.triggerStatusEvent("Paithosh Shell updated — reloading...", "ok", true);
+                        shellReloadTimer.interval = 400;
                         shellReloadTimer.restart();
                     }
                 });
@@ -1109,6 +1206,9 @@ Singleton {
             "branch=$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || true); " +
             "remote=$(git -C \"$dir\" config \"branch.${branch}.remote\" 2>/dev/null || echo origin); " +
             "git -C \"$dir\" remote get-url \"$remote\" >/dev/null 2>&1 || remote=origin; " +
+            "if [ \"$(git -C \"$dir\" rev-parse --is-shallow-repository 2>/dev/null || echo false)\" = \"true\" ]; then " +
+                "GIT_TERMINAL_PROMPT=0 timeout 60 git -C \"$dir\" fetch --unshallow --tags --quiet \"$remote\" 2>/dev/null || true; " +
+            "fi; " +
             "if [ \"$stream\" = \"release\" ]; then " +
                 "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --tags --quiet \"$remote\"; " +
                 "latest_tag=$(git -C \"$dir\" tag -l 'v*' --sort=-v:refname 2>/dev/null | head -n1); " +
@@ -1127,8 +1227,9 @@ Singleton {
                 "fi; " +
                 "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" merge --ff-only --quiet \"$target\"; " +
             "fi; " +
+            "printf 'BRANCH=%s\\nLOCAL=%s\\nCUR_TAG=%s\\n' \"$(git -C \"$dir\" symbolic-ref --short HEAD 2>/dev/null || echo HEAD)\" \"$(git -C \"$dir\" rev-parse --short HEAD 2>/dev/null || echo '')\" \"$(git -C \"$dir\" describe --tags --exact-match HEAD 2>/dev/null || echo '')\"; " +
             "if [ -f \"$dir/installer/lib/sync-hypr.sh\" ]; then " +
-            "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --mode update; fi",
+            "bash \"$dir/installer/lib/sync-hypr.sh\" --repo-root \"$dir\" --mode update || echo 'HYPR_SYNC_WARN=1'; fi",
             "sh", root.shellProjectRoot, root.shellUpdateStream
         ]
         stdout: StdioCollector {
@@ -1333,20 +1434,21 @@ Singleton {
         id: depsAuditProc
         property string outBuf: ""
         property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
         property var _callbacks: []
         command: ["bash", root.shellProjectRoot + "/installer/lib/audit.sh", "--json"]
-        stdout: StdioCollector {
-            onStreamFinished: depsAuditProc.outBuf = text || ""
-        }
-        stderr: StdioCollector {
-            onStreamFinished: depsAuditProc.errBuf = text || ""
-        }
-        onExited: (code) => {
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
             root.checkingDeps = false;
             const cbs = depsAuditProc._callbacks.slice();
             depsAuditProc._callbacks = [];
             let hasMissing = false;
-            if (code === 0) {
+            if (_exitCode === 0) {
                 try {
                     const data = JSON.parse(depsAuditProc.outBuf.trim());
                     const pkgs = Array.isArray(data.packages) ? data.packages : [];
@@ -1368,10 +1470,33 @@ Singleton {
                 } catch (e) {
                     root.depsError = "Failed to parse dependency audit";
                 }
+            } else {
+                const parsedErr = root.extractShellError(depsAuditProc.errBuf);
+                root.depsError = parsedErr !== "" ? parsedErr : ("Dependency audit failed (exit " + _exitCode + ")");
             }
             for (let k = 0; k < cbs.length; ++k) {
                 cbs[k](hasMissing);
             }
+        }
+
+        stdout: StdioCollector {
+            onStreamFinished: {
+                depsAuditProc.outBuf = text || "";
+                depsAuditProc._stdoutDone = true;
+                depsAuditProc.tryFinish();
+            }
+        }
+        stderr: StdioCollector {
+            onStreamFinished: {
+                depsAuditProc.errBuf = text || "";
+                depsAuditProc._stderrDone = true;
+                depsAuditProc.tryFinish();
+            }
+        }
+        onExited: (code) => {
+            depsAuditProc._exitCode = code;
+            depsAuditProc._exited = true;
+            depsAuditProc.tryFinish();
         }
     }
 }

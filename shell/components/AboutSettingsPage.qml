@@ -15,7 +15,8 @@ ColumnLayout {
     property var shellState: null
 
     // Shell & Runtime metadata
-    property string shellVersion: "1.0.3"
+    property string shellVersion: "1.2"
+    property bool _localVersionResolved: false
     property string gitBranch: "master"
     property string gitCommit: "local"
     property string qsVersion: "Quickshell"
@@ -117,7 +118,10 @@ ColumnLayout {
                     const v = lines[i].slice(eq + 1).trim();
                     if (!v) continue;
                     if (k === "QS") root.qsVersion = v;
-                    else if (k === "VER") root.shellVersion = v;
+                    else if (k === "VER") {
+                        root.shellVersion = v;
+                        root._localVersionResolved = true;
+                    }
                     else if (k === "BRANCH") root.gitBranch = v;
                     else if (k === "HASH") root.gitCommit = v;
                     else if (k === "QT") root.qtVersion = v.startsWith("Qt") ? v : ("Qt " + v);
@@ -142,7 +146,7 @@ ColumnLayout {
         stdout: StdioCollector {
             onStreamFinished: {
                 const ver = (text || "").trim();
-                if (ver) root.shellVersion = ver;
+                if (ver && !root._localVersionResolved) root.shellVersion = ver;
             }
         }
     }

@@ -45,6 +45,7 @@ run_self_checks() {
         "$REPO_ROOT/installer/test_installer.sh"
         "$REPO_ROOT/shell/scripts/xdph-share-picker.sh"
         "$REPO_ROOT/shell/scripts/screen-record.sh"
+        "$REPO_ROOT/shell/scripts/paithosh-btrfs.sh"
     )
     for sf in "${sh_files[@]}"; do
         bash -n "$sf"
@@ -52,8 +53,8 @@ run_self_checks() {
     python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py"
     echo "  PASS: syntax checks clean"
 
-    echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu..."
-    for os in arch fedora debian ubuntu; do
+    echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu/unknown & verify-pkgs..."
+    for os in arch fedora debian ubuntu unknown; do
         local json_out
         json_out="$(HOME="$TMP_HOME" PAITHOSH_MOCK_OS="$os" bash "$REPO_ROOT/installer/lib/audit.sh" --json)"
         python3 - "$os" "$json_out" <<'PY'
@@ -63,10 +64,18 @@ d = json.loads(raw)
 pkgs = {p["id"]: p for p in d["packages"]}
 all_pkg_strs = [p["pkg"] for p in d["packages"]]
 
+assert "sudoNotRequired" in d["configs"], d["configs"]
+
+if os_name == "unknown":
+    assert len(pkgs) == 0, pkgs
+    assert d["distro"]["unsupportedNote"], d["distro"]
+    sys.exit(0)
+
 assert "wf-recorder" in pkgs, os_name
 assert "pw-play" in pkgs, os_name
 assert "hyprcursor" in pkgs and pkgs["hyprcursor"]["group"] == "core" and pkgs["hyprcursor"].get("required") is True, pkgs.get("hyprcursor")
 assert "cursor-render" in pkgs and pkgs["cursor-render"]["group"] == "core" and pkgs["cursor-render"].get("required") is True, pkgs.get("cursor-render")
+assert "pillow" in pkgs and pkgs["pillow"]["group"] == "core" and pkgs["pillow"].get("required") is True, pkgs.get("pillow")
 assert pkgs["wg-quick"]["group"] == "system", pkgs["wg-quick"]
 assert "kdeconnectd" not in all_pkg_strs, all_pkg_strs
 assert "policykit-1" not in all_pkg_strs, all_pkg_strs
@@ -76,11 +85,13 @@ if os_name == "fedora":
     assert pkgs["kdeconnect-cli"]["pkg"] == "kde-connect"
     assert pkgs["pw-play"]["pkg"] == "pipewire-utils"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
-    assert pkgs["cursor-render"]["pkg"] == "python3-cairo librsvg2"
+    assert pkgs["cursor-render"]["pkg"] == "python3-cairo librsvg2 python3-gobject"
+    assert pkgs["pillow"]["pkg"] == "python3-pillow"
 elif os_name == "arch":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
-    assert pkgs["cursor-render"]["pkg"] == "python-cairo librsvg"
+    assert pkgs["cursor-render"]["pkg"] == "python-cairo librsvg python-gobject"
+    assert pkgs["pillow"]["pkg"] == "python-pillow"
     if d["distro"]["pkgMgr"] == "pacman":
         assert "quickshell-git" not in all_pkg_strs
         assert d["distro"]["aurWarning"]
@@ -88,11 +99,20 @@ elif os_name in ("debian", "ubuntu"):
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg-plugins"
     assert pkgs["pkexec"]["pkg"] == "pkexec"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor-util"
-    assert pkgs["cursor-render"]["pkg"] == "python3-cairo gir1.2-rsvg-2.0"
+    assert pkgs["cursor-render"]["pkg"] == "python3-cairo gir1.2-rsvg-2.0 python3-gi"
+    assert pkgs["pillow"]["pkg"] == "python3-pillow"
     assert d["distro"]["unsupportedNote"]
 PY
     done
-    echo "  PASS: 4-distro audit mappings verified"
+    # polkit-agent probe must use exec: and ignore polkit-agent-helper-1 / .so libs
+    grep -Fq '"system|polkit-agent|exec:' "$REPO_ROOT/installer/lib/audit.sh"
+    grep -Fq 'polkit-agent-helper' "$REPO_ROOT/installer/lib/audit.sh"
+    # --verify-pkgs must pass for installed core tools and fail on nonexistent package
+    bash "$REPO_ROOT/installer/lib/audit.sh" --verify-pkgs "python3,git" >/dev/null
+    local vrc=0
+    bash "$REPO_ROOT/installer/lib/audit.sh" --verify-pkgs "paithosh-nonexistent-pkg-xyz" >/dev/null 2>&1 || vrc=$?
+    [[ "$vrc" -ne 0 ]]
+    echo "  PASS: 4-distro audit mappings, unknown fallback, polkit probe & verify-pkgs verified"
 
     echo "[3/7] Checking install_cli.sh --dry-run piped flow..."
     local cli_home="$TMP_HOME/cli"
@@ -164,7 +184,21 @@ PY
     HOME="$pkg_only_home" bash "$REPO_ROOT/installer/lib/apply.sh" \
         --packages-only --dry-run --packages hyprcursor >/dev/null
     [[ ! -e "$pkg_only_home/.config/paithosh/settings.json" ]]
-    echo "  PASS: Lua & classic .conf apply idempotency + XDG portals + packages-only verified"
+
+    # Verify apply.sh safety invariants: sudo -S -k, EXIT INT TERM trap, --sudoloop, cursor-gen after sync-hypr, safe tokenization
+    python3 - "$REPO_ROOT/installer/lib/apply.sh" <<'PY'
+import sys
+txt = open(sys.argv[1], encoding="utf-8").read()
+assert "sudo -S -k -p" in txt, "apply.sh must pass -k to sudo -S"
+assert "trap cleanup EXIT INT TERM" in txt, "apply.sh must trap INT and TERM to wipe askpass"
+assert "--sudoloop" in txt, "apply.sh must pass --sudoloop to AUR helpers"
+assert txt.index("sync-hypr.sh") < txt.index("paithosh-cursor-gen.py"), "cursor-gen must run after sync-hypr.sh"
+PY
+    local glob_out
+    glob_out="$(HOME="$pkg_only_home" bash "$REPO_ROOT/installer/lib/apply.sh" --packages-only --dry-run --packages "*bad*,git" 2>&1)"
+    grep -Fq "ignoring invalid package token '*bad*'" <<<"$glob_out"
+    grep -Fq "Verify installed packages: git" <<<"$glob_out"
+    echo "  PASS: Lua & classic .conf apply idempotency + XDG portals + packages-only + safety verified"
 
     echo "[5/7] Checking symlink resolution for xdph-share-picker.sh..."
     local resolved_qml
@@ -393,6 +427,101 @@ assert res.returncode != 0, f"Expected non-zero rc on dirty pull, got {res.retur
 assert "error:" in res.stderr or "fatal:" in res.stderr or "Local modifications" in res.stderr, res.stderr
 PY
 
+    # 7j-b. PackageService.qml shellCheckProc must unshallow --depth 1 clones so old tags are not flagged as BEHIND
+    local sh_test="$TMP_HOME/git-shallow"
+    mkdir -p "$sh_test"
+    git init -q --bare "$sh_test/origin.git"
+    git init -q "$sh_test/work"
+    git -C "$sh_test/work" config user.email test@test
+    git -C "$sh_test/work" config user.name test
+    echo "r1" > "$sh_test/work/f.txt" && git -C "$sh_test/work" add . && git -C "$sh_test/work" commit -q -m "c1"
+    git -C "$sh_test/work" tag "v1.1"
+    echo "r2" > "$sh_test/work/f.txt" && git -C "$sh_test/work" commit -q -am "c2"
+    git -C "$sh_test/work" branch -M master
+    git -C "$sh_test/work" remote add origin "$sh_test/origin.git"
+    git -C "$sh_test/work" push -q -u origin master --tags
+    git clone -q --no-local --depth 1 --branch master "file://$sh_test/origin.git" "$sh_test/local"
+
+    python3 - "$REPO_ROOT/shell/services/PackageService.qml" "$sh_test/local" "$sh_test/home" <<'PY'
+import re, subprocess, sys
+qml = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'id:\s*shellCheckProc[\s\S]*?command:\s*\[\s*"sh",\s*"-c",\s*((?:"(?:[^"\\]|\\.)*"\s*\+\s*)*"(?:[^"\\]|\\.)*")', qml)
+assert m, "Could not locate shellCheckProc command in PackageService.qml"
+parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(1))
+script = bytes("".join(parts), "utf-8").decode("unicode_escape")
+res = subprocess.run(
+    ["sh", "-c", script, "sh", sys.argv[2], "release"],
+    env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": sys.argv[3]},
+    capture_output=True, text=True, check=True
+)
+kv = dict(ln.split("=", 1) for ln in res.stdout.splitlines() if "=" in ln)
+assert kv.get("TARGET") == "v1.1", kv
+assert kv.get("BEHIND") == "0", f"Shallow clone release false behind: {kv}"
+assert kv.get("AHEAD") == "1", f"Expected AHEAD=1 vs v1.1: {kv}"
+PY
+
+    # 7l. PackageService.qml checkProc DNF parser must handle multi-kernel, multilib, epoch, and stop at Obsoleting packages
+    python3 - "$REPO_ROOT/shell/services/PackageService.qml" "$TMP_HOME" <<'PY'
+import os, re, subprocess, sys
+qml = open(sys.argv[1], encoding="utf-8").read()
+tmp_home = sys.argv[2]
+m = re.search(r'id:\s*checkProc[\s\S]*?command:\s*\[\s*"sh",\s*"-c",\s*\[([\s\S]*?)\]\.join\("\\n"\)', qml)
+assert m, "Could not locate checkProc in PackageService.qml"
+parts = re.findall(r"'((?:[^'\\]|\\.)*)'", m.group(1))
+def js_unescape(s):
+    out = []; i = 0
+    while i < len(s):
+        if s[i] == "\\" and i + 1 < len(s):
+            nxt = s[i+1]
+            out.append({"n":"\n","t":"\t","\\":"\\","'":"'",'"':'"'}.get(nxt, "\\"+nxt))
+            i += 2
+        else: out.append(s[i]); i += 1
+    return "".join(out)
+script = "\n".join(js_unescape(p) for p in parts)
+
+mock_bin = os.path.join(tmp_home, "mock-dnf-bin")
+os.makedirs(mock_bin, exist_ok=True)
+def stub(name, body):
+    p = os.path.join(mock_bin, name)
+    open(p, "w").write("#!/usr/bin/env bash\n" + body + "\n")
+    os.chmod(p, 0o755)
+
+stub("dnf5", """cat <<'EOF'
+Upgrades
+kernel-core.x86_64           7.3.5-300.fc45           updates-testing
+glibc.x86_64                 2.44-3.fc45              updates
+glibc.i686                   2.44-3.fc45              updates
+java-25-openjdk.x86_64       1:25.0.5.1.2-1.1.fc45    updates
+
+Obsoleting packages
+replacement-pkg.x86_64       2.0-1.fc45               updates
+    replacing old-pkg.x86_64 1.0-1.fc45               @System
+EOF
+exit 100""")
+stub("rpm", """cat <<'EOF'
+kernel-core.x86_64\tkernel-core\t(none)\t7.3.3-200.fc44
+kernel-core.x86_64\tkernel-core\t(none)\t7.3.4-300.fc45
+kernel-core.x86_64\tkernel-core\t(none)\t7.3.4-200.fc44
+glibc.x86_64\tglibc\t(none)\t2.44-2.fc45
+glibc.i686\tglibc\t(none)\t2.44-2.fc45
+java-25-openjdk.x86_64\tjava-25-openjdk\t1\t25.0.5.0.8-3.1.fc45
+EOF""")
+stub("python3", f'exec "{sys.executable}" "$@"')
+
+res = subprocess.run(
+    ["sh", "-c", script, "_", "0", "0"],
+    env={"PATH": mock_bin + ":/usr/bin:/bin", "HOME": tmp_home},
+    capture_output=True, text=True, check=True
+)
+lines = [ln for ln in res.stdout.splitlines() if ln.startswith("PKG|")]
+assert lines == [
+    "PKG|kernel-core|7.3.4-300.fc45|7.3.5-300.fc45|kernel-core.x86_64",
+    "PKG|glibc|2.44-2.fc45|2.44-3.fc45|glibc.x86_64",
+    "PKG|glibc|2.44-2.fc45|2.44-3.fc45|glibc.i686",
+    "PKG|java-25-openjdk|1:25.0.5.0.8-3.1.fc45|1:25.0.5.1.2-1.1.fc45|java-25-openjdk.x86_64",
+], f"Unexpected parsed DNF lines: {lines}"
+PY
+
     # 7k. KeybindService.qml parser classifies qsIpc binds from defaults/hypr/config/binds.lua
     #     and writeProc preserves custom Lua, mainMod, escapes quotes/backslashes, & guards syntax
     local kb_home="$TMP_HOME/kb-home"
@@ -520,15 +649,18 @@ fn_body = m_fn.group(0)
 assert "isDryRun" in fn_body, "closeInstaller() must not launch shell in dry-run mode"
 assert "installDone" in fn_body and "installExitCode === 0" in fn_body, "closeInstaller() must only launch shell on successful install"
 assert "Quickshell.execDetached" in fn_body and "setsid" in fn_body, "closeInstaller() must spawn detached setsid launcher"
-assert "InstallerWindow" in fn_body, "Launcher must wait for InstallerWindow.qml to exit cleanly before pkill"
+assert ("[I]nstallerWindow" in fn_body or "InstallerWindow" in fn_body), "Launcher must wait for InstallerWindow.qml to exit cleanly before pkill"
 assert "QS_NO_RELOAD_POPUP=1" in fn_body and "qs -d -p" in fn_body, "Launcher must start qs -d -p with QS_NO_RELOAD_POPUP=1"
 assert "hyprctl reload" in fn_body, "Launcher must reload Hyprland when config was synced"
+assert "!root.loadingAudit && root.auditError === \"\"" in src, "InstallerWindow must block Next/Install during audit or audit error"
+assert "_appendPkgTokens" in src and "modelData.id" in src, "InstallerWindow must key selectedPkgs by p.id and split multi-token packages"
 
 # 3. Extract the sh -c payload and execute it with mock binaries
 m_sh = re.search(r'"setsid",\s*"-f",\s*"sh",\s*"-c",\s*((?:"(?:[^"\\]|\\.)*"\s*\+?\s*)+),', fn_body, re.DOTALL)
 assert m_sh, "Could not extract sh -c script from closeInstaller()"
 parts = re.findall(r'"((?:[^"\\]|\\.)*)"', m_sh.group(1))
 sh_script = "".join(bytes(p, "utf-8").decode("unicode_escape") for p in parts)
+assert 'pgrep -u "$uid"' in sh_script and 'pkill -u "$uid"' in sh_script, "closeInstaller() must scope pgrep/pkill to current UID"
 
 mock_bin = os.path.join(tmp_home, "mock-launch-bin")
 os.makedirs(mock_bin, exist_ok=True)

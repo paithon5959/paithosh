@@ -549,10 +549,12 @@ Item {
             if (!PackageService.shellCheckedOnce) PackageService.checkShellUpdate();
             PackageService.checkHyprSyncStatus();
             PackageService.checkRequiredDeps();
+            BackupService.refreshSystemBackups();
         }
         if (resolved === "cursor") {
             CursorService.checkDeps();
             CursorService.refreshPreviews();
+            PackageService.checkRequiredDeps();
         }
         if (resolved === "backup") BackupService.refreshAll();
         if (resolved === "storage") StorageService.scanIfStale();
@@ -3851,6 +3853,7 @@ Item {
                                         if (PackageService.cleaningCache) return "Cleaning package manager cache... " + PackageService.cleanCacheProgress + "%";
                                         if (PackageService.isArch) return "Remove old & uninstalled packages from pacman cache (pacman -Sc)";
                                         if (PackageService.isFedora) return "Remove cached repository metadata and packages (dnf clean all)";
+                                        if (PackageService.isDebian) return "Remove downloaded .deb archives from apt cache (apt-get clean)";
                                         return "Remove cached package manager files and metadata";
                                     }
                                     searchKeywords: "cache clean clear pacman dnf dnf5"
@@ -8545,25 +8548,22 @@ Item {
         }
     }
 
-    // Shared Sudo Password Dialog (Package Cache Cleaning + Btrfs / Storage Elevation)
+    // Shared Sudo Password Dialog (Btrfs / Storage / Package Elevation)
     Rectangle {
         id: sudoAuthOverlay
-        readonly property bool activeOpen: PackageService.sudoPromptOpen || BackupService.authPromptOpen || StorageService.authPromptOpen
+        readonly property bool activeOpen: BackupService.authPromptOpen || StorageService.authPromptOpen
         readonly property bool isBackupAuth: BackupService.authPromptOpen
-        readonly property bool isStorageAuth: StorageService.authPromptOpen
-        readonly property string errText: isBackupAuth ? BackupService.authPromptError : (isStorageAuth ? StorageService.authPromptError : PackageService.sudoPromptError)
+        readonly property string errText: isBackupAuth ? BackupService.authPromptError : StorageService.authPromptError
 
         function cancelActive() {
             if (isBackupAuth) BackupService.cancelAuthPrompt();
-            else if (isStorageAuth) StorageService.cancelAuthPrompt();
-            else PackageService.cancelSudoPrompt();
+            else StorageService.cancelAuthPrompt();
         }
         function submitActive() {
             const pwd = sudoPasswordField.text;
             sudoPasswordField.text = "";
             if (isBackupAuth) BackupService.submitAuthPassword(pwd);
-            else if (isStorageAuth) StorageService.submitAuthPassword(pwd);
-            else PackageService.submitSudoPassword(pwd);
+            else StorageService.submitAuthPassword(pwd);
         }
 
         anchors.fill: parent
@@ -8577,16 +8577,6 @@ Item {
             anchors.fill: parent
             enabled: sudoAuthOverlay.activeOpen
             onClicked: sudoAuthOverlay.cancelActive()
-        }
-
-        Connections {
-            target: PackageService
-            function onSudoPromptOpenChanged() {
-                if (PackageService.sudoPromptOpen) {
-                    sudoPasswordField.text = "";
-                    sudoPasswordField.forceActiveFocus();
-                }
-            }
         }
 
         Connections {
@@ -8633,7 +8623,7 @@ Item {
                     Layout.fillWidth: true
                     text: sudoAuthOverlay.isBackupAuth
                         ? BackupService.authPromptTitle
-                        : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptTitle : "Sudo Password Required")
+                        : StorageService.authPromptTitle
                     color: Theme.text
                     font.family: Theme.fontSans
                     font.pixelSize: 15
@@ -8645,7 +8635,7 @@ Item {
                     Layout.fillWidth: true
                     text: sudoAuthOverlay.isBackupAuth
                         ? BackupService.authPromptDesc
-                        : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptDesc : "Enter your sudo password to clean package manager cache.")
+                        : StorageService.authPromptDesc
                     color: Theme.textSub
                     font.family: Theme.fontSans
                     font.pixelSize: 12
@@ -8699,7 +8689,7 @@ Item {
                     CtrlBtn {
                         text: sudoAuthOverlay.isBackupAuth
                             ? BackupService.authPromptActionLabel
-                            : (sudoAuthOverlay.isStorageAuth ? StorageService.authPromptActionLabel : "Clean Cache")
+                            : StorageService.authPromptActionLabel
                         onClicked: sudoAuthOverlay.submitActive()
                     }
                 }

@@ -87,7 +87,10 @@ detect_btrfs_env() {
     fi
 
     POLKIT_ACTIVE=0
-    if pgrep -f 'polkit.*agent|polkit-gnome|hyprpolkitagent|lxpolkit|mate-polkit|xfce-polkit' >/dev/null 2>&1; then
+    local uid
+    uid=$(id -u)
+    if pgrep -u "$uid" -x 'hyprpolkitagent|lxpolkit|xfce-polkit' >/dev/null 2>&1 ||
+       pgrep -u "$uid" -f '(^|/)(hyprpolkitagent|polkit-gnome-authentication-agent-1|polkit-kde-authentication-agent-1|polkit-mate-authentication-agent-1|lxpolkit|xfce-polkit)($|[[:space:]])' >/dev/null 2>&1; then
         POLKIT_ACTIVE=1
     fi
 
@@ -435,6 +438,8 @@ cmd_create() {
         rpm -qa --qf '%{NAME}\t%{EVR}\t%{ARCH}\n' 2>/dev/null | sort > "$stage/packages.txt" || true
     elif command -v pacman >/dev/null 2>&1; then
         pacman -Q 2>/dev/null > "$stage/packages.txt" || true
+    elif command -v dpkg-query >/dev/null 2>&1; then
+        dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' 2>/dev/null | sort > "$stage/packages.txt" || true
     fi
 
     if command -v dnf5 >/dev/null 2>&1; then
@@ -443,6 +448,8 @@ cmd_create() {
         dnf repolist 2>/dev/null > "$stage/repos.txt" || true
     elif [ -f /etc/pacman.conf ]; then
         cp -a /etc/pacman.conf "$stage/repos.txt" 2>/dev/null || true
+    elif [ -d /etc/apt ]; then
+        grep -rn '^deb' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null > "$stage/repos.txt" || true
     fi
 
     {
@@ -610,7 +617,7 @@ print(json.dumps({"ok": True, "id": meta["id"], "btrfsCreated": meta["btrfs"]["c
 }
 
 cmd_pre_update() {
-    local id="" reason="Pre-update snapshot" sys_dir="" home_dir="" with_btrfs="1" tool="" all="1" beta="0"
+    local id="" reason="Pre-update snapshot" sys_dir="" home_dir="" with_btrfs="1" tool="" all="1" beta="0" ignore_pkgs=""
     local -a pkgs=()
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -622,12 +629,16 @@ cmd_pre_update() {
             --tool) tool="$2"; shift 2 ;;
             --all) all="$2"; shift 2 ;;
             --beta) beta="$2"; shift 2 ;;
+            --ignore) ignore_pkgs="$2"; shift 2 ;;
             --) shift; pkgs=("$@"); break ;;
             *) fail_json "Unknown pre-update arg: $1" ;;
         esac
     done
     require_root
     [ -n "$tool" ] || fail_json "Missing --tool"
+    if [ "$all" != "1" ] && [ ${#pkgs[@]} -eq 0 ] && [ "$tool" != "pacman" ]; then
+        fail_json "No packages specified for upgrade"
+    fi
 
     if ! cmd_create --id "$id" --reason "$reason" --trigger pre-update --sys-dir "$sys_dir" --home-dir "$home_dir" --with-btrfs "$with_btrfs" --no-result; then
         fail_json "Pre-update snapshot failed; package upgrade aborted for system safety"
@@ -641,13 +652,22 @@ cmd_pre_update() {
         if [ "$all" = "1" ]; then
             "$tool" upgrade -y "${flags[@]}" || rc=$?
         else
-            "$tool" upgrade -y "${flags[@]}" "${pkgs[@]}" || rc=$?
+            "$tool" upgrade -y "${flags[@]}" -- "${pkgs[@]}" || rc=$?
         fi
     elif [ "$tool" = "pacman" ]; then
-        if [ "$all" = "1" ]; then
-            pacman -Syu --noconfirm || rc=$?
+        if [ -n "$ignore_pkgs" ]; then
+            pacman -Syu --noconfirm --ignore "$ignore_pkgs" || rc=$?
         else
-            pacman -S --noconfirm "${pkgs[@]}" || rc=$?
+            pacman -Syu --noconfirm || rc=$?
+        fi
+    elif [ "$tool" = "apt" ]; then
+        DEBIAN_FRONTEND=noninteractive apt-get update || rc=$?
+        if [ "$rc" -eq 0 ]; then
+            if [ "$all" = "1" ]; then
+                DEBIAN_FRONTEND=noninteractive apt-get upgrade -y || rc=$?
+            else
+                DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade -- "${pkgs[@]}" || rc=$?
+            fi
         fi
     else
         fail_json "Unsupported package tool: $tool"

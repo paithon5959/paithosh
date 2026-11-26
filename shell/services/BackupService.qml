@@ -87,6 +87,7 @@ Singleton {
     property var _pendingPrivCmd: []
     property var _pendingPrivOnLine: null
     property var _pendingPrivCallback: null
+    property bool _pendingPrivRawStdin: false
     property string _pendingPrivTitle: ""
     property string _pendingPrivDesc: ""
     property string _pendingPrivActionLabel: ""
@@ -153,8 +154,10 @@ Singleton {
                 }
             }
             onExited: (exitCode) => {
-                if (cb) cb(exitCode === 0, proc.outBuf, proc.errBuf, exitCode);
-                destroy();
+                Qt.callLater(() => {
+                    if (cb) cb(exitCode === 0, proc.outBuf, proc.errBuf, exitCode);
+                    destroy();
+                });
             }
         }
     }
@@ -168,9 +171,10 @@ Singleton {
         });
     }
 
-    function runSudoCmd(password, argv, cb, onLine) {
+    function runSudoCmd(password, argv, cb, onLine, rawStdinMode) {
+        const cmd = rawStdinMode ? argv : ["sudo", "-S", "-k", "-p", ""].concat(argv);
         procComp.createObject(root, {
-            command: ["sudo", "-S", "-k", "-p", ""].concat(argv),
+            command: cmd,
             stdinEnabled: true,
             pendingStdin: password + "\n",
             onLine: onLine || null,
@@ -314,12 +318,16 @@ Singleton {
     }
 
     // Unified Privileged Execution: pkexec if Polkit agent active (unless forceSudo), else shared sudo stdin modal
-    function runPrivileged(title, desc, actionLabel, argv, onDone, onLine, forceSudo) {
-        if (!forceSudo && btrfsInfo && btrfsInfo.polkitAgentActive) {
+    function runPrivileged(title, desc, actionLabel, argv, onDone, onLine, forceSudo, rawStdinMode) {
+        if (!forceSudo && !rawStdinMode && btrfsInfo && btrfsInfo.polkitAgentActive) {
             runCmd(["pkexec"].concat(argv), (ok, out, err, code) => {
                 const parsed = extractResultJson(out);
                 if (onDone) onDone(ok, parsed, out, err, code);
             }, onLine);
+            return;
+        }
+        if (authPromptOpen) {
+            if (onDone) onDone(false, null, "", "Another administrator authentication prompt is already open", 126);
             return;
         }
         _pendingPrivTitle = title || "Administrator Authentication";
@@ -328,6 +336,7 @@ Singleton {
         _pendingPrivCmd = argv.slice();
         _pendingPrivOnLine = onLine || null;
         _pendingPrivCallback = onDone || null;
+        _pendingPrivRawStdin = Boolean(rawStdinMode);
 
         authPromptTitle = _pendingPrivTitle;
         authPromptDesc = _pendingPrivDesc;
@@ -343,6 +352,7 @@ Singleton {
         _pendingPrivCmd = [];
         _pendingPrivOnLine = null;
         _pendingPrivCallback = null;
+        _pendingPrivRawStdin = false;
         if (cb) cb(false, null, "", "Authentication cancelled", 126);
     }
 
@@ -354,11 +364,12 @@ Singleton {
         const argv = _pendingPrivCmd.slice();
         const onLine = _pendingPrivOnLine;
         const cb = _pendingPrivCallback;
+        const rawStdin = _pendingPrivRawStdin;
         authPromptOpen = false;
         authPromptError = "";
 
         runSudoCmd(password, argv, (ok, out, err, code) => {
-            const isBadPwd = !ok && /incorrect password|sorry, try again|authentication failure/i.test(err || "");
+            const isBadPwd = !ok && (code === 42 || /incorrect password|sorry, try again|authentication failure/i.test(err || ""));
             if (isBadPwd) {
                 authPromptTitle = _pendingPrivTitle;
                 authPromptDesc = _pendingPrivDesc;
@@ -370,9 +381,10 @@ Singleton {
             _pendingPrivCmd = [];
             _pendingPrivOnLine = null;
             _pendingPrivCallback = null;
+            _pendingPrivRawStdin = false;
             const parsed = extractResultJson(out);
             if (cb) cb(ok, parsed, out, err, code);
-        }, onLine);
+        }, onLine, rawStdin);
     }
 
     function refreshAll() {

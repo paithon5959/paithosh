@@ -41,9 +41,11 @@ PanelWindow {
     property var hyprLuaSupported: null
     property bool paithoshExists: false
     property bool polkitAgentActive: false
+    property bool sudoNotRequired: false
     property bool coprNeeded: false
     property string distroNote: ""
     property var packages: []
+    property var missingCorePackages: []
     property var missingExtraPackages: []
     property var installedExtraPackages: []
     property int missingCoreCount: 0
@@ -80,7 +82,7 @@ PanelWindow {
 
     // Release metadata (synced from GitHub latest release, with local fallback)
     property bool loadingRelease: true
-    property string releaseVersion: "v1.0.3"
+    property string releaseVersion: "v1.2"
     property string releaseDate: ""
     property bool releaseFromGithub: false
     property var releaseChangelogs: [
@@ -152,29 +154,38 @@ PanelWindow {
     }
 
     function rebuildPackageLists() {
+        const coreMissingList = [];
         const missingExtra = [];
         const installedExtra = [];
-        let coreMissing = 0;
         for (let i = 0; i < packages.length; ++i) {
             const p = packages[i];
             if (isCorePkg(p)) {
-                if (!p.installed) coreMissing += 1;
+                if (!p.installed) coreMissingList.push(p);
                 continue;
             }
             if (p.installed) installedExtra.push(p);
             else missingExtra.push(p);
         }
+        missingCorePackages = coreMissingList;
         missingExtraPackages = missingExtra;
         installedExtraPackages = installedExtra;
-        missingCoreCount = coreMissing;
+        missingCoreCount = coreMissingList.length;
     }
 
     function selectedExtraCount() {
         let count = 0;
         for (let i = 0; i < missingExtraPackages.length; ++i) {
-            if (selectedPkgs[missingExtraPackages[i].pkg]) count += 1;
+            if (selectedPkgs[missingExtraPackages[i].id]) count += 1;
         }
         return count;
+    }
+
+    function _appendPkgTokens(out, pkgStr) {
+        const toks = String(pkgStr || "").trim().split(/\s+/);
+        for (let j = 0; j < toks.length; ++j) {
+            const t = toks[j];
+            if (t !== "" && out.indexOf(t) === -1) out.push(t);
+        }
     }
 
     function selectedPkgList() {
@@ -182,15 +193,15 @@ PanelWindow {
         // Core packages are mandatory and always auto-included when missing
         for (let i = 0; i < packages.length; ++i) {
             const p = packages[i];
-            if (!p.installed && isCorePkg(p) && out.indexOf(p.pkg) === -1) {
-                out.push(p.pkg);
+            if (!p.installed && isCorePkg(p)) {
+                _appendPkgTokens(out, p.pkg);
             }
         }
         // User-selected additional packages
         for (let i = 0; i < missingExtraPackages.length; ++i) {
             const p = missingExtraPackages[i];
-            if (selectedPkgs[p.pkg] && out.indexOf(p.pkg) === -1) {
-                out.push(p.pkg);
+            if (selectedPkgs[p.id]) {
+                _appendPkgTokens(out, p.pkg);
             }
         }
         return out;
@@ -202,8 +213,8 @@ PanelWindow {
         if (mode !== "skip") {
             for (let i = 0; i < missingExtraPackages.length; ++i) {
                 const p = missingExtraPackages[i];
-                if (mode === "all") next[p.pkg] = true;
-                else if (mode === "rec" && (p.group === "wayland" || p.group === "system")) next[p.pkg] = true;
+                if (mode === "all") next[p.id] = true;
+                else if (mode === "rec" && (p.group === "wayland" || p.group === "system")) next[p.id] = true;
             }
         }
         selectedPkgs = next;
@@ -217,7 +228,12 @@ PanelWindow {
     function retryAudit() {
         loadingAudit = true;
         auditError = "";
+        auditProc.outBuf = "";
         auditProc.errBuf = "";
+        auditProc._stdoutDone = false;
+        auditProc._stderrDone = false;
+        auditProc._exited = false;
+        auditProc._exitCode = -1;
         auditProc.running = false;
         auditProc.running = true;
     }
@@ -225,11 +241,13 @@ PanelWindow {
     function needsSudoPrompt() {
         if (isDryRun) return false;
         if (selectedPkgList().length === 0) return false;
+        if (sudoNotRequired) return false;
         const mgr = (distroInfo && distroInfo.pkgMgr) ? distroInfo.pkgMgr : "";
         return !polkitAgentActive || mgr === "paru" || mgr === "yay";
     }
 
     function startInstall() {
+        if (installing || loadingAudit || auditError !== "") return;
         if (needsSudoPrompt()) {
             sudoPromptError = "";
             sudoPromptOpen = true;
@@ -239,6 +257,7 @@ PanelWindow {
     }
 
     function launchApply(sudoPassword) {
+        if (installing) return;
         SoundService.playInstallerStart();
         step = 3;
         installing = true;
@@ -283,17 +302,17 @@ PanelWindow {
             Quickshell.execDetached([
                 "setsid", "-f", "sh", "-c",
                 "exec </dev/null >/dev/null 2>&1; " +
-                "shell_dir=\"$1\"; sync_hypr=\"$2\"; " +
-                "i=0; while [ $i -lt 20 ] && pgrep -f 'InstallerWindow\\.qml' >/dev/null 2>&1; do " +
+                "shell_dir=\"$1\"; sync_hypr=\"$2\"; uid=\"$(id -u)\"; " +
+                "i=0; while [ $i -lt 20 ] && pgrep -u \"$uid\" -f '[I]nstallerWindow\\.qml' >/dev/null 2>&1; do " +
                 "  sleep 0.1; i=$((i + 1)); " +
                 "done; " +
-                "pkill -x qs 2>/dev/null || true; " +
-                "pkill -x quickshell 2>/dev/null || true; " +
-                "i=0; while [ $i -lt 30 ] && (pgrep -x qs >/dev/null 2>&1 || pgrep -x quickshell >/dev/null 2>&1); do " +
+                "pkill -u \"$uid\" -x qs 2>/dev/null || true; " +
+                "pkill -u \"$uid\" -x quickshell 2>/dev/null || true; " +
+                "i=0; while [ $i -lt 30 ] && (pgrep -u \"$uid\" -x qs >/dev/null 2>&1 || pgrep -u \"$uid\" -x quickshell >/dev/null 2>&1); do " +
                 "  sleep 0.1; i=$((i + 1)); " +
                 "done; " +
-                "pkill -9 -x qs 2>/dev/null || true; " +
-                "pkill -9 -x quickshell 2>/dev/null || true; " +
+                "pkill -9 -u \"$uid\" -x qs 2>/dev/null || true; " +
+                "pkill -9 -u \"$uid\" -x quickshell 2>/dev/null || true; " +
                 "if [ \"$sync_hypr\" = \"1\" ] && [ -n \"${HYPRLAND_INSTANCE_SIGNATURE:-}\" ] && command -v hyprctl >/dev/null 2>&1; then " +
                 "  hyprctl reload >/dev/null 2>&1 || true; " +
                 "  sleep 0.2; " +
@@ -315,49 +334,71 @@ PanelWindow {
         id: auditProc
         command: ["bash", root.repoRoot + "/installer/lib/audit.sh", "--json"]
         running: false
+        property string outBuf: ""
         property string errBuf: ""
+        property bool _stdoutDone: false
+        property bool _stderrDone: false
+        property bool _exited: false
+        property int _exitCode: -1
+
+        function tryFinish() {
+            if (!_stdoutDone || !_stderrDone || !_exited) return;
+            _exited = false;
+            root.loadingAudit = false;
+            const raw = outBuf.trim();
+            if (_exitCode !== 0 && !raw) {
+                root.auditError = errBuf || ("Audit script failed (exit " + _exitCode + ").");
+                return;
+            }
+            if (!raw) {
+                root.auditError = errBuf || "System audit produced no output.";
+                return;
+            }
+            try {
+                const data = JSON.parse(raw);
+                root.auditError = "";
+                root.distroInfo = data.distro || root.distroInfo;
+                root.hyprExists = Boolean(data.configs && data.configs.hyprExists);
+                root.hyprFiles = (data.configs && data.configs.hyprFiles) ? data.configs.hyprFiles : 0;
+                root.hyprConfigKind = (data.configs && data.configs.hyprConfigKind) ? data.configs.hyprConfigKind : "none";
+                root.hyprManagedByPaithosh = Boolean(data.configs && data.configs.hyprManagedByPaithosh);
+                root.hyprLuaSupported = (data.configs && data.configs.hyprLuaSupported !== undefined) ? data.configs.hyprLuaSupported : null;
+                root.paithoshExists = Boolean(data.configs && data.configs.paithoshExists);
+                root.polkitAgentActive = Boolean(data.configs && data.configs.polkitAgentActive);
+                root.sudoNotRequired = Boolean(data.configs && data.configs.sudoNotRequired);
+                root.coprNeeded = Boolean(data.distro && data.distro.coprNeeded);
+                const notes = [];
+                if (root.coprNeeded) notes.push("Fedora COPR lionheartp/Hyprland will be enabled automatically.");
+                if (data.distro && data.distro.aurWarning) notes.push(data.distro.aurWarning);
+                if (data.distro && data.distro.unsupportedNote) notes.push(data.distro.unsupportedNote);
+                root.distroNote = notes.join(" ");
+                root.packages = data.packages || [];
+                root.rebuildPackageLists();
+                root.selectPackagePreset("rec");
+            } catch (e) {
+                root.auditError = "Audit parse error: " + e;
+                root.installLog += root.auditError + "\n";
+            }
+        }
+
         stdout: StdioCollector {
             onStreamFinished: {
-                root.loadingAudit = false;
-                const raw = text.trim();
-                if (!raw) {
-                    root.auditError = auditProc.errBuf || "System audit produced no output.";
-                    return;
-                }
-                try {
-                    const data = JSON.parse(raw);
-                    root.auditError = "";
-                    root.distroInfo = data.distro || root.distroInfo;
-                    root.hyprExists = Boolean(data.configs && data.configs.hyprExists);
-                    root.hyprFiles = (data.configs && data.configs.hyprFiles) ? data.configs.hyprFiles : 0;
-                    root.hyprConfigKind = (data.configs && data.configs.hyprConfigKind) ? data.configs.hyprConfigKind : "none";
-                    root.hyprManagedByPaithosh = Boolean(data.configs && data.configs.hyprManagedByPaithosh);
-                    root.hyprLuaSupported = (data.configs && data.configs.hyprLuaSupported !== undefined) ? data.configs.hyprLuaSupported : null;
-                    root.paithoshExists = Boolean(data.configs && data.configs.paithoshExists);
-                    root.polkitAgentActive = Boolean(data.configs && data.configs.polkitAgentActive);
-                    root.coprNeeded = Boolean(data.distro && data.distro.coprNeeded);
-                    const notes = [];
-                    if (root.coprNeeded) notes.push("Fedora COPR lionheartp/Hyprland will be enabled automatically.");
-                    if (data.distro && data.distro.aurWarning) notes.push(data.distro.aurWarning);
-                    if (data.distro && data.distro.unsupportedNote) notes.push(data.distro.unsupportedNote);
-                    root.distroNote = notes.join(" ");
-                    root.packages = data.packages || [];
-                    root.rebuildPackageLists();
-                    root.selectPackagePreset("rec");
-                } catch (e) {
-                    root.auditError = "Audit parse error: " + e;
-                    root.installLog += root.auditError + "\n";
-                }
+                auditProc.outBuf = text || "";
+                auditProc._stdoutDone = true;
+                auditProc.tryFinish();
             }
         }
         stderr: StdioCollector {
-            onStreamFinished: auditProc.errBuf = text.trim()
+            onStreamFinished: {
+                auditProc.errBuf = (text || "").trim();
+                auditProc._stderrDone = true;
+                auditProc.tryFinish();
+            }
         }
         onExited: (code) => {
-            if (code !== 0 && root.auditError === "") {
-                root.loadingAudit = false;
-                root.auditError = auditProc.errBuf || ("Audit script failed (exit " + code + ").");
-            }
+            auditProc._exitCode = code;
+            auditProc._exited = true;
+            auditProc.tryFinish();
         }
     }
 
@@ -500,6 +541,7 @@ PanelWindow {
 
     // Fullscreen dark scrim (gradual dim -> splash shader glow -> dialog)
     Rectangle {
+        id: scrimRoot
         anchors.fill: parent
         color: Qt.rgba(0, 0, 0, root.scrimAlpha)
         focus: true
@@ -755,7 +797,7 @@ PanelWindow {
                                     id: navMouse
                                     anchors.fill: parent
                                     hoverEnabled: true
-                                    enabled: !root.installing && index < 3
+                                    enabled: !root.installing && index < 3 && (index < 2 || (!root.loadingAudit && root.auditError === ""))
                                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                                     onClicked: root.step = index
                                 }
@@ -793,6 +835,17 @@ PanelWindow {
                                         Layout.maximumWidth: 132
                                         text: root.optTheme + " (" + root.optBarPos + ")"
                                         color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 6
+                                    visible: !root.loadingAudit && root.missingCoreCount > 0
+                                    Text { text: "Core"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Item { Layout.fillWidth: true }
+                                    Text {
+                                        text: root.missingCoreCount + " required"
+                                        color: Theme.warn; font.family: Theme.fontMono; font.pixelSize: 11
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -1375,7 +1428,38 @@ PanelWindow {
                                     }
                                 }
 
-                                // ==================== 3. ADDITIONAL PACKAGES (CORE HIDDEN & AUTO-INSTALLED) ====================
+                                // ==================== 3. MANDATORY CORE PACKAGES (IF MISSING) ====================
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    visible: !root.loadingAudit && root.missingCoreCount > 0
+                                    implicitHeight: coreCol.implicitHeight + 20
+                                    radius: 10; clip: true
+                                    color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.10)
+                                    border.width: 1; border.color: Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.36)
+
+                                    RowLayout {
+                                        id: coreCol
+                                        anchors.fill: parent; anchors.margins: 10; spacing: 10
+                                        SvgIcon { sourceName: "shield"; iconSize: 15; color: Theme.warn }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text {
+                                                Layout.fillWidth: true
+                                                text: "Mandatory Core Packages (" + root.missingCoreCount + " auto-installed)"
+                                                color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+                                            Text {
+                                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                text: root.missingCorePackages.map(p => p.pkg).join("  •  ")
+                                                color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 10
+                                                wrapMode: Text.WordWrap
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // ==================== 4. ADDITIONAL PACKAGES ====================
                                 RowLayout {
                                     Layout.fillWidth: true; Layout.topMargin: 2
                                     spacing: 8
@@ -1460,30 +1544,46 @@ PanelWindow {
                                         width: parent.width
                                         spacing: 0
 
-                                        // Empty state when all additional packages are already installed
+                                        // Empty state when all additional packages are already installed (or unsupported distro)
                                         Item {
+                                            id: emptyPkgState
                                             Layout.fillWidth: true
                                             height: 54
                                             visible: root.missingExtraPackages.length === 0
+                                            readonly property bool isUnsupported: Boolean(root.distroInfo && root.distroInfo.family === "unknown")
                                             RowLayout {
                                                 anchors.fill: parent; anchors.leftMargin: 14; anchors.rightMargin: 14; spacing: 12
                                                 Rectangle {
                                                     width: 30; height: 30; radius: 8
-                                                    color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
-                                                    border.width: 1; border.color: Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35)
-                                                    SvgIcon { anchors.centerIn: parent; sourceName: "check"; iconSize: 15; color: Theme.ok }
+                                                    color: emptyPkgState.isUnsupported
+                                                        ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                        : Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.14)
+                                                    border.width: 1
+                                                    border.color: emptyPkgState.isUnsupported
+                                                        ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.35)
+                                                        : Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35)
+                                                    SvgIcon {
+                                                        anchors.centerIn: parent
+                                                        sourceName: emptyPkgState.isUnsupported ? "alert-triangle" : "check"
+                                                        iconSize: 15
+                                                        color: emptyPkgState.isUnsupported ? Theme.warn : Theme.ok
+                                                    }
                                                 }
                                                 ColumnLayout {
                                                     Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 1
                                                     Text {
                                                         Layout.fillWidth: true
-                                                        text: "All recommended & optional packages are installed"
+                                                        text: emptyPkgState.isUnsupported
+                                                            ? "Unsupported package manager"
+                                                            : "All recommended & optional packages are installed"
                                                         color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.Medium
                                                         elide: Text.ElideRight
                                                     }
                                                     Text {
                                                         Layout.fillWidth: true
-                                                        text: root.distroInfo.pkgMgr + " (" + root.distroInfo.family + ") • Nothing extra needed"
+                                                        text: emptyPkgState.isUnsupported
+                                                            ? "Install dependencies manually — see installer/packages.txt"
+                                                            : (root.distroInfo.pkgMgr + " (" + root.distroInfo.family + ") • Nothing extra needed")
                                                         color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10
                                                         elide: Text.ElideRight
                                                     }
@@ -1500,7 +1600,7 @@ PanelWindow {
                                                 Layout.fillWidth: true
                                                 height: 52
                                                 clip: true
-                                                readonly property bool isChecked: Boolean(root.selectedPkgs[modelData.pkg])
+                                                readonly property bool isChecked: Boolean(root.selectedPkgs[modelData.id])
                                                 color: pkgRowMouse.containsMouse ? Theme.cardHover : "transparent"
                                                 scale: pkgRowMouse.pressed ? 0.99 : 1.0
                                                 Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -1563,7 +1663,7 @@ PanelWindow {
                                                     onClicked: {
                                                         root.activePkgPreset = "";
                                                         const next = Object.assign({}, root.selectedPkgs);
-                                                        next[modelData.pkg] = !next[modelData.pkg];
+                                                        next[modelData.id] = !next[modelData.id];
                                                         root.selectedPkgs = next;
                                                     }
                                                 }
@@ -1674,6 +1774,7 @@ PanelWindow {
                         // STEP 2: Preferences (Large Settings-Style Cards + Pre-configured Theme Presets)
                         Flickable {
                             anchors.fill: parent
+                            contentWidth: width
                             contentHeight: s2Col.implicitHeight + 16
                             boundsBehavior: Flickable.StopAtBounds
                             clip: true
@@ -2005,8 +2106,11 @@ PanelWindow {
                                     ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
                                     : Theme.borderSubtle
                                 Flickable {
+                                    id: logFlick
                                     anchors.fill: parent; anchors.margins: 12
+                                    contentWidth: width
                                     contentHeight: logText.implicitHeight; clip: true
+                                    boundsBehavior: Flickable.StopAtBounds
                                     Text {
                                         id: logText
                                         width: parent.width
@@ -2014,6 +2118,11 @@ PanelWindow {
                                         color: (root.installDone && root.installExitCode !== 0) ? Theme.dangerText : Theme.textSub
                                         font.family: Theme.fontMono; font.pixelSize: 11
                                         wrapMode: Text.Wrap
+                                        onImplicitHeightChanged: {
+                                            if (logFlick.contentHeight > logFlick.height) {
+                                                logFlick.contentY = logFlick.contentHeight - logFlick.height;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -2042,6 +2151,7 @@ PanelWindow {
                             iconName: root.step === 2 ? "download" : "chevron-right"
                             active: true
                             visible: root.step < 3
+                            enabled: !root.installing && (root.step === 0 || (!root.loadingAudit && root.auditError === ""))
                             onClicked: {
                                 if (root.step < 2) root.step += 1;
                                 else root.startInstall();
@@ -2085,6 +2195,7 @@ PanelWindow {
                 if (root.step === 3 && !root.installing && !root.installDone) {
                     root.step = 2;
                 }
+                scrimRoot.forceActiveFocus();
             }
             function submitPrompt() {
                 const pwd = sudoPasswordField.text;
@@ -2095,6 +2206,7 @@ PanelWindow {
                 sudoPasswordField.text = "";
                 root.sudoPromptError = "";
                 root.sudoPromptOpen = false;
+                scrimRoot.forceActiveFocus();
                 root.launchApply(pwd);
             }
 
