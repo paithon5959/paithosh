@@ -19,15 +19,20 @@ Singleton {
         { slug: "synthwave", label: "Synthwave" }
     ]
 
-    readonly property string statePath: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh/mixcloud.json"
+    readonly property string configDir: (Quickshell.env("HOME") || "/tmp") + "/.config/paithosh"
+    readonly property string statePath: configDir + "/mixcloud.json"
+    readonly property string backupDir: configDir + "/backups"
     readonly property string _daemonScript: Quickshell.shellDir + "/scripts/paithosh-mixcloud.py"
 
     // Dependency & daemon status
     property bool depsChecked: false
     property bool hasMpv: false
     property bool hasYtDlp: false
+    property bool hasFfmpeg: false
+    property bool hasPactl: false
+    property bool hasParec: false
     readonly property bool depsReady: hasMpv && hasYtDlp
-    property string installHint: "sudo dnf install -y mpv yt-dlp"
+    property string installHint: "sudo dnf install -y mpv yt-dlp ffmpeg"
 
     // Playback state
     property string playbackState: "idle" // "idle" | "resolving" | "buffering" | "playing" | "paused" | "error"
@@ -43,17 +48,93 @@ Singleton {
     property bool shuffle: false
     property string errorMessage: ""
 
-    // Smooth Media Audio Ducking (yields gracefully when Discord/Browser/other audio plays)
+    // Audio & EQ Settings (Standard -> Advanced DSP)
+    property string audioPreset: "standard" // "standard" | "warm" | "bass" | "vocal" | "club" | "custom"
+    property bool audioDspEnabled: true
+    property real eqBassDb: 0.0
+    property real eqMidDb: 0.0
+    property real eqHighDb: 0.0
+    property real eqBassFreq: 90
+    property real eqBassQ: 0.7
+    property real eqMidFreq: 1000
+    property real eqMidQ: 1.0
+    property real eqHighFreq: 10000
+    property real eqHighQ: 0.7
+    property real audioPreampDb: 0.0
+    property bool audioAutoHeadroom: true
+    property bool audioNormalize: false
+    property real audioNormPeak: 0.92
+    property int audioNormFrameMs: 200
+    property real audioStereoWidth: 1.0
+    property bool audioCrossfeed: false
+    property real audioCrossfeedStrength: 0.25
+    property bool audioLimiter: true
+    property real audioLimiterCeilingDb: -0.5
+
+    // Smooth Media Audio Ducking Settings + Live Telemetry
+    property string duckPreset: "balanced" // "gentle" | "balanced" | "focus" | "custom"
     property bool autoDuckEnabled: true
     property real duckLevel: 0.24
+    property string duckMode: "rms" // "rms" | "presence"
+    property int duckAttackMs: 60
+    property int duckReleaseHoldMs: 320
+    property int duckFadeDownMs: 260
+    property int duckFadeUpMs: 520
+    property real duckRmsThresholdDb: -46
+    property string duckIgnoredApps: ""
     property bool isDucking: false
     property string duckSource: ""
+    property real duckGain: 1.0
+    property int duckMonitoredCount: 0
+
+    // Progressive Audio Mix Settings + Live Telemetry
+    property string mixPreset: "progressive" // "off" | "seamless" | "progressive" | "club" | "custom"
+    property bool mixEnabled: true
+    property int mixDurationSec: 14
+    property string mixCurve: "progressive" // "progressive" | "equal_power" | "smooth_s" | "linear"
+    property bool mixMatchVolume: true
+    property bool mixMatchTempo: true
+    property bool mixMatchOffset: true
+    property int mixCueLeadSec: 30
+    property int mixAnalysisWindowSec: 12
+    property int mixMaxTempoShiftPct: 6
+    property int mixTempoReleaseSec: 10
+    property int mixMaxGainTrimDb: 6
+    property real mixSilenceThresholdDb: -38
+    property int mixManualOffsetMs: 0
+    property int mixMinTrackDurationSec: 45
+    property bool mixAllowOnShuffle: true
+
+    property string mixStage: "idle" // "idle" | "cueing" | "analyzing" | "syncing" | "blending" | "swapping"
+    property real mixProgress: 0.0
+    property var mixNextTrack: null
+    property int mixNextQueueIndex: -1
+    property real mixBpmA: 0.0
+    property real mixBpmB: 0.0
+    property real mixGainTrimDb: 0.0
+    property real mixOffsetMs: 0.0
+    property real mixSpeedRatio: 1.0
+    property real mixBufferMs: 0.0
+    property string mixNote: ""
+    readonly property bool isMixing: mixStage !== "idle"
+
+    // Playback Preferences
+    property bool rememberPosition: true
+    property string bufferPreset: "balanced" // "low" | "balanced" | "high"
+    property bool pitchCorrection: true
+
+    // Data & Diagnostics
+    property real stateFileSizeBytes: 0
+    property int backupCount: 0
+    property string lastBackupStatus: ""
+    property bool lastBackupOk: true
 
     readonly property real effectiveDuration: duration > 0 ? duration : (currentTrack && currentTrack.duration > 0 ? currentTrack.duration : 0)
     readonly property real progress: effectiveDuration > 0 ? Math.max(0, Math.min(1, position / effectiveDuration)) : 0
 
-    // Feed & browsing state
-    property string activeSection: "discover" // "discover" | "search" | "creator" | "queue" | "favorites" | "recent"
+    // Feed, Browsing & Settings Navigation State
+    property string activeSection: "discover" // "discover" | "search" | "creator" | "queue" | "favorites" | "recent" | "settings"
+    property string settingsTab: "audio" // "audio" | "mix" | "ducking" | "playback" | "data"
     property string activeGenre: "lo-fi"
     property string sortMode: "popular" // "popular" | "latest"
     property string searchQuery: ""
@@ -75,7 +156,10 @@ Singleton {
     property int _feedSeq: 0
     property int _playSeq: 0
     property bool _loaded: false
+    property bool _needsResumeReload: false
     property var _pendingCmds: []
+    property string _lastAutoCueTag: ""
+    property var _pendingMixEntry: null
 
     FileView {
         id: stateReader
@@ -86,29 +170,192 @@ Singleton {
             try {
                 const raw = (text() || "").trim();
                 if (raw !== "") {
-                    const d = JSON.parse(raw);
-                    if (Array.isArray(d.favorites)) root.favorites = d.favorites;
-                    if (Array.isArray(d.recent)) root.recent = d.recent.slice(0, 30);
-                    if (typeof d.volume === "number") root.volume = Math.max(0, Math.min(100, Math.round(d.volume)));
-                    if (typeof d.muted === "boolean") root.muted = d.muted;
-                    if (d.repeatMode === "off" || d.repeatMode === "all" || d.repeatMode === "one") root.repeatMode = d.repeatMode;
-                    if (typeof d.shuffle === "boolean") root.shuffle = d.shuffle;
-                    if (typeof d.autoDuckEnabled === "boolean") root.autoDuckEnabled = d.autoDuckEnabled;
-                    if (typeof d.duckLevel === "number") root.duckLevel = Math.max(0.08, Math.min(0.75, d.duckLevel));
-                    if (typeof d.lastGenre === "string" && d.lastGenre !== "") root.activeGenre = d.lastGenre;
-                    if (d.sortMode === "popular" || d.sortMode === "latest") root.sortMode = d.sortMode;
-                    if (typeof d.prefListView === "boolean") root.prefListView = d.prefListView;
+                    root._applyLoadedPayload(JSON.parse(raw), true);
                 }
             } catch (e) {}
             root._loaded = true;
+            root.refreshStateDiagnostics();
+            if (daemonProc.running) {
+                root.syncAllDaemonConfigs();
+            }
         }
-        onLoadFailed: root._loaded = true
+        onLoadFailed: {
+            root._loaded = true;
+            root.refreshStateDiagnostics();
+        }
+    }
+
+    function _applyLoadedPayload(d, restorePlaybackTrack) {
+        if (!d || typeof d !== "object") return;
+        if (Array.isArray(d.favorites)) root.favorites = d.favorites;
+        if (Array.isArray(d.recent)) root.recent = d.recent.slice(0, 30);
+        if (typeof d.volume === "number") root.volume = Math.max(0, Math.min(100, Math.round(d.volume)));
+        if (typeof d.muted === "boolean") root.muted = d.muted;
+        if (d.repeatMode === "off" || d.repeatMode === "all" || d.repeatMode === "one") root.repeatMode = d.repeatMode;
+        if (typeof d.shuffle === "boolean") root.shuffle = d.shuffle;
+        if (typeof d.autoDuckEnabled === "boolean") root.autoDuckEnabled = d.autoDuckEnabled;
+        if (typeof d.duckLevel === "number") root.duckLevel = Math.max(0.08, Math.min(0.75, d.duckLevel));
+        if (typeof d.lastGenre === "string" && d.lastGenre !== "") root.activeGenre = d.lastGenre;
+        if (d.sortMode === "popular" || d.sortMode === "latest") root.sortMode = d.sortMode;
+        if (typeof d.prefListView === "boolean") root.prefListView = d.prefListView;
+        if (Array.isArray(d.lastQueue)) root.queue = d.lastQueue.slice(0, 50);
+        if (typeof d.lastQueueIndex === "number") {
+            root.queueIndex = Math.max(-1, Math.min(root.queue.length - 1, Math.round(d.lastQueueIndex)));
+        }
+
+        // Audio & EQ Settings
+        if (d.audioSettings && typeof d.audioSettings === "object") {
+            const a = d.audioSettings;
+            if (typeof a.preset === "string") root.audioPreset = a.preset;
+            if (typeof a.enabled === "boolean") root.audioDspEnabled = a.enabled;
+            if (typeof a.bassDb === "number") root.eqBassDb = Math.max(-12, Math.min(12, a.bassDb));
+            if (typeof a.midDb === "number") root.eqMidDb = Math.max(-12, Math.min(12, a.midDb));
+            if (typeof a.highDb === "number") root.eqHighDb = Math.max(-12, Math.min(12, a.highDb));
+            if (typeof a.bassFreq === "number") root.eqBassFreq = Math.max(40, Math.min(250, a.bassFreq));
+            if (typeof a.bassQ === "number") root.eqBassQ = Math.max(0.3, Math.min(2.0, a.bassQ));
+            if (typeof a.midFreq === "number") root.eqMidFreq = Math.max(300, Math.min(4000, a.midFreq));
+            if (typeof a.midQ === "number") root.eqMidQ = Math.max(0.4, Math.min(3.0, a.midQ));
+            if (typeof a.highFreq === "number") root.eqHighFreq = Math.max(4000, Math.min(16000, a.highFreq));
+            if (typeof a.highQ === "number") root.eqHighQ = Math.max(0.3, Math.min(2.0, a.highQ));
+            if (typeof a.preampDb === "number") root.audioPreampDb = Math.max(-12, Math.min(6, a.preampDb));
+            if (typeof a.autoHeadroom === "boolean") root.audioAutoHeadroom = a.autoHeadroom;
+            if (typeof a.normalize === "boolean") root.audioNormalize = a.normalize;
+            if (typeof a.normPeak === "number") root.audioNormPeak = Math.max(0.75, Math.min(0.98, a.normPeak));
+            if (typeof a.normFrameMs === "number") root.audioNormFrameMs = Math.max(100, Math.min(500, Math.round(a.normFrameMs)));
+            if (typeof a.stereoWidth === "number") root.audioStereoWidth = Math.max(0.5, Math.min(1.8, a.stereoWidth));
+            if (typeof a.crossfeed === "boolean") root.audioCrossfeed = a.crossfeed;
+            if (typeof a.crossfeedStrength === "number") root.audioCrossfeedStrength = Math.max(0.1, Math.min(0.8, a.crossfeedStrength));
+            if (typeof a.limiter === "boolean") root.audioLimiter = a.limiter;
+            if (typeof a.limiterCeilingDb === "number") root.audioLimiterCeilingDb = Math.max(-6.0, Math.min(-0.1, a.limiterCeilingDb));
+        }
+
+        // Ducking Settings
+        if (d.duckSettings && typeof d.duckSettings === "object") {
+            const dk = d.duckSettings;
+            if (typeof dk.preset === "string") root.duckPreset = dk.preset;
+            if (typeof dk.enabled === "boolean") root.autoDuckEnabled = dk.enabled;
+            if (typeof dk.level === "number") root.duckLevel = Math.max(0.08, Math.min(0.75, dk.level));
+            if (dk.mode === "rms" || dk.mode === "presence") root.duckMode = dk.mode;
+            if (typeof dk.attackMs === "number") root.duckAttackMs = Math.max(20, Math.min(300, Math.round(dk.attackMs)));
+            if (typeof dk.releaseHoldMs === "number") root.duckReleaseHoldMs = Math.max(100, Math.min(2000, Math.round(dk.releaseHoldMs)));
+            if (typeof dk.fadeDownMs === "number") root.duckFadeDownMs = Math.max(80, Math.min(1000, Math.round(dk.fadeDownMs)));
+            if (typeof dk.fadeUpMs === "number") root.duckFadeUpMs = Math.max(150, Math.min(2000, Math.round(dk.fadeUpMs)));
+            if (typeof dk.rmsThresholdDb === "number") root.duckRmsThresholdDb = Math.max(-60, Math.min(-25, dk.rmsThresholdDb));
+            if (typeof dk.ignoredApps === "string") root.duckIgnoredApps = dk.ignoredApps;
+        }
+
+        // Progressive Mix Settings
+        if (d.mixSettings && typeof d.mixSettings === "object") {
+            const m = d.mixSettings;
+            if (typeof m.preset === "string") root.mixPreset = m.preset;
+            if (typeof m.enabled === "boolean") root.mixEnabled = m.enabled;
+            if (typeof m.durationSec === "number") root.mixDurationSec = Math.max(4, Math.min(30, Math.round(m.durationSec)));
+            if (m.curve === "progressive" || m.curve === "equal_power" || m.curve === "smooth_s" || m.curve === "linear") root.mixCurve = m.curve;
+            if (typeof m.matchVolume === "boolean") root.mixMatchVolume = m.matchVolume;
+            if (typeof m.matchTempo === "boolean") root.mixMatchTempo = m.matchTempo;
+            if (typeof m.matchOffset === "boolean") root.mixMatchOffset = m.matchOffset;
+            if (typeof m.cueLeadSec === "number") root.mixCueLeadSec = Math.max(15, Math.min(60, Math.round(m.cueLeadSec)));
+            if (typeof m.analysisWindowSec === "number") root.mixAnalysisWindowSec = Math.max(6, Math.min(20, Math.round(m.analysisWindowSec)));
+            if (typeof m.maxTempoShiftPct === "number") root.mixMaxTempoShiftPct = Math.max(0, Math.min(12, Math.round(m.maxTempoShiftPct)));
+            if (typeof m.tempoReleaseSec === "number") root.mixTempoReleaseSec = Math.max(4, Math.min(24, Math.round(m.tempoReleaseSec)));
+            if (typeof m.maxGainTrimDb === "number") root.mixMaxGainTrimDb = Math.max(0, Math.min(12, Math.round(m.maxGainTrimDb)));
+            if (typeof m.silenceThresholdDb === "number") root.mixSilenceThresholdDb = Math.max(-55, Math.min(-24, m.silenceThresholdDb));
+            if (typeof m.manualOffsetMs === "number") root.mixManualOffsetMs = Math.max(-250, Math.min(250, Math.round(m.manualOffsetMs)));
+            if (typeof m.minTrackDurationSec === "number") root.mixMinTrackDurationSec = Math.max(20, Math.min(120, Math.round(m.minTrackDurationSec)));
+            if (typeof m.allowOnShuffle === "boolean") root.mixAllowOnShuffle = m.allowOnShuffle;
+        }
+
+        // Playback Preferences
+        if (d.playbackSettings && typeof d.playbackSettings === "object") {
+            const p = d.playbackSettings;
+            if (typeof p.rememberPosition === "boolean") root.rememberPosition = p.rememberPosition;
+            if (p.bufferPreset === "low" || p.bufferPreset === "balanced" || p.bufferPreset === "high") root.bufferPreset = p.bufferPreset;
+            if (typeof p.pitchCorrection === "boolean") root.pitchCorrection = p.pitchCorrection;
+        }
+
+        if (restorePlaybackTrack && d.lastTrack && typeof d.lastTrack === "object" && d.lastTrack.url) {
+            root.currentTrack = d.lastTrack;
+            root.position = (root.rememberPosition && typeof d.lastPosition === "number" && d.lastPosition > 0) ? d.lastPosition : 0;
+            root.duration = (typeof d.lastDuration === "number" && d.lastDuration > 0)
+                ? d.lastDuration
+                : Number(d.lastTrack.duration || 0);
+            root.playbackState = "paused";
+            root._needsResumeReload = true;
+        }
     }
 
     Process {
         id: stateWriter
         property string payload: "{}"
         command: ["sh", "-c", "mkdir -p \"$(dirname \"$1\")\" && printf '%s' \"$2\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"", "sh", root.statePath, payload]
+        onExited: root.refreshStateDiagnostics()
+    }
+
+    Process {
+        id: diagProc
+        property string outBuf: ""
+        command: [
+            "sh", "-c",
+            "sz=$(stat -c%s \"$1\" 2>/dev/null || echo 0); bc=$(ls -1 \"$2\"/mixcloud-backup-*.json 2>/dev/null | wc -l); echo \"$sz $bc\"",
+            "sh", root.statePath, root.backupDir
+        ]
+        stdout: StdioCollector { onStreamFinished: diagProc.outBuf = text }
+        onExited: (code) => {
+            if (code !== 0) return;
+            const parts = (diagProc.outBuf || "").trim().split(/\s+/);
+            if (parts.length >= 1) root.stateFileSizeBytes = Number(parts[0]) || 0;
+            if (parts.length >= 2) root.backupCount = Number(parts[1]) || 0;
+        }
+    }
+
+    Process {
+        id: backupProc
+        property string outPath: ""
+        property string payload: "{}"
+        command: [
+            "sh", "-c",
+            "mkdir -p \"$(dirname \"$1\")\" && printf '%s' \"$2\" > \"$1\"",
+            "sh", outPath, payload
+        ]
+        onExited: (code) => {
+            if (code === 0) {
+                root.lastBackupOk = true;
+                root.lastBackupStatus = "Backup saved";
+                root.refreshStateDiagnostics();
+            } else {
+                root.lastBackupOk = false;
+                root.lastBackupStatus = "Backup failed";
+            }
+        }
+    }
+
+    Process {
+        id: restoreProc
+        property string outBuf: ""
+        command: [
+            "sh", "-c",
+            "f=$(ls -1t \"$1\"/mixcloud-backup-*.json 2>/dev/null | head -n 1); [ -n \"$f\" ] && cat \"$f\"",
+            "sh", root.backupDir
+        ]
+        stdout: StdioCollector { onStreamFinished: restoreProc.outBuf = text }
+        onExited: (code) => {
+            if (code !== 0 || (restoreProc.outBuf || "").trim() === "") {
+                root.lastBackupOk = false;
+                root.lastBackupStatus = "No backup found";
+                return;
+            }
+            try {
+                const parsed = JSON.parse(restoreProc.outBuf);
+                root._applyLoadedPayload(parsed, false);
+                root.writeStateNow();
+                root.syncAllDaemonConfigs();
+                root.lastBackupOk = true;
+                root.lastBackupStatus = "Restored latest backup";
+            } catch (e) {
+                root.lastBackupOk = false;
+                root.lastBackupStatus = "Invalid backup file";
+            }
+        }
     }
 
     Timer {
@@ -118,14 +365,42 @@ Singleton {
         onTriggered: root.writeStateNow()
     }
 
+    Timer {
+        id: dspSyncTimer
+        interval: 75
+        repeat: false
+        onTriggered: root.syncAudioDspNow()
+    }
+
+    Timer {
+        id: positionSaveTimer
+        interval: 5000
+        repeat: true
+        running: root._loaded && root.isPlaying && root.hasTrack
+        onTriggered: root.writeStateNow()
+    }
+
+    Component.onDestruction: {
+        root.writeStateNow();
+        if (daemonProc.running) {
+            daemonProc.write(JSON.stringify({ cmd: "quit" }) + "\n");
+            daemonProc.running = false;
+        }
+    }
+
+    function refreshStateDiagnostics() {
+        diagProc.outBuf = "";
+        diagProc.running = false;
+        diagProc.running = true;
+    }
+
     function scheduleSave() {
         if (!root._loaded) return;
         saveTimer.restart();
     }
 
-    function writeStateNow() {
-        if (!root._loaded) return;
-        const payload = {
+    function buildStatePayload() {
+        return {
             favorites: root.favorites,
             recent: root.recent.slice(0, 30),
             volume: root.volume,
@@ -136,9 +411,76 @@ Singleton {
             duckLevel: root.duckLevel,
             lastGenre: root.activeGenre,
             sortMode: root.sortMode,
-            prefListView: root.prefListView
+            prefListView: root.prefListView,
+            lastTrack: root.currentTrack,
+            lastPosition: (root.rememberPosition && root.currentTrack) ? Math.max(0, Math.floor(root.position)) : 0,
+            lastDuration: root.currentTrack ? Math.max(0, Math.floor(root.effectiveDuration)) : 0,
+            lastQueue: root.queue.slice(0, 50),
+            lastQueueIndex: root.queueIndex,
+            audioSettings: {
+                preset: root.audioPreset,
+                enabled: root.audioDspEnabled,
+                bassDb: root.eqBassDb,
+                midDb: root.eqMidDb,
+                highDb: root.eqHighDb,
+                bassFreq: root.eqBassFreq,
+                bassQ: root.eqBassQ,
+                midFreq: root.eqMidFreq,
+                midQ: root.eqMidQ,
+                highFreq: root.eqHighFreq,
+                highQ: root.eqHighQ,
+                preampDb: root.audioPreampDb,
+                autoHeadroom: root.audioAutoHeadroom,
+                normalize: root.audioNormalize,
+                normPeak: root.audioNormPeak,
+                normFrameMs: root.audioNormFrameMs,
+                stereoWidth: root.audioStereoWidth,
+                crossfeed: root.audioCrossfeed,
+                crossfeedStrength: root.audioCrossfeedStrength,
+                limiter: root.audioLimiter,
+                limiterCeilingDb: root.audioLimiterCeilingDb
+            },
+            duckSettings: {
+                preset: root.duckPreset,
+                enabled: root.autoDuckEnabled,
+                level: root.duckLevel,
+                mode: root.duckMode,
+                attackMs: root.duckAttackMs,
+                releaseHoldMs: root.duckReleaseHoldMs,
+                fadeDownMs: root.duckFadeDownMs,
+                fadeUpMs: root.duckFadeUpMs,
+                rmsThresholdDb: root.duckRmsThresholdDb,
+                ignoredApps: root.duckIgnoredApps
+            },
+            mixSettings: {
+                preset: root.mixPreset,
+                enabled: root.mixEnabled,
+                durationSec: root.mixDurationSec,
+                curve: root.mixCurve,
+                matchVolume: root.mixMatchVolume,
+                matchTempo: root.mixMatchTempo,
+                matchOffset: root.mixMatchOffset,
+                cueLeadSec: root.mixCueLeadSec,
+                analysisWindowSec: root.mixAnalysisWindowSec,
+                maxTempoShiftPct: root.mixMaxTempoShiftPct,
+                tempoReleaseSec: root.mixTempoReleaseSec,
+                maxGainTrimDb: root.mixMaxGainTrimDb,
+                silenceThresholdDb: root.mixSilenceThresholdDb,
+                manualOffsetMs: root.mixManualOffsetMs,
+                minTrackDurationSec: root.mixMinTrackDurationSec,
+                allowOnShuffle: root.mixAllowOnShuffle
+            },
+            playbackSettings: {
+                rememberPosition: root.rememberPosition,
+                bufferPreset: root.bufferPreset,
+                pitchCorrection: root.pitchCorrection
+            }
         };
-        stateWriter.payload = JSON.stringify(payload, null, 2);
+    }
+
+    function writeStateNow() {
+        if (!root._loaded) return;
+        stateWriter.payload = JSON.stringify(root.buildStatePayload(), null, 2);
         stateWriter.running = false;
         stateWriter.running = true;
     }
@@ -149,11 +491,16 @@ Singleton {
         stdinEnabled: true
         command: ["python3", root._daemonScript]
         onRunningChanged: {
-            if (running && root._pendingCmds.length > 0) {
-                const queued = root._pendingCmds.slice();
-                root._pendingCmds = [];
-                for (let i = 0; i < queued.length; ++i) {
-                    daemonProc.write(JSON.stringify(queued[i]) + "\n");
+            if (running) {
+                if (root._pendingCmds.length > 0) {
+                    const queued = root._pendingCmds.slice();
+                    root._pendingCmds = [];
+                    for (let i = 0; i < queued.length; ++i) {
+                        daemonProc.write(JSON.stringify(queued[i]) + "\n");
+                    }
+                }
+                if (root._loaded) {
+                    root.syncAllDaemonConfigs();
                 }
             }
         }
@@ -170,6 +517,9 @@ Singleton {
         onExited: function(_code, _status) {
             root.isDucking = false;
             root.duckSource = "";
+            root.duckGain = 1.0;
+            root.duckMonitoredCount = 0;
+            root._resetMixTelemetry();
             if (root.playbackState === "playing" || root.playbackState === "buffering" || root.playbackState === "resolving") {
                 root.playbackState = "error";
                 if (root.errorMessage === "") root.errorMessage = "Audio backend stopped unexpectedly";
@@ -198,11 +548,331 @@ Singleton {
         _sendDaemon({ cmd: "check_deps" });
     }
 
+    // ------------------------------------------------------------------
+    // Config Sync & Presets
+    // ------------------------------------------------------------------
+
+    function syncAllDaemonConfigs() {
+        syncPlaybackConfigNow();
+        syncAudioDspNow();
+        syncDuckingNow();
+        syncMixConfigNow();
+    }
+
+    function scheduleAudioDspSync() {
+        scheduleSave();
+        if (daemonProc.running) dspSyncTimer.restart();
+    }
+
+    function syncAudioDspNow() {
+        if (!daemonProc.running) return;
+        _sendDaemon({
+            cmd: "set_audio_dsp",
+            enabled: root.audioDspEnabled,
+            bass_db: root.eqBassDb,
+            mid_db: root.eqMidDb,
+            high_db: root.eqHighDb,
+            bass_freq: root.eqBassFreq,
+            bass_q: root.eqBassQ,
+            mid_freq: root.eqMidFreq,
+            mid_q: root.eqMidQ,
+            high_freq: root.eqHighFreq,
+            high_q: root.eqHighQ,
+            preamp_db: root.audioPreampDb,
+            auto_headroom: root.audioAutoHeadroom,
+            normalize: root.audioNormalize,
+            norm_peak: root.audioNormPeak,
+            norm_frame_ms: root.audioNormFrameMs,
+            stereo_width: root.audioStereoWidth,
+            crossfeed: root.audioCrossfeed,
+            crossfeed_strength: root.audioCrossfeedStrength,
+            limiter: root.audioLimiter,
+            limiter_ceiling_db: root.audioLimiterCeilingDb
+        });
+    }
+
+    function syncDuckingNow() {
+        scheduleSave();
+        if (!daemonProc.running) return;
+        const ignored = root.duckIgnoredApps.split(",").map(s => s.trim()).filter(s => s !== "");
+        _sendDaemon({
+            cmd: "set_ducking",
+            enabled: root.autoDuckEnabled,
+            level: root.duckLevel,
+            mode: root.duckMode,
+            attack_ms: root.duckAttackMs,
+            release_hold_ms: root.duckReleaseHoldMs,
+            fade_down_ms: root.duckFadeDownMs,
+            fade_up_ms: root.duckFadeUpMs,
+            rms_threshold_db: root.duckRmsThresholdDb,
+            ignored_apps: ignored
+        });
+    }
+
+    function syncMixConfigNow() {
+        scheduleSave();
+        if (!daemonProc.running) return;
+        _sendDaemon({
+            cmd: "set_mix_config",
+            enabled: root.mixEnabled,
+            duration_s: root.mixDurationSec,
+            curve: root.mixCurve,
+            match_volume: root.mixMatchVolume,
+            match_tempo: root.mixMatchTempo,
+            match_offset: root.mixMatchOffset,
+            cue_lead_s: root.mixCueLeadSec,
+            analysis_window_s: root.mixAnalysisWindowSec,
+            max_tempo_shift_pct: root.mixMaxTempoShiftPct,
+            tempo_release_s: root.mixTempoReleaseSec,
+            max_gain_trim_db: root.mixMaxGainTrimDb,
+            silence_threshold_db: root.mixSilenceThresholdDb,
+            manual_offset_ms: root.mixManualOffsetMs,
+            min_track_duration_s: root.mixMinTrackDurationSec
+        });
+    }
+
+    function syncPlaybackConfigNow() {
+        scheduleSave();
+        if (!daemonProc.running) return;
+        _sendDaemon({
+            cmd: "set_playback_config",
+            buffer_preset: root.bufferPreset,
+            pitch_correction: root.pitchCorrection
+        });
+    }
+
+    function applyAudioPreset(presetId) {
+        root.audioPreset = presetId;
+        if (presetId === "custom") {
+            root.scheduleSave();
+            return;
+        }
+        root.audioDspEnabled = true;
+        root.eqBassQ = 0.7;
+        root.eqMidQ = 1.0;
+        root.eqHighQ = 0.7;
+        root.audioPreampDb = 0.0;
+        root.audioAutoHeadroom = true;
+        root.audioCrossfeed = false;
+        root.audioCrossfeedStrength = 0.25;
+        root.audioLimiter = true;
+        root.audioLimiterCeilingDb = -0.5;
+        root.audioNormPeak = 0.92;
+        root.audioNormFrameMs = 200;
+
+        if (presetId === "warm") {
+            root.eqBassDb = 4.5; root.eqMidDb = 0.5; root.eqHighDb = -1.0;
+            root.eqBassFreq = 85; root.eqMidFreq = 900; root.eqHighFreq = 9500;
+            root.audioNormalize = false; root.audioStereoWidth = 1.05;
+        } else if (presetId === "bass") {
+            root.eqBassDb = 7.0; root.eqMidDb = -1.0; root.eqHighDb = 1.5;
+            root.eqBassFreq = 75; root.eqBassQ = 0.8; root.eqMidFreq = 1000; root.eqMidQ = 1.1; root.eqHighFreq = 10500;
+            root.audioNormalize = false; root.audioStereoWidth = 1.05;
+        } else if (presetId === "vocal") {
+            root.eqBassDb = -1.0; root.eqMidDb = 3.5; root.eqHighDb = 2.0;
+            root.eqBassFreq = 95; root.eqMidFreq = 1600; root.eqMidQ = 1.2; root.eqHighFreq = 9000;
+            root.audioNormalize = true; root.audioStereoWidth = 1.0;
+        } else if (presetId === "club") {
+            root.eqBassDb = 4.0; root.eqMidDb = -1.5; root.eqHighDb = 4.5;
+            root.eqBassFreq = 80; root.eqBassQ = 0.75; root.eqMidFreq = 1000; root.eqHighFreq = 10000; root.eqHighQ = 0.75;
+            root.audioNormalize = false; root.audioStereoWidth = 1.15;
+        } else {
+            // "standard"
+            root.audioPreset = "standard";
+            root.eqBassDb = 0.0; root.eqMidDb = 0.0; root.eqHighDb = 0.0;
+            root.eqBassFreq = 90; root.eqMidFreq = 1000; root.eqHighFreq = 10000;
+            root.audioNormalize = false; root.audioStereoWidth = 1.0;
+        }
+        root.scheduleSave();
+        root.syncAudioDspNow();
+    }
+
+    function applyDuckPreset(presetId) {
+        root.duckPreset = presetId;
+        if (presetId === "custom") {
+            root.scheduleSave();
+            return;
+        }
+        root.autoDuckEnabled = true;
+        root.duckMode = "rms";
+        if (presetId === "gentle") {
+            root.duckLevel = 0.40;
+            root.duckAttackMs = 90;
+            root.duckReleaseHoldMs = 420;
+            root.duckFadeDownMs = 340;
+            root.duckFadeUpMs = 680;
+            root.duckRmsThresholdDb = -44;
+        } else if (presetId === "focus") {
+            root.duckLevel = 0.10;
+            root.duckAttackMs = 35;
+            root.duckReleaseHoldMs = 550;
+            root.duckFadeDownMs = 180;
+            root.duckFadeUpMs = 450;
+            root.duckRmsThresholdDb = -50;
+        } else {
+            // "balanced"
+            root.duckPreset = "balanced";
+            root.duckLevel = 0.24;
+            root.duckAttackMs = 60;
+            root.duckReleaseHoldMs = 320;
+            root.duckFadeDownMs = 260;
+            root.duckFadeUpMs = 520;
+            root.duckRmsThresholdDb = -46;
+        }
+        root.syncDuckingNow();
+    }
+
+    function applyMixPreset(presetId) {
+        root.mixPreset = presetId;
+        if (presetId === "custom") {
+            root.scheduleSave();
+            return;
+        }
+        if (presetId === "off") {
+            root.mixEnabled = false;
+            if (root.isMixing) root.cancelMix();
+            root.syncMixConfigNow();
+            return;
+        }
+        root.mixEnabled = true;
+        root.mixAnalysisWindowSec = 12;
+        root.mixMaxGainTrimDb = 6;
+        root.mixSilenceThresholdDb = -38;
+        root.mixManualOffsetMs = 0;
+        root.mixMinTrackDurationSec = 45;
+        root.mixAllowOnShuffle = true;
+
+        if (presetId === "seamless") {
+            root.mixDurationSec = 8;
+            root.mixCurve = "equal_power";
+            root.mixMatchVolume = true;
+            root.mixMatchTempo = false;
+            root.mixMatchOffset = true;
+            root.mixCueLeadSec = 22;
+            root.mixMaxTempoShiftPct = 4;
+            root.mixTempoReleaseSec = 6;
+        } else if (presetId === "club") {
+            root.mixDurationSec = 22;
+            root.mixCurve = "progressive";
+            root.mixMatchVolume = true;
+            root.mixMatchTempo = true;
+            root.mixMatchOffset = true;
+            root.mixCueLeadSec = 40;
+            root.mixMaxTempoShiftPct = 8;
+            root.mixTempoReleaseSec = 14;
+        } else {
+            // "progressive"
+            root.mixPreset = "progressive";
+            root.mixDurationSec = 14;
+            root.mixCurve = "progressive";
+            root.mixMatchVolume = true;
+            root.mixMatchTempo = true;
+            root.mixMatchOffset = true;
+            root.mixCueLeadSec = 30;
+            root.mixMaxTempoShiftPct = 6;
+            root.mixTempoReleaseSec = 10;
+        }
+        root.syncMixConfigNow();
+    }
+
+    // ------------------------------------------------------------------
+    // Daemon Message Handling & Queue Lookahead Progressive Mixing
+    // ------------------------------------------------------------------
+
+    function _resetMixTelemetry() {
+        root.mixStage = "idle";
+        root.mixProgress = 0.0;
+        root.mixNextTrack = null;
+        root.mixNextQueueIndex = -1;
+        root.mixBpmA = 0.0;
+        root.mixBpmB = 0.0;
+        root.mixGainTrimDb = 0.0;
+        root.mixOffsetMs = 0.0;
+        root.mixSpeedRatio = 1.0;
+        root.mixBufferMs = 0.0;
+        root.mixNote = "";
+        root._pendingMixEntry = null;
+    }
+
+    function peekNextQueueEntry() {
+        if (!root.queue || root.queue.length === 0) return null;
+        if (root.queue.length === 1 && root.repeatMode !== "all") return null;
+        if (root.shuffle && root.queue.length > 1) {
+            if (!root.mixAllowOnShuffle) return null;
+            if (root._pendingMixEntry && root._pendingMixEntry.index >= 0 && root._pendingMixEntry.index < root.queue.length) {
+                return root._pendingMixEntry;
+            }
+            let cand = root.queueIndex;
+            for (let t = 0; t < 6; ++t) {
+                const r = Math.floor(Math.random() * root.queue.length);
+                if (r !== root.queueIndex) {
+                    cand = r;
+                    break;
+                }
+            }
+            if (cand < 0 || cand >= root.queue.length) cand = 0;
+            return { track: root.queue[cand], index: cand };
+        }
+        const nextIdx = root.queueIndex + 1;
+        if (nextIdx < root.queue.length) {
+            return { track: root.queue[nextIdx], index: nextIdx };
+        }
+        if (root.repeatMode === "all" && root.queue.length > 0) {
+            return { track: root.queue[0], index: 0 };
+        }
+        return null;
+    }
+
+    function _triggerMix(immediate) {
+        if (!root.currentTrack || !root.hasMpv || !root.hasYtDlp) return false;
+        const entry = root.peekNextQueueEntry();
+        if (!entry || !entry.track || !entry.track.url) return false;
+
+        root._pendingMixEntry = entry;
+        root.mixNextTrack = entry.track;
+        root.mixNextQueueIndex = entry.index;
+        root.mixStage = "cueing";
+        root.mixProgress = 0.0;
+        root.mixNote = immediate ? "Starting Mix Now..." : "Pre-cueing next track...";
+        if (!immediate && root.currentTrack) {
+            root._lastAutoCueTag = root.currentTrack.key + ":" + root._playSeq;
+        }
+
+        // Do NOT mutate root._playSeq yet so Deck A continues reporting live state until mix_swapped.
+        root._sendDaemon({
+            cmd: immediate ? "mix_now" : "prepare_mix",
+            url: entry.track.url,
+            next_seq: root._playSeq + 1,
+            next_queue_index: entry.index,
+            immediate: Boolean(immediate)
+        });
+        return true;
+    }
+
+    function mixNow() {
+        if (!root.currentTrack || root.isMixing) return false;
+        if (root.playbackState === "paused") {
+            if (root._needsResumeReload || !daemonProc.running) return false;
+            root._sendDaemon({ cmd: "resume" });
+        }
+        return root._triggerMix(true);
+    }
+
+    function cancelMix() {
+        if (daemonProc.running) {
+            root._sendDaemon({ cmd: "cancel_mix" });
+        }
+        root._resetMixTelemetry();
+    }
+
     function _handleDaemonMessage(msg) {
         if (!msg || typeof msg !== "object") return;
         if (msg.type === "deps") {
             root.hasMpv = Boolean(msg.mpv);
             root.hasYtDlp = Boolean(msg.yt_dlp);
+            root.hasFfmpeg = Boolean(msg.ffmpeg);
+            root.hasPactl = Boolean(msg.pactl);
+            root.hasParec = Boolean(msg.parec);
             if (typeof msg.install_hint === "string" && msg.install_hint !== "") {
                 root.installHint = msg.install_hint;
             }
@@ -223,9 +893,61 @@ Singleton {
             if (typeof msg.duration === "number" && msg.duration > 0) {
                 root.duration = msg.duration;
             }
+
+            // Automatic Progressive Mix Lookahead Watcher
+            if (
+                root.mixEnabled
+                && root.isPlaying
+                && root.mixStage === "idle"
+                && root.repeatMode !== "one"
+                && root.currentTrack
+                && root.effectiveDuration >= root.mixMinTrackDurationSec
+            ) {
+                const remaining = root.effectiveDuration - root.position;
+                const tag = root.currentTrack.key + ":" + root._playSeq;
+                if (remaining > 3.0 && remaining <= root.mixCueLeadSec && root._lastAutoCueTag !== tag) {
+                    root._triggerMix(false);
+                }
+            }
         } else if (msg.type === "duck") {
             root.isDucking = Boolean(msg.ducking);
             root.duckSource = String(msg.source || "");
+            if (typeof msg.gain === "number") root.duckGain = msg.gain;
+            if (typeof msg.monitored_count === "number") root.duckMonitoredCount = msg.monitored_count;
+        } else if (msg.type === "mix") {
+            const st = String(msg.stage || "idle");
+            root.mixStage = st;
+            if (typeof msg.progress === "number") root.mixProgress = msg.progress;
+            if (typeof msg.bpm_a === "number") root.mixBpmA = msg.bpm_a;
+            if (typeof msg.bpm_b === "number") root.mixBpmB = msg.bpm_b;
+            if (typeof msg.gain_trim_db === "number") root.mixGainTrimDb = msg.gain_trim_db;
+            if (typeof msg.offset_ms === "number") root.mixOffsetMs = msg.offset_ms;
+            if (typeof msg.speed_ratio === "number") root.mixSpeedRatio = msg.speed_ratio;
+            if (typeof msg.buffer_ms === "number") root.mixBufferMs = msg.buffer_ms;
+            if (typeof msg.note === "string") root.mixNote = msg.note;
+            if (st === "idle") {
+                root.mixNextTrack = null;
+                root.mixNextQueueIndex = -1;
+                root._pendingMixEntry = null;
+            }
+        } else if (msg.type === "mix_swapped") {
+            const nextSeq = typeof msg.seq === "number" ? msg.seq : (root._playSeq + 1);
+            root._playSeq = nextSeq;
+            const promoted = root._pendingMixEntry ? root._pendingMixEntry.track : root.mixNextTrack;
+            const promotedIdx = typeof msg.queue_index === "number" ? msg.queue_index : root.mixNextQueueIndex;
+            if (promoted) {
+                root.currentTrack = promoted;
+                root._recordRecent(promoted);
+            }
+            if (promotedIdx >= 0 && promotedIdx < root.queue.length) {
+                root.queueIndex = promotedIdx;
+            }
+            root.position = (typeof msg.position === "number" && msg.position >= 0) ? msg.position : 0;
+            root.duration = (typeof msg.duration === "number" && msg.duration > 0)
+                ? msg.duration
+                : Number(promoted && promoted.duration ? promoted.duration : 0);
+            root._resetMixTelemetry();
+            root.scheduleSave();
         } else if (msg.type === "eof") {
             if (typeof msg.seq === "number" && msg.seq !== root._playSeq) return;
             root._handleTrackEnded();
@@ -268,6 +990,10 @@ Singleton {
         root.position = 0;
         root.playbackState = "paused";
     }
+
+    // ------------------------------------------------------------------
+    // Mixcloud API Browsing
+    // ------------------------------------------------------------------
 
     function normalizeCloudcast(raw) {
         if (!raw || typeof raw !== "object") return null;
@@ -469,6 +1195,10 @@ Singleton {
         xhr.send();
     }
 
+    // ------------------------------------------------------------------
+    // Playback & Queue Controls
+    // ------------------------------------------------------------------
+
     function _recordRecent(track) {
         if (!track || !track.key) return;
         const next = [track];
@@ -482,8 +1212,14 @@ Singleton {
         root.scheduleSave();
     }
 
-    function playTrack(track, contextList) {
+    function playTrack(track, contextList, startPosition) {
         if (!track || !track.url) return;
+        root._resetMixTelemetry();
+        root._lastAutoCueTag = "";
+
+        const startPos = (typeof startPosition === "number" && !isNaN(startPosition) && startPosition > 0)
+            ? startPosition
+            : 0;
         if (Array.isArray(contextList) && contextList.length > 0) {
             const copy = contextList.slice();
             let idx = -1;
@@ -518,10 +1254,11 @@ Singleton {
         }
 
         root.currentTrack = track;
-        root.position = 0;
+        root.position = startPos;
         root.duration = Number(track.duration || 0);
         root.errorMessage = "";
         root.playbackState = "resolving";
+        root._needsResumeReload = false;
         root._recordRecent(track);
 
         const seq = ++root._playSeq;
@@ -531,7 +1268,8 @@ Singleton {
             seq: seq,
             volume: root.volume,
             muted: root.muted,
-            ducking: root.autoDuckEnabled
+            ducking: root.autoDuckEnabled,
+            start_position: startPos
         });
     }
 
@@ -546,6 +1284,7 @@ Singleton {
         if (!root.currentTrack) {
             playQueueAt(0);
         }
+        root.scheduleSave();
         return true;
     }
 
@@ -567,6 +1306,7 @@ Singleton {
         if (!root.currentTrack) {
             playQueueAt(insertAt);
         }
+        root.scheduleSave();
     }
 
     function playQueueAt(idx) {
@@ -589,11 +1329,14 @@ Singleton {
                 root.queueIndex = nextQ.length - 1;
             }
         }
+        root.scheduleSave();
     }
 
     function clearQueue() {
+        if (root.isMixing) root.cancelMix();
         root.queue = [];
         root.queueIndex = -1;
+        root.scheduleSave();
     }
 
     function togglePlay() {
@@ -606,31 +1349,54 @@ Singleton {
             return;
         }
         if (root.playbackState === "error") {
-            playTrack(root.currentTrack, null);
+            playTrack(root.currentTrack, null, root.position);
             return;
         }
         if (root.playbackState === "paused") {
-            if (root.position === 0 && root.duration === 0) {
-                playTrack(root.currentTrack, null);
+            if (root._needsResumeReload || !daemonProc.running || (root.position === 0 && root.duration === 0)) {
+                playTrack(root.currentTrack, null, root.position);
             } else {
                 root._sendDaemon({ cmd: "resume" });
             }
         } else if (root.playbackState === "playing" || root.playbackState === "buffering") {
             root._sendDaemon({ cmd: "pause" });
+            root.scheduleSave();
         }
     }
 
     function stop() {
         root._playSeq += 1;
+        root._resetMixTelemetry();
+        root._lastAutoCueTag = "";
         root.playbackState = "idle";
         root.position = 0;
         root.duration = 0;
         root.currentTrack = null;
+        root._needsResumeReload = false;
         root.errorMessage = "";
         root.isDucking = false;
         root.duckSource = "";
+        root.duckGain = 1.0;
         if (daemonProc.running) {
             root._sendDaemon({ cmd: "stop" });
+        }
+        root.scheduleSave();
+    }
+
+    function quitApp() {
+        root.writeStateNow();
+        root._playSeq += 1;
+        root._resetMixTelemetry();
+        root._needsResumeReload = root.currentTrack !== null;
+        root.playbackState = root.currentTrack ? "paused" : "idle";
+        root.errorMessage = "";
+        root.isDucking = false;
+        root.duckSource = "";
+        root.duckGain = 1.0;
+        root._pendingCmds = [];
+        if (daemonProc.running) {
+            daemonProc.write(JSON.stringify({ cmd: "quit" }) + "\n");
+            daemonProc.running = false;
         }
     }
 
@@ -666,7 +1432,14 @@ Singleton {
         if (!root.currentTrack || root.effectiveDuration <= 0) return;
         const clamped = Math.max(0, Math.min(root.effectiveDuration, Number(seconds) || 0));
         root.position = clamped;
-        root._sendDaemon({ cmd: "seek", position: clamped });
+        if (root.isMixing && (root.effectiveDuration - clamped) > (root.mixCueLeadSec + 4)) {
+            root.cancelMix();
+            root._lastAutoCueTag = "";
+        }
+        if (!root._needsResumeReload && daemonProc.running) {
+            root._sendDaemon({ cmd: "seek", position: clamped });
+        }
+        root.scheduleSave();
     }
 
     function seekFraction(fraction) {
@@ -713,11 +1486,9 @@ Singleton {
         if (!root.autoDuckEnabled) {
             root.isDucking = false;
             root.duckSource = "";
+            root.duckGain = 1.0;
         }
-        if (daemonProc.running) {
-            root._sendDaemon({ cmd: "set_ducking", enabled: root.autoDuckEnabled, level: root.duckLevel });
-        }
-        root.scheduleSave();
+        root.syncDuckingNow();
     }
 
     function isFavorite(key) {
@@ -753,6 +1524,59 @@ Singleton {
         root.scheduleSave();
     }
 
+    // ------------------------------------------------------------------
+    // Data Management & Resets
+    // ------------------------------------------------------------------
+
+    function clearRecent() {
+        root.recent = [];
+        root.writeStateNow();
+    }
+
+    function clearFavorites() {
+        root.favorites = [];
+        root.writeStateNow();
+    }
+
+    function getExportJson() {
+        return JSON.stringify(root.buildStatePayload(), null, 2);
+    }
+
+    function exportBackup() {
+        const d = new Date();
+        function p2(n) { return n < 10 ? ("0" + n) : String(n); }
+        const stamp = d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + "-" + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
+        backupProc.outPath = root.backupDir + "/mixcloud-backup-" + stamp + ".json";
+        backupProc.payload = root.getExportJson();
+        backupProc.running = false;
+        backupProc.running = true;
+    }
+
+    function restoreLatestBackup() {
+        restoreProc.outBuf = "";
+        restoreProc.running = false;
+        restoreProc.running = true;
+    }
+
+    function resetAllSettings() {
+        root.applyAudioPreset("standard");
+        root.duckIgnoredApps = "";
+        root.applyDuckPreset("balanced");
+        root.applyMixPreset("progressive");
+        root.activeGenre = "lo-fi";
+        root.sortMode = "popular";
+        root.prefListView = false;
+        root.rememberPosition = true;
+        root.bufferPreset = "balanced";
+        root.pitchCorrection = true;
+        root.syncPlaybackConfigNow();
+        root.writeStateNow();
+    }
+
+    // ------------------------------------------------------------------
+    // Formatting Helpers
+    // ------------------------------------------------------------------
+
     function genreLabel(slug) {
         for (let i = 0; i < root.genres.length; ++i) {
             if (root.genres[i].slug === slug) return root.genres[i].label;
@@ -779,5 +1603,12 @@ Singleton {
         if (val >= 1000000) return (val / 1000000).toFixed(1).replace(/\.0$/, "") + "M";
         if (val >= 1000) return (val / 1000).toFixed(1).replace(/\.0$/, "") + "K";
         return String(Math.round(val));
+    }
+
+    function formatBytes(bytes) {
+        const b = Number(bytes || 0);
+        if (b < 1024) return Math.round(b) + " B";
+        if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+        return (b / (1024 * 1024)).toFixed(2) + " MB";
     }
 }

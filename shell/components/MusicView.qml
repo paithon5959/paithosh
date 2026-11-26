@@ -21,6 +21,8 @@ FocusScope {
     property bool hintCopied: false
     property bool linkCopied: false
     property string prevSectionBeforeCreator: "discover"
+    property string prevSectionBeforeSettings: "discover"
+    property bool _settingsLoaded: MixcloudService.activeSection === "settings"
 
     // Paste Mixcloud URL modal state (root-hoisted)
     property bool urlModalOpen: false
@@ -51,12 +53,33 @@ FocusScope {
 
     readonly property string sectionTitle: {
         const s = MixcloudService.activeSection;
+        if (s === "settings") return "Music Settings";
         if (s === "queue") return "Up Next Queue";
         if (s === "favorites") return "Favorites";
         if (s === "recent") return "Recently Played";
         if (s === "search") return "Search • \"" + MixcloudService.searchQuery + "\"";
         if (s === "creator") return MixcloudService.creatorName || MixcloudService.creatorUsername || "Creator";
         return MixcloudService.genreLabel(MixcloudService.activeGenre);
+    }
+
+    Connections {
+        target: MixcloudService
+        function onActiveSectionChanged() {
+            if (MixcloudService.activeSection === "settings") {
+                root._settingsLoaded = true;
+            }
+        }
+    }
+
+    function openSettingsSection(tab) {
+        if (MixcloudService.activeSection !== "settings") {
+            root.prevSectionBeforeSettings = MixcloudService.activeSection || "discover";
+        }
+        if (tab && tab !== "") {
+            MixcloudService.settingsTab = tab;
+        }
+        root._settingsLoaded = true;
+        MixcloudService.activeSection = "settings";
     }
 
     readonly property string activeBannerText: {
@@ -71,7 +94,7 @@ FocusScope {
     Component.onCompleted: {
         isListView = MixcloudService.prefListView;
         MixcloudService.ensureBackend();
-        if (MixcloudService.feedItems.length === 0 && !MixcloudService.feedLoading) {
+        if (MixcloudService.feedItems.length === 0 && !MixcloudService.feedLoading && MixcloudService.activeSection !== "settings") {
             MixcloudService.loadDiscover(MixcloudService.activeGenre, MixcloudService.sortMode, false);
         }
     }
@@ -269,6 +292,16 @@ FocusScope {
                 event.accepted = true;
                 return;
             }
+            if (MixcloudService.activeSection === "settings") {
+                const back = prevSectionBeforeSettings || "discover";
+                if (back === "discover") {
+                    MixcloudService.loadDiscover(MixcloudService.activeGenre, MixcloudService.sortMode, false);
+                } else {
+                    MixcloudService.activeSection = back;
+                }
+                event.accepted = true;
+                return;
+            }
             if (MixcloudService.activeSection === "creator") {
                 const back = prevSectionBeforeCreator || "discover";
                 if (back === "discover") {
@@ -302,7 +335,7 @@ FocusScope {
             return;
         }
 
-        if (searchField.activeFocus) return;
+        if (searchField.activeFocus || (settingsLoader.item && settingsLoader.item.inputFocused)) return;
 
         if (event.key === Qt.Key_Space) {
             MixcloudService.togglePlay();
@@ -819,6 +852,81 @@ FocusScope {
                     }
                 }
 
+                // Pinned Sidebar Settings Navigation Row
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderSubtle
+                }
+
+                Rectangle {
+                    id: settingsNavRow
+                    readonly property bool isActive: MixcloudService.activeSection === "settings"
+                    Layout.fillWidth: true
+                    height: 30
+                    radius: 8
+                    clip: true
+                    color: isActive ? Theme.cardHover : (settingsNavMouse.containsMouse ? Theme.cardBg : "transparent")
+                    scale: settingsNavMouse.pressed ? 0.98 : 1.0
+
+                    Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                    Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                    Rectangle {
+                        width: 3
+                        height: settingsNavRow.isActive ? 15 : 6
+                        radius: 2
+                        anchors.left: parent.left
+                        anchors.leftMargin: 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: Theme.accent
+                        opacity: settingsNavRow.isActive ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                        Behavior on height { NumberAnimation { duration: 170; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 11
+                        anchors.rightMargin: 9
+                        spacing: 8
+
+                        SvgIcon {
+                            sourceName: "settings"
+                            iconSize: 14
+                            color: settingsNavRow.isActive ? Theme.accent : Theme.textSub
+                            Behavior on color { ColorAnimation { duration: 140 } }
+                        }
+
+                        Text {
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            text: "Settings"
+                            color: settingsNavRow.isActive ? Theme.text : Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: settingsNavRow.isActive ? Font.DemiBold : Font.Medium
+                            elide: Text.ElideRight
+                        }
+
+                        Rectangle {
+                            visible: MixcloudService.isMixing
+                            width: 6
+                            height: 6
+                            radius: 3
+                            color: Theme.accent
+                        }
+                    }
+
+                    MouseArea {
+                        id: settingsNavMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.openSettingsSection("")
+                    }
+                }
+
                 // Bottom Sidebar Utility Card (Paste URL + Engine Status)
                 Rectangle {
                     Layout.fillWidth: true
@@ -904,14 +1012,14 @@ FocusScope {
                     spacing: 8
 
                     PillButton {
-                        visible: MixcloudService.activeSection === "creator"
+                        visible: MixcloudService.activeSection === "creator" || MixcloudService.activeSection === "settings"
                         iconName: "arrow-left"
                         iconSize: 13
                         fixedWidth: 30
                         fixedHeight: 30
                         radius: 8
                         onClicked: {
-                            const back = root.prevSectionBeforeCreator || "discover";
+                            const back = (MixcloudService.activeSection === "settings" ? root.prevSectionBeforeSettings : root.prevSectionBeforeCreator) || "discover";
                             if (back === "discover") {
                                 MixcloudService.loadDiscover(MixcloudService.activeGenre, MixcloudService.sortMode, false);
                             } else {
@@ -932,6 +1040,7 @@ FocusScope {
                     }
 
                     Rectangle {
+                        visible: MixcloudService.activeSection !== "settings"
                         height: 22
                         width: countLbl.implicitWidth + 14
                         radius: 11
@@ -1020,6 +1129,7 @@ FocusScope {
 
                     // View Toggle (Grid / List)
                     PillButton {
+                        visible: MixcloudService.activeSection !== "settings"
                         iconName: root.isListView ? "grid" : "list"
                         iconSize: 14
                         fixedWidth: 30
@@ -1077,6 +1187,29 @@ FocusScope {
                         horizontalPadding: 10
                         radius: 8
                         onClicked: MixcloudService.clearQueue()
+                    }
+
+                    // Quit Music App (saves playback position, stops mpv, closes view)
+                    PillButton {
+                        text: "Quit"
+                        iconName: "power"
+                        iconSize: 12
+                        danger: true
+                        subtle: true
+                        fixedHeight: 30
+                        horizontalPadding: 10
+                        radius: 8
+                        onClicked: {
+                            MixcloudService.quitApp();
+                            if (root.shellState) {
+                                if (root.shellState.detachedApp === "music") {
+                                    root.shellState.closeDetachedApp();
+                                }
+                                if (root.shellState.islandApp === "music") {
+                                    root.shellState.islandApp = "";
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1253,7 +1386,7 @@ FocusScope {
                 // Loading Overlay (animated)
                 Item {
                     anchors.fill: parent
-                    opacity: (root.isFeedSection && MixcloudService.feedLoading && root.activeListItems.length === 0) ? 1.0 : 0.0
+                    opacity: (MixcloudService.activeSection !== "settings" && root.isFeedSection && MixcloudService.feedLoading && root.activeListItems.length === 0) ? 1.0 : 0.0
                     visible: opacity > 0.01
                     z: 2
                     Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
@@ -1290,7 +1423,7 @@ FocusScope {
                 // Empty State (animated)
                 Item {
                     anchors.fill: parent
-                    opacity: (root.activeListItems.length === 0 && !(root.isFeedSection && MixcloudService.feedLoading)) ? 1.0 : 0.0
+                    opacity: (MixcloudService.activeSection !== "settings" && root.activeListItems.length === 0 && !(root.isFeedSection && MixcloudService.feedLoading)) ? 1.0 : 0.0
                     visible: opacity > 0.01
                     z: 2
                     Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
@@ -1380,7 +1513,7 @@ FocusScope {
                     anchors.fill: parent
                     anchors.margins: 12
                     anchors.bottomMargin: 8
-                    visible: !root.isListView && root.activeListItems.length > 0
+                    visible: MixcloudService.activeSection !== "settings" && !root.isListView && root.activeListItems.length > 0
                     clip: true
                     reuseItems: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -1593,7 +1726,7 @@ FocusScope {
                     anchors.fill: parent
                     anchors.margins: 12
                     anchors.bottomMargin: 8
-                    visible: root.isListView && root.activeListItems.length > 0
+                    visible: MixcloudService.activeSection !== "settings" && root.isListView && root.activeListItems.length > 0
                     clip: true
                     reuseItems: true
                     spacing: 6
@@ -1771,6 +1904,25 @@ FocusScope {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+
+                // Lazy-loaded Music Settings Page (Audio & EQ, Mix, Ducking, Playback, Data)
+                Loader {
+                    id: settingsLoader
+                    anchors.fill: parent
+                    active: MixcloudService.activeSection === "settings" || root._settingsLoaded
+                    opacity: MixcloudService.activeSection === "settings" ? 1.0 : 0.0
+                    visible: opacity > 0.01
+                    z: 3
+                    clip: true
+                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                    sourceComponent: Component {
+                        MusicSettingsPage {
+                            shellState: root.shellState
+                            menuHost: root
+                            selectMenu: ctxMenu
                         }
                     }
                 }
@@ -1984,6 +2136,39 @@ FocusScope {
                                                 font.family: Theme.fontMono
                                                 font.pixelSize: 9
                                                 font.weight: Font.Bold
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            visible: MixcloudService.isMixing
+                                            height: 16
+                                            width: mixBadgeLbl.implicitWidth + 10
+                                            radius: 5
+                                            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+                                            border.width: 1
+                                            border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45)
+                                            clip: true
+                                            scale: mixBadgeMouse.pressed ? 0.94 : 1.0
+                                            Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                            Text {
+                                                id: mixBadgeLbl
+                                                anchors.centerIn: parent
+                                                text: MixcloudService.mixStage === "blending"
+                                                    ? ("Mix " + Math.round(MixcloudService.mixProgress * 100) + "%")
+                                                    : (MixcloudService.mixStage === "syncing" ? "Syncing" : "Cueing")
+                                                color: Theme.accent
+                                                font.family: Theme.fontMono
+                                                font.pixelSize: 9
+                                                font.weight: Font.Bold
+                                            }
+
+                                            MouseArea {
+                                                id: mixBadgeMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: root.openSettingsSection("mix")
                                             }
                                         }
 

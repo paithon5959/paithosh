@@ -133,6 +133,10 @@ ipc openFiles
 sleep 0.35
 ipc openMusic
 sleep 0.45
+for tab in audio mix ducking playback data; do
+    ipc openMusicSettings "$tab"
+    sleep 0.35
+done
 ipc detachApp music
 sleep 0.35
 ipc reattachApp music

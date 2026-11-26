@@ -236,6 +236,7 @@ ShellRoot {
         "components/DashboardView.qml",
         "components/FilesView.qml",
         "components/MusicView.qml",
+        "components/MusicSettingsPage.qml",
         "components/SettingsView.qml",
         "components/ClipboardView.qml",
         "components/SearchResultsView.qml",
@@ -2049,6 +2050,13 @@ ShellRoot {
 
         function openMusic(): void {
             stateObj.openIslandApp("music", null);
+        }
+
+        function openMusicSettings(tab: string): void {
+            if (LockService.locked) return;
+            if (tab !== "") MixcloudService.settingsTab = tab;
+            MixcloudService.activeSection = "settings";
+            stateObj.showIslandApp("music", null);
         }
 
         function openPicker(mode: string): void {
