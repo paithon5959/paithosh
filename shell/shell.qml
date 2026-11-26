@@ -18,8 +18,10 @@ ShellRoot {
         property bool pendingOverlayReveal: false
         property string reloadReason: ""
         property string lastWallpaperPath: ""
+        property bool lastWallpapersDisabled: false
 
         onReloaded: {
+            Theme.wallpapersDisabled = lastWallpapersDisabled;
             stateObj._handledReloadEntrance = true;
             const msg = pendingEntrance
                 ? (reloadReason !== "" ? reloadReason : "Config Reloaded")
@@ -133,8 +135,12 @@ ShellRoot {
                     if (typeof obj.activeBorderHighlight === "boolean") stateObj.activeBorderHighlight = obj.activeBorderHighlight;
                     if (typeof obj.globalSurfaceTheme === "string") stateObj.globalSurfaceTheme = obj.globalSurfaceTheme;
                     if (typeof obj.activeProfile === "string") stateObj.activeProfile = obj.activeProfile;
-                    if (typeof obj.themePreset === "string") Theme.applyPreset(obj.themePreset, Boolean(obj.wallpaperColorEnabled));
-                    if (!obj.wallpaperColorEnabled) Theme.applySurfaceTheme(stateObj.globalSurfaceTheme);
+                    const wpDisabled = Boolean(obj.wallpapersDisabled);
+                    const wpColorOn = !wpDisabled && Boolean(obj.wallpaperColorEnabled);
+                    reloadState.lastWallpapersDisabled = wpDisabled;
+                    Theme.wallpapersDisabled = wpDisabled;
+                    if (typeof obj.themePreset === "string") Theme.applyPreset(obj.themePreset, wpColorOn);
+                    if (!wpColorOn) Theme.applySurfaceTheme(stateObj.globalSurfaceTheme);
                     else Theme.surfaceTheme = stateObj.globalSurfaceTheme;
                     Theme.applyPaletteState(obj, false);
                     if (typeof obj.masterRatio === "number") Theme.masterRatio = obj.masterRatio;
@@ -183,7 +189,7 @@ ShellRoot {
                 stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
-                if (Theme.wallpaperColorEnabled && bgLayer.currentWallpaperPath !== "") {
+                if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled && bgLayer.currentWallpaperPath !== "") {
                     stateObj.syncWallpaperColors(false, false);
                 }
                 cursorBootApplyTimer.restart();
@@ -412,7 +418,7 @@ ShellRoot {
                 const reqPath = wallpaperColorProc.requestedPath;
                 const reqMode = wallpaperColorProc.requestedMode;
                 const anim = wallpaperColorProc.animateOnApply;
-                if (seq !== stateObj._wpColorSeq || !Theme.wallpaperColorEnabled) {
+                if (seq !== stateObj._wpColorSeq || !Theme.wallpaperColorEnabled || Theme.wallpapersDisabled) {
                     if (seq === stateObj._wpColorSeq) Theme.wallpaperColorBusy = false;
                     return;
                 }
@@ -503,7 +509,7 @@ ShellRoot {
                 reloadState.lastWallpaperPath = bgLayer.currentWallpaperPath;
             }
             if (!stateObj._applyingExternalState) stateObj.saveSettings();
-            if (stateObj.settingsLoaded && Theme.wallpaperColorEnabled && bgLayer.currentWallpaperPath !== "") {
+            if (stateObj.settingsLoaded && Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled && bgLayer.currentWallpaperPath !== "") {
                 stateObj.syncWallpaperColors(true, false);
             }
         }
@@ -538,7 +544,7 @@ ShellRoot {
         }
 
         function syncWallpaperColors(animate, force) {
-            if (!Theme.wallpaperColorEnabled) return;
+            if (!Theme.wallpaperColorEnabled || Theme.wallpapersDisabled) return;
             const path = bgLayer.currentWallpaperPath;
             if (!path || path === "") return;
             const mode = Theme.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid";
@@ -562,12 +568,27 @@ ShellRoot {
             wallpaperColorProc.running = true;
         }
 
+        function setWallpapersDisabled(disabled) {
+            const next = Boolean(disabled);
+            if (Theme.wallpapersDisabled === next) return;
+            reloadState.lastWallpapersDisabled = next;
+            if (next) {
+                _wpColorSeq += 1;
+                wallpaperColorProc.running = false;
+                Theme.wallpaperColorBusy = false;
+            }
+            Theme.setWallpapersDisabled(next);
+            syncHyprThemeColors();
+            if (!_applyingExternalState) markAppearanceCustomized();
+            saveSettings();
+        }
+
         function setWallpaperColorEnabled(enabled) {
-            const next = Boolean(enabled);
+            const next = Boolean(enabled) && !Theme.wallpapersDisabled;
             if (Theme.wallpaperColorEnabled === next) return;
             const hasWp = Boolean(bgLayer.currentWallpaperPath && bgLayer.currentWallpaperPath !== "");
             Theme.setWallpaperColorEnabled(next, next && hasWp);
-            if (Theme.wallpaperColorEnabled) {
+            if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled) {
                 syncWallpaperColors(true, false);
             }
             if (!_applyingExternalState) markAppearanceCustomized();
@@ -578,7 +599,7 @@ ShellRoot {
             const next = (String(mode || "").trim().toLowerCase() === "gradient") ? "Gradient" : "Solid";
             if (Theme.wallpaperColorMode === next) return;
             Theme.setWallpaperColorMode(next);
-            if (Theme.wallpaperColorEnabled) {
+            if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled) {
                 syncWallpaperColors(true, false);
             }
             if (!_applyingExternalState) markAppearanceCustomized();
@@ -925,9 +946,12 @@ ShellRoot {
             autoForkSaveTimer.stop();
             _autoForkTarget = "";
             const prevWpEnabled = Theme.wallpaperColorEnabled;
-            const wpOn = Boolean(d.wallpaperColorEnabled);
+            const wpDisabled = Boolean(d.wallpapersDisabled);
+            const wpOn = !wpDisabled && Boolean(d.wallpaperColorEnabled);
             _applyingExternalState = true;
             activeProfile = profileName ? sanitizeProfileName(profileName) : "";
+            reloadState.lastWallpapersDisabled = wpDisabled;
+            Theme.wallpapersDisabled = wpDisabled;
             Theme.applyPreset(d.presetName, wpOn);
             globalSurfaceTheme = d.globalSurfaceTheme || "OLED Pure";
             if (!wpOn) Theme.applySurfaceTheme(globalSurfaceTheme);
@@ -979,7 +1003,7 @@ ShellRoot {
 
             _applyingExternalState = false;
             themeImportSeq += 1;
-            if (Theme.wallpaperColorEnabled) {
+            if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled) {
                 syncWallpaperColors(true, false);
             }
             saveSettings();
@@ -1981,6 +2005,10 @@ ShellRoot {
         function setWallpaperColor(enabled: bool, mode: string): void {
             if (mode === "Solid" || mode === "Gradient") stateObj.setWallpaperColorMode(mode);
             stateObj.setWallpaperColorEnabled(enabled);
+        }
+
+        function setWallpapersDisabled(disabled: bool): void {
+            stateObj.setWallpapersDisabled(disabled);
         }
 
         function detachApp(appKind: string): void {

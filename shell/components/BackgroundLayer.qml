@@ -3,6 +3,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import QtQuick
 import ".."
+import "common"
 
 PanelWindow {
     id: root
@@ -82,7 +83,7 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Background
     WlrLayershell.namespace: "paithosh-background"
     exclusionMode: ExclusionMode.Ignore
-    color: Theme.pillBg
+    color: Theme.surfaceBg
 
     function _toUrl(path) {
         if (!path || path === "") return "";
@@ -190,7 +191,7 @@ PanelWindow {
     }
 
     function nextWallpaper() {
-        if (wallpapers.length === 0) return;
+        if (Theme.wallpapersDisabled || wallpapers.length === 0) return;
         currentIndex = (currentIndex + 1) % wallpapers.length;
         const url = wallpapers[currentIndex];
         currentWallpaperPath = _toLocalPath(url);
@@ -306,15 +307,36 @@ PanelWindow {
         }
     }
 
+    // Theme-colored background layer (always beneath wallpaperStage; becomes the active desktop backdrop when wallpapers are disabled)
+    Rectangle {
+        id: themeBackdrop
+        anchors.fill: parent
+        color: Theme.surfaceBg
+
+        ThemeGradientFill {
+            anchors.fill: parent
+            enabled: Theme.surfaceGradientEnabled
+            color1: Theme.surfaceBg
+            colorMid: Theme.surfaceBgMid
+            color2: Theme.surfaceBg2
+            angle: Theme.gradientAngle
+        }
+    }
+
     Item {
         id: wallpaperStage
         anchors.fill: parent
-        opacity: root._bootRevealed ? 1.0 : 0.0
-        scale: root.effectiveStageScale
+        opacity: (root._bootRevealed && !Theme.wallpapersDisabled) ? 1.0 : 0.0
+        visible: opacity > 0.002
+        scale: (Theme.wallpapersDisabled && root.transitionMode === "crossfade-scale")
+            ? 1.03
+            : root.effectiveStageScale
 
         Behavior on opacity {
             NumberAnimation {
-                duration: root.transitionMode === "instant" ? 0 : root.enterFadeMs
+                duration: root.transitionMode === "instant"
+                    ? 0
+                    : (Theme.wallpapersDisabled ? root.exitFadeMs : root.enterFadeMs)
                 easing.type: Easing.OutCubic
             }
         }
@@ -322,8 +344,8 @@ PanelWindow {
             NumberAnimation {
                 duration: root.transitionMode === "instant"
                     ? 0
-                    : (root.targetVeilOpacity > 0.01 ? root.exitFadeMs : root.enterFadeMs)
-                easing.type: root.targetVeilOpacity > 0.01 ? Easing.InOutCubic : Easing.OutCubic
+                    : ((Theme.wallpapersDisabled || root.targetVeilOpacity > 0.01) ? root.exitFadeMs : root.enterFadeMs)
+                easing.type: (Theme.wallpapersDisabled || root.targetVeilOpacity > 0.01) ? Easing.InOutCubic : Easing.OutCubic
             }
         }
 

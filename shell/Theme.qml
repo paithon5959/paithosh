@@ -92,6 +92,9 @@ Singleton {
     property color manualAccent2: "#cccccc"
     property int manualGradientAngle: 135
 
+    // Disable Wallpapers (renders manual theme color/gradient directly on background layer)
+    property bool wallpapersDisabled: false
+
     // "Adjust colors based on what you see" (Wallpaper-Adaptive Theme)
     property bool wallpaperColorEnabled: false
     property string wallpaperColorMode: "Solid" // "Solid" | "Gradient"
@@ -742,7 +745,7 @@ Singleton {
 
     function rebuildPalette(emitSignal, animate) {
         const manualTarget = _computeManualTargetPalette();
-        const target = (root.wallpaperColorEnabled && root._wallpaperPaletteObj)
+        const target = (root.wallpaperColorEnabled && !root.wallpapersDisabled && root._wallpaperPaletteObj)
             ? _computeWallpaperTargetPalette()
             : manualTarget;
         _commitPalette(target, Boolean(animate));
@@ -798,8 +801,21 @@ Singleton {
         };
     }
 
+    function setWallpapersDisabled(disabled) {
+        const next = Boolean(disabled);
+        if (root.wallpapersDisabled === next) return;
+        root.wallpapersDisabled = next;
+        if (next && root.wallpaperColorEnabled) {
+            root.wallpaperColorEnabled = false;
+            root.wallpaperColorBusy = false;
+            rebuildPalette(true, true);
+        } else if (!root._suppressColorSignal) {
+            root.themeColorsChanged();
+        }
+    }
+
     function setWallpaperColorEnabled(enabled, deferApply) {
-        const next = Boolean(enabled);
+        const next = Boolean(enabled) && !root.wallpapersDisabled;
         if (root.wallpaperColorEnabled === next) return;
         root.wallpaperColorEnabled = next;
         if (!next) {
@@ -828,7 +844,7 @@ Singleton {
         root.wallpaperColorSourcePath = String(sourcePath || "");
         const copyPal = Object.assign({}, resultObj.palette, { mode: resultObj.mode || root.wallpaperColorMode });
         root._wallpaperPaletteObj = copyPal;
-        if (root.wallpaperColorEnabled) {
+        if (root.wallpaperColorEnabled && !root.wallpapersDisabled) {
             rebuildPalette(true, animate !== false);
         }
         return true;
@@ -1040,6 +1056,7 @@ Singleton {
             customText: root.hasCustomText ? normalizeHex(root.customText, "") : "",
             hasCustomBorderColor: Boolean(root.hasCustomBorderColor),
             customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "",
+            wallpapersDisabled: Boolean(root.wallpapersDisabled),
             wallpaperColorEnabled: Boolean(root.wallpaperColorEnabled),
             wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid"
         };
@@ -1106,7 +1123,10 @@ Singleton {
         root.customAccent2Active = Boolean(obj.customAccent2Active) && a2 !== "";
         if (root.customAccent2Active) root.manualAccent2 = hexToColor(a2);
 
-        root.wallpaperColorEnabled = Boolean(obj.wallpaperColorEnabled);
+        if (obj.wallpapersDisabled !== undefined) {
+            root.wallpapersDisabled = Boolean(obj.wallpapersDisabled);
+        }
+        root.wallpaperColorEnabled = !root.wallpapersDisabled && Boolean(obj.wallpaperColorEnabled);
         root.wallpaperColorMode = (typeof obj.wallpaperColorMode === "string" && obj.wallpaperColorMode.toLowerCase() === "gradient")
             ? "Gradient"
             : "Solid";
@@ -1233,8 +1253,10 @@ Singleton {
             customText: root.hasCustomText ? normalizeHex(root.customText, "") : "",
             customBorderColor: root.hasCustomBorderColor ? normalizeHex(root.customBorderColor, "") : "",
             // 8. v4 Adaptive Wallpaper Color Mode ("Adjust colors based on what you see")
-            wallpaperColorEnabled: Boolean(root.wallpaperColorEnabled),
-            wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid"
+            wallpaperColorEnabled: !root.wallpapersDisabled && Boolean(root.wallpaperColorEnabled),
+            wallpaperColorMode: root.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid",
+            // 9. v5 Wallpapers Toggle
+            wallpapersDisabled: Boolean(root.wallpapersDisabled)
         };
     }
 

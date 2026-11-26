@@ -1337,6 +1337,9 @@ Item {
     component WallpaperColorCard: SettingGroup {
         id: wpColorCard
         animateHeight: false
+        enabled: !Theme.wallpapersDisabled
+        opacity: Theme.wallpapersDisabled ? 0.45 : 1.0
+        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
         readonly property var paletteSwatches: Theme.wallpaperColorMode === "Gradient"
             ? Theme.wallpaperRefinedPalette
             : Theme.wallpaperExtractedColors
@@ -1345,17 +1348,20 @@ Item {
             showDivider: false
             iconName: "eye"
             title: "Adjust colors based on what you see"
-            subtitle: Theme.wallpaperColorEnabled
-                ? (Theme.wallpaperColorBusy
-                    ? "Analyzing active wallpaper palette..."
-                    : (Theme.wallpaperColorMode === "Gradient"
-                        ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
-                        : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast"))
-                : "Match interface colors automatically to your active wallpaper"
+            subtitle: Theme.wallpapersDisabled
+                ? "Disabled while wallpapers are off — manual theme colors are active"
+                : (Theme.wallpaperColorEnabled
+                    ? (Theme.wallpaperColorBusy
+                        ? "Analyzing active wallpaper palette..."
+                        : (Theme.wallpaperColorMode === "Gradient"
+                            ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
+                            : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast"))
+                    : "Match interface colors automatically to your active wallpaper")
             searchKeywords: "adjust colors based on what you see wallpaper adaptive dynamic solid gradient match palette"
 
             CtrlSwitch {
-                checked: Theme.wallpaperColorEnabled
+                checked: !Theme.wallpapersDisabled && Theme.wallpaperColorEnabled
+                enabled: !Theme.wallpapersDisabled
                 onToggled: (v) => {
                     if (root.shellState) root.shellState.setWallpaperColorEnabled(v);
                     else Theme.setWallpaperColorEnabled(v);
@@ -1365,8 +1371,8 @@ Item {
 
         Item {
             Layout.fillWidth: true
-            implicitHeight: Theme.wallpaperColorEnabled ? wpExpandCol.implicitHeight : 0
-            opacity: Theme.wallpaperColorEnabled ? 1.0 : 0.0
+            implicitHeight: (!Theme.wallpapersDisabled && Theme.wallpaperColorEnabled) ? wpExpandCol.implicitHeight : 0
+            opacity: (!Theme.wallpapersDisabled && Theme.wallpaperColorEnabled) ? 1.0 : 0.0
             visible: implicitHeight > 0.5
             clip: true
 
@@ -2403,6 +2409,16 @@ Item {
                                             border.width: 1
                                             border.color: Theme.borderSubtle
 
+                                            ThemeGradientFill {
+                                                anchors.fill: parent
+                                                cornerRadius: 10
+                                                enabled: Theme.surfaceGradientEnabled
+                                                color1: Theme.surfaceBg
+                                                colorMid: Theme.surfaceBgMid
+                                                color2: Theme.surfaceBg2
+                                                angle: Theme.gradientAngle
+                                            }
+
                                             // Wallpaper scaled to preview resolution so sharpness difference is visible
                                             Image {
                                                 anchors.fill: parent
@@ -2410,7 +2426,9 @@ Item {
                                                 fillMode: Image.PreserveAspectCrop
                                                 smooth: accessibilityPage.activeRecRes !== "480p"
                                                 sourceSize.width: accessibilityPage.activeRecRes === "480p" ? 160 : (accessibilityPage.activeRecRes === "720p" ? 360 : 960)
-                                                opacity: status === Image.Ready ? 0.55 : 0.0
+                                                opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 0.55 : 0.0
+                                                visible: opacity > 0.002
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                             }
 
                                             // Mock Dynamic Island with live red recording dot
@@ -2700,6 +2718,16 @@ Item {
                                             Behavior on width { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                                             Behavior on height { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
+                                            ThemeGradientFill {
+                                                anchors.fill: parent
+                                                cornerRadius: parent.radius
+                                                enabled: Theme.surfaceGradientEnabled
+                                                color1: Theme.surfaceBg
+                                                colorMid: Theme.surfaceBgMid
+                                                color2: Theme.surfaceBg2
+                                                angle: Theme.gradientAngle
+                                            }
+
                                             // Live Wallpaper
                                             Image {
                                                 anchors.fill: parent
@@ -2709,13 +2737,18 @@ Item {
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 smooth: true
-                                                visible: status === Image.Ready
+                                                opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
+                                                visible: opacity > 0.002
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                             }
 
                                             // Subtle vignette for contrast
                                             Rectangle {
                                                 anchors.fill: parent
                                                 color: Qt.rgba(0, 0, 0, 0.22)
+                                                opacity: Theme.wallpapersDisabled ? 0.0 : 1.0
+                                                visible: opacity > 0.002
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                             }
 
                                             // Simulated Dynamic Island (scales with displayScale)
@@ -5213,6 +5246,16 @@ Item {
                                         border.width: 1
                                         border.color: Theme.borderSubtle
 
+                                        ThemeGradientFill {
+                                            anchors.fill: parent
+                                            cornerRadius: 10
+                                            enabled: Theme.surfaceGradientEnabled
+                                            color1: Theme.surfaceBg
+                                            colorMid: Theme.surfaceBgMid
+                                            color2: Theme.surfaceBg2
+                                            angle: Theme.gradientAngle
+                                        }
+
                                         // Real active wallpaper from bgLayer
                                         Image {
                                             anchors.fill: parent
@@ -5222,13 +5265,18 @@ Item {
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
                                             smooth: true
-                                            visible: status === Image.Ready
+                                            opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
+                                            visible: opacity > 0.002
+                                            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                         }
 
                                         // Subtle vignette for contrast
                                         Rectangle {
                                             anchors.fill: parent
                                             color: Qt.rgba(0, 0, 0, 0.22)
+                                            opacity: Theme.wallpapersDisabled ? 0.0 : 1.0
+                                            visible: opacity > 0.002
+                                            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                         }
 
                                         // Real Paithosh Dynamic Island (scaled 1:2 representation of DynamicIsland.qml)
@@ -6273,219 +6321,246 @@ Item {
                             }
 
                             SectionLabel { text: "Wallpaper & Transitions" }
-                            GridLayout {
-                                Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
-                                PresetCard {
-                                    title: "Crossfade + Scale"
-                                    subtitle: "Smooth zoom & fade"
-                                    active: bgLayer.transitionMode === "crossfade-scale"
-                                    onTriggered: { bgLayer.transitionMode = "crossfade-scale"; }
-                                }
-                                PresetCard {
-                                    title: "Crossfade"
-                                    subtitle: "Clean opacity blend"
-                                    active: bgLayer.transitionMode === "crossfade"
-                                    onTriggered: { bgLayer.transitionMode = "crossfade"; }
-                                }
-                                PresetCard {
-                                    title: "Instant"
-                                    subtitle: "Zero transition delay"
-                                    active: bgLayer.transitionMode === "instant"
-                                    onTriggered: { bgLayer.transitionMode = "instant"; }
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconName: Theme.wallpapersDisabled ? "eye-off" : "image"
+                                    title: "Wallpapers"
+                                    subtitle: Theme.wallpapersDisabled
+                                        ? "Off • Background follows your manual theme surface color" + (Theme.surfaceGradientEnabled ? " & gradient" : "") + " (adaptive colors off)"
+                                        : "Display desktop wallpaper image (turn off to use your theme's surface color & manual colors)"
+                                    searchKeywords: "wallpapers disable wallpapers solid background theme color no wallpaper off"
+
+                                    CtrlSwitch {
+                                        checked: !Theme.wallpapersDisabled
+                                        onToggled: (v) => {
+                                            if (root.shellState) root.shellState.setWallpapersDisabled(!v);
+                                            else Theme.setWallpapersDisabled(!v);
+                                        }
+                                    }
                                 }
                             }
-                            RowLayout {
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 8
-                                SvgIcon {
-                                    sourceName: "image"
-                                    iconSize: 15
-                                    color: Theme.textSub
+                                spacing: 12
+                                enabled: !Theme.wallpapersDisabled
+                                opacity: Theme.wallpapersDisabled ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                                GridLayout {
+                                    Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
+                                    PresetCard {
+                                        title: "Crossfade + Scale"
+                                        subtitle: "Smooth zoom & fade"
+                                        active: bgLayer.transitionMode === "crossfade-scale"
+                                        onTriggered: { bgLayer.transitionMode = "crossfade-scale"; }
+                                    }
+                                    PresetCard {
+                                        title: "Crossfade"
+                                        subtitle: "Clean opacity blend"
+                                        active: bgLayer.transitionMode === "crossfade"
+                                        onTriggered: { bgLayer.transitionMode = "crossfade"; }
+                                    }
+                                    PresetCard {
+                                        title: "Instant"
+                                        subtitle: "Zero transition delay"
+                                        active: bgLayer.transitionMode === "instant"
+                                        onTriggered: { bgLayer.transitionMode = "instant"; }
+                                    }
                                 }
-                                Text {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    text: bgLayer.wallpapers.length + " / " + bgLayer.maxWallpapers + " • ~/.config/paithosh/wallpapers"
-                                    color: Theme.textMuted
-                                    font.family: Theme.fontMono
-                                    font.pixelSize: 11
-                                    elide: Text.ElideMiddle
-                                }
-                                CtrlBtn {
-                                    text: "Open Folder"
-                                    ghost: true
-                                    onClicked: {
-                                        if (root.shellState) root.shellState.openFilesAt(bgLayer.wallpaperDir, "");
-                                    }
-                                }
-                                CtrlBtn {
-                                    text: bgLayer.importing ? "Adding..." : "Add Wallpaper"
-                                    enabled: !bgLayer.importing
-                                    onClicked: {
-                                        if (root.shellState) root.shellState.openWallpaperPicker();
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                visible: bgLayer.wallpapers.length === 0
-                                Layout.fillWidth: true
-                                implicitHeight: 112
-                                radius: 12
-                                clip: true
-                                color: Theme.cardBg
-                                border.width: 1
-                                border.color: Theme.borderSubtle
-
-                                ColumnLayout {
-                                    anchors.centerIn: parent
-                                    width: Math.min(parent.width - 32, 360)
                                     spacing: 8
-
-                                    RowLayout {
-                                        Layout.alignment: Qt.AlignHCenter
-                                        spacing: 8
-                                        SvgIcon {
-                                            sourceName: "image"
-                                            iconSize: 18
-                                            color: Theme.textSub
-                                        }
-                                        Text {
-                                            text: "No wallpapers in Paithosh yet"
-                                            color: Theme.text
-                                            font.family: Theme.fontSans
-                                            font.pixelSize: 13
-                                            font.weight: Font.DemiBold
-                                        }
+                                    SvgIcon {
+                                        sourceName: "image"
+                                        iconSize: 15
+                                        color: Theme.textSub
                                     }
                                     Text {
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 0
-                                        horizontalAlignment: Text.AlignHCenter
-                                        text: "Add an image to copy it into ~/.config/paithosh/wallpapers and apply it immediately."
-                                        color: Theme.textSub
-                                        font.family: Theme.fontSans
+                                        text: bgLayer.wallpapers.length + " / " + bgLayer.maxWallpapers + " • ~/.config/paithosh/wallpapers"
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontMono
                                         font.pixelSize: 11
-                                        wrapMode: Text.WordWrap
+                                        elide: Text.ElideMiddle
+                                    }
+                                    CtrlBtn {
+                                        text: "Open Folder"
+                                        ghost: true
+                                        onClicked: {
+                                            if (root.shellState) root.shellState.openFilesAt(bgLayer.wallpaperDir, "");
+                                        }
+                                    }
+                                    CtrlBtn {
+                                        text: bgLayer.importing ? "Adding..." : "Add Wallpaper"
+                                        enabled: !bgLayer.importing
+                                        onClicked: {
+                                            if (root.shellState) root.shellState.openWallpaperPicker();
+                                        }
                                     }
                                 }
-                            }
-                            GridLayout {
-                                visible: bgLayer.wallpapers.length > 0
-                                Layout.fillWidth: true
-                                columns: 2
-                                columnSpacing: 10
-                                rowSpacing: 10
-                                Repeater {
-                                    model: bgLayer.wallpapers
-                                    delegate: Rectangle {
-                                        id: wpCard
-                                        required property string modelData
-                                        required property int index
-                                        readonly property bool isActive: bgLayer.currentIndex === index
+                                Rectangle {
+                                    visible: bgLayer.wallpapers.length === 0
+                                    Layout.fillWidth: true
+                                    implicitHeight: 112
+                                    radius: 12
+                                    clip: true
+                                    color: Theme.cardBg
+                                    border.width: 1
+                                    border.color: Theme.borderSubtle
 
-                                        Layout.fillWidth: true
-                                        implicitHeight: 168
-                                        radius: 12
-                                        clip: true
-                                        color: isActive ? Theme.cardHover : (wpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
-                                        border.width: isActive ? 2 : 1
-                                        border.color: isActive
-                                            ? Theme.accent
-                                            : (wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-                                        scale: wpMouse.pressed ? 0.96 : 1.0
+                                    ColumnLayout {
+                                        anchors.centerIn: parent
+                                        width: Math.min(parent.width - 32, 360)
+                                        spacing: 8
 
-                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                        Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                                        ColumnLayout {
-                                            anchors.fill: parent
-                                            anchors.margins: 8
+                                        RowLayout {
+                                            Layout.alignment: Qt.AlignHCenter
                                             spacing: 8
+                                            SvgIcon {
+                                                sourceName: "image"
+                                                iconSize: 18
+                                                color: Theme.textSub
+                                            }
+                                            Text {
+                                                text: "No wallpapers in Paithosh yet"
+                                                color: Theme.text
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 13
+                                                font.weight: Font.DemiBold
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            horizontalAlignment: Text.AlignHCenter
+                                            text: "Add an image to copy it into ~/.config/paithosh/wallpapers and apply it immediately."
+                                            color: Theme.textSub
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 11
+                                            wrapMode: Text.WordWrap
+                                        }
+                                    }
+                                }
+                                GridLayout {
+                                    visible: bgLayer.wallpapers.length > 0
+                                    Layout.fillWidth: true
+                                    columns: 2
+                                    columnSpacing: 10
+                                    rowSpacing: 10
+                                    Repeater {
+                                        model: bgLayer.wallpapers
+                                        delegate: Rectangle {
+                                            id: wpCard
+                                            required property string modelData
+                                            required property int index
+                                            readonly property bool isActive: bgLayer.currentIndex === index
 
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                Layout.fillHeight: true
-                                                radius: 8
-                                                clip: true
-                                                color: Theme.surfaceRaised
+                                            Layout.fillWidth: true
+                                            implicitHeight: 168
+                                            radius: 12
+                                            clip: true
+                                            color: isActive ? Theme.cardHover : (wpMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                            border.width: isActive ? 2 : 1
+                                            border.color: isActive
+                                                ? Theme.accent
+                                                : (wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
+                                            scale: wpMouse.pressed ? 0.96 : 1.0
 
-                                                Image {
-                                                    anchors.fill: parent
-                                                    source: wpCard.modelData
-                                                    fillMode: Image.PreserveAspectCrop
-                                                    asynchronous: true
-                                                    cache: true
-                                                    sourceSize.width: 480
-                                                    sourceSize.height: 270
-                                                    scale: wpMouse.containsMouse ? 1.04 : 1.0
-                                                    opacity: status === Image.Ready ? 1.0 : 0.0
-                                                    Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
-                                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-                                                }
+                                            Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                            Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                            ColumnLayout {
+                                                anchors.fill: parent
+                                                anchors.margins: 8
+                                                spacing: 8
 
                                                 Rectangle {
-                                                    anchors.top: parent.top
-                                                    anchors.right: parent.right
-                                                    anchors.margins: 6
-                                                    height: 20
-                                                    implicitWidth: wpBadgeLbl.implicitWidth + 14
-                                                    radius: 10
+                                                    Layout.fillWidth: true
+                                                    Layout.fillHeight: true
+                                                    radius: 8
                                                     clip: true
-                                                    color: wpCard.isActive ? Theme.accent : Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.78)
-                                                    border.width: wpCard.isActive ? 0 : 1
-                                                    border.color: wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle
-                                                    opacity: wpCard.isActive ? 1.0 : (wpMouse.containsMouse ? 1.0 : 0.82)
+                                                    color: Theme.surfaceRaised
 
-                                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                    Image {
+                                                        anchors.fill: parent
+                                                        source: wpCard.modelData
+                                                        fillMode: Image.PreserveAspectCrop
+                                                        asynchronous: true
+                                                        cache: true
+                                                        sourceSize.width: 480
+                                                        sourceSize.height: 270
+                                                        scale: wpMouse.containsMouse ? 1.04 : 1.0
+                                                        opacity: status === Image.Ready ? 1.0 : 0.0
+                                                        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+                                                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                                    }
 
+                                                    Rectangle {
+                                                        anchors.top: parent.top
+                                                        anchors.right: parent.right
+                                                        anchors.margins: 6
+                                                        height: 20
+                                                        implicitWidth: wpBadgeLbl.implicitWidth + 14
+                                                        radius: 10
+                                                        clip: true
+                                                        color: wpCard.isActive ? Theme.accent : Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.78)
+                                                        border.width: wpCard.isActive ? 0 : 1
+                                                        border.color: wpMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.55) : Theme.borderSubtle
+                                                        opacity: wpCard.isActive ? 1.0 : (wpMouse.containsMouse ? 1.0 : 0.82)
+
+                                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                        Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                        Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+
+                                                        Text {
+                                                            id: wpBadgeLbl
+                                                            anchors.centerIn: parent
+                                                            text: wpCard.isActive ? "Active" : "Apply"
+                                                            color: wpCard.isActive ? Theme.accentFg : Theme.text
+                                                            font.family: Theme.fontMono
+                                                            font.pixelSize: 10
+                                                            font.weight: Font.DemiBold
+                                                        }
+                                                    }
+                                                }
+
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    spacing: 2
                                                     Text {
-                                                        id: wpBadgeLbl
-                                                        anchors.centerIn: parent
-                                                        text: wpCard.isActive ? "Active" : "Apply"
-                                                        color: wpCard.isActive ? Theme.accentFg : Theme.text
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: wpCard.modelData.split("/").pop()
+                                                        color: Theme.text
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 12
+                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideRight
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: wpCard.modelData.replace("file://", "")
+                                                        color: Theme.textSub
                                                         font.family: Theme.fontMono
                                                         font.pixelSize: 10
-                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideMiddle
                                                     }
                                                 }
                                             }
 
-                                            ColumnLayout {
-                                                Layout.fillWidth: true
-                                                Layout.minimumWidth: 0
-                                                spacing: 2
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    Layout.minimumWidth: 0
-                                                    text: wpCard.modelData.split("/").pop()
-                                                    color: Theme.text
-                                                    font.family: Theme.fontSans
-                                                    font.pixelSize: 12
-                                                    font.weight: Font.DemiBold
-                                                    elide: Text.ElideRight
+                                            MouseArea {
+                                                id: wpMouse
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    bgLayer.selectWallpaper(wpCard.modelData);
                                                 }
-                                                Text {
-                                                    Layout.fillWidth: true
-                                                    Layout.minimumWidth: 0
-                                                    text: wpCard.modelData.replace("file://", "")
-                                                    color: Theme.textSub
-                                                    font.family: Theme.fontMono
-                                                    font.pixelSize: 10
-                                                    elide: Text.ElideMiddle
-                                                }
-                                            }
-                                        }
-
-                                        MouseArea {
-                                            id: wpMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                bgLayer.selectWallpaper(wpCard.modelData);
                                             }
                                         }
                                     }
@@ -7631,6 +7706,16 @@ Item {
                                             border.width: 1
                                             border.color: Theme.borderSubtle
 
+                                            ThemeGradientFill {
+                                                anchors.fill: parent
+                                                cornerRadius: 10
+                                                enabled: Theme.surfaceGradientEnabled
+                                                color1: Theme.surfaceBg
+                                                colorMid: Theme.surfaceBgMid
+                                                color2: Theme.surfaceBg2
+                                                angle: Theme.gradientAngle
+                                            }
+
                                             Image {
                                                 anchors.fill: parent
                                                 source: (typeof bgLayer !== "undefined" && bgLayer.wallpapers && bgLayer.wallpapers.length > 0)
@@ -7639,7 +7724,9 @@ Item {
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 smooth: true
-                                                visible: status === Image.Ready
+                                                opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
+                                                visible: opacity > 0.002
+                                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                             }
 
                                             // Backdrop Dim Scrim

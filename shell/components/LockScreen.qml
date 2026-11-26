@@ -54,14 +54,31 @@ Scope {
                 NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
             }
 
+            // Theme-colored backdrop (always matches desktop when wallpapers are disabled)
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.surfaceBg
+                opacity: transWin.animProgress
+
+                ThemeGradientFill {
+                    anchors.fill: parent
+                    enabled: Theme.surfaceGradientEnabled
+                    color1: Theme.surfaceBg
+                    colorMid: Theme.surfaceBgMid
+                    color2: Theme.surfaceBg2
+                    angle: Theme.gradientAngle
+                }
+            }
+
             // Wallpaper fading over active windows
             Image {
                 anchors.fill: parent
-                source: LockService.transitionVisible ? lockRoot.resolvedWallpaperUrl : ""
+                source: (LockService.transitionVisible && !Theme.wallpapersDisabled) ? lockRoot.resolvedWallpaperUrl : ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: false
                 cache: true
                 smooth: true
+                visible: !Theme.wallpapersDisabled
                 opacity: transWin.animProgress
             }
 
@@ -272,14 +289,35 @@ Scope {
                     }
                 }
 
+                // Theme-colored backdrop (live surface color + gradient when wallpapers are disabled)
+                Rectangle {
+                    anchors.fill: parent
+                    color: Theme.surfaceBg
+
+                    ThemeGradientFill {
+                        anchors.fill: parent
+                        enabled: Theme.surfaceGradientEnabled
+                        color1: Theme.surfaceBg
+                        colorMid: Theme.surfaceBgMid
+                        color2: Theme.surfaceBg2
+                        angle: Theme.gradientAngle
+                    }
+                }
+
                 // Current desktop wallpaper (already faded in by transitionOverlay)
                 Image {
                     anchors.fill: parent
-                    source: lockRoot.resolvedWallpaperUrl
+                    source: !Theme.wallpapersDisabled ? lockRoot.resolvedWallpaperUrl : ""
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: false
                     cache: true
                     smooth: true
+                    opacity: Theme.wallpapersDisabled ? 0.0 : 1.0
+                    visible: opacity > 0.002
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    }
                 }
 
                 // Subtle dim scrim (custom base dim, +0.12 while typing)

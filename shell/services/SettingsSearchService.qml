@@ -362,6 +362,15 @@ QtObject {
             icon: "palette"
         },
         {
+            id: "app-disable-wallpapers",
+            page: "appearance",
+            pageLabel: "Appearance",
+            title: "Wallpapers",
+            subtitle: "Toggle desktop wallpaper on/off (uses manual theme surface color & gradient when off)",
+            keywords: "wallpapers disable wallpapers solid background theme color no wallpaper off manual",
+            icon: "image"
+        },
+        {
             id: "app-wallpaper",
             page: "appearance",
             pageLabel: "Appearance",

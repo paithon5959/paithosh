@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Paithosh Theme Codec (paish: schema v4, bit-packed Base64URL, v2/v3-compatible).
+"""Paithosh Theme Codec (paish: schema v5, bit-packed Base64URL, v2/v3/v4-compatible).
 
-Supports v4 encoding/decoding and backward-compatible v2/v3 decoding.
+Supports v5 encoding/decoding and backward-compatible v2/v3/v4 decoding.
 Versioning (4 bits) and profile/preset name (5 + 6*L bits) are packed
 directly inside the binary payload under the lowercase `paish:` prefix.
 """
@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import Any
 
 PREFIX = "paish:"
-SCHEMA_VERSION = 4
-SUPPORTED_DECODE_VERSIONS = (2, 3, 4)
+SCHEMA_VERSION = 5
+SUPPORTED_DECODE_VERSIONS = (2, 3, 4, 5)
 WALLPAPER_COLOR_MODES = ["Solid", "Gradient"]
 
 B64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -277,10 +277,14 @@ def encode_state(state: dict[str, Any]) -> str:
                 bw.write(0, 1)
 
     # 8. Adaptive Wallpaper Color Mode (v4: 2 bits)
-    wp_enabled = _to_bool(state.get("wallpaperColorEnabled"), False)
+    wp_disabled = _to_bool(state.get("wallpapersDisabled"), False)
+    wp_enabled = (not wp_disabled) and _to_bool(state.get("wallpaperColorEnabled"), False)
     wp_mode_idx = 1 if str(state.get("wallpaperColorMode", "Solid")).strip().lower() == "gradient" else 0
     bw.write(1 if wp_enabled else 0, 1)
     bw.write(wp_mode_idx, 1)
+
+    # 9. Wallpapers Disabled Flag (v5: 1 bit)
+    bw.write(1 if wp_disabled else 0, 1)
 
     return PREFIX + bw.to_b64url()
 
@@ -384,6 +388,7 @@ def decode_code(code: str) -> dict[str, Any]:
 
     wp_enabled = False
     wp_mode = "Solid"
+    wp_disabled = False
 
     if version >= 3 and br.remaining() >= 4:
         shell_grad = br.read(1) == 1
@@ -408,6 +413,11 @@ def decode_code(code: str) -> dict[str, Any]:
     if version >= 4 and br.remaining() >= 2:
         wp_enabled = br.read(1) == 1
         wp_mode = WALLPAPER_COLOR_MODES[br.read(1)]
+
+    if version >= 5 and br.remaining() >= 1:
+        wp_disabled = br.read(1) == 1
+        if wp_disabled:
+            wp_enabled = False
 
     return {
         "version": version,
@@ -475,6 +485,7 @@ def decode_code(code: str) -> dict[str, Any]:
         "customBorderColor": c_border,
         "wallpaperColorEnabled": wp_enabled,
         "wallpaperColorMode": wp_mode,
+        "wallpapersDisabled": wp_disabled,
     }
 
 
@@ -550,6 +561,7 @@ def _self_test() -> None:
             "customBorderColor": "",
             "wallpaperColorEnabled": False,
             "wallpaperColorMode": "Solid",
+            "wallpapersDisabled": False,
         },
         # Max bounds
         {
@@ -617,6 +629,34 @@ def _self_test() -> None:
             "customBorderColor": "#7da6d9",
             "wallpaperColorEnabled": True,
             "wallpaperColorMode": "Gradient",
+            "wallpapersDisabled": False,
+        },
+        # Wallpapers disabled (solid/gradient theme background + forced manual colors)
+        {
+            "presetName": "Nord Frost",
+            "globalSurfaceTheme": "Adaptive",
+            "customAccentActive": True,
+            "accentMode": "Gradient",
+            "hueVal": 0.55,
+            "satVal": 0.45,
+            "valVal": 0.85,
+            "gradientAngle": 120,
+            "profileName": "no-wallpaper-theme",
+            "shellGradientEnabled": True,
+            "pillBg2": "#222b3b",
+            "surfaceGradientEnabled": True,
+            "surfaceBg2": "#273142",
+            "customAccent2Active": False,
+            "accent2": "",
+            "customPaletteActive": True,
+            "customPillBg": "#1a1f29",
+            "customSurfaceBg": "#212734",
+            "customSurfaceRaised": "",
+            "customText": "",
+            "customBorderColor": "",
+            "wallpaperColorEnabled": False,
+            "wallpaperColorMode": "Solid",
+            "wallpapersDisabled": True,
         },
         # User A -> User B preservation case (wallpaper enabled + custom manual setup)
         {
@@ -643,6 +683,7 @@ def _self_test() -> None:
             "customBorderColor": "#9d86c7",
             "wallpaperColorEnabled": True,
             "wallpaperColorMode": "Solid",
+            "wallpapersDisabled": False,
         },
     ]
 
@@ -651,6 +692,8 @@ def _self_test() -> None:
         sh_grad = rng.choice([True, False])
         sf_grad = rng.choice([True, False])
         ac2_on = rng.choice([True, False])
+        wp_dis = rng.choice([True, False])
+        wp_col = (not wp_dis) and rng.choice([True, False])
         slot_vals = [
             f"#{rng.randint(0, 0xFFFFFF):06x}" if rng.choice([True, False]) else ""
             for _ in range(5)
@@ -719,8 +762,9 @@ def _self_test() -> None:
                 "customSurfaceRaised": slot_vals[2],
                 "customText": slot_vals[3],
                 "customBorderColor": slot_vals[4],
-                "wallpaperColorEnabled": rng.choice([True, False]),
+                "wallpaperColorEnabled": wp_col,
                 "wallpaperColorMode": rng.choice(WALLPAPER_COLOR_MODES),
+                "wallpapersDisabled": wp_dis,
             }
         )
 
@@ -729,12 +773,18 @@ def _self_test() -> None:
         assert code.startswith("paish:"), f"case {i}: bad prefix {code}"
         assert "=" not in code, f"case {i}: unexpected padding in {code}"
         decoded = decode_code(code)
-        assert decoded["version"] == 4
+        assert decoded["version"] == 5
         reencoded = encode_state(decoded)
         assert reencoded == code, f"case {i}: round-trip mismatch\n  {code}\n  {reencoded}"
         if i >= 2:
             for k, v in sample.items():
                 assert decoded[k] == v, f"case {i} key {k}: expected {v!r}, got {decoded[k]!r}"
+
+    # Verify invariant: wallpapersDisabled=True forces wallpaperColorEnabled=False
+    inv_code = encode_state({"wallpapersDisabled": True, "wallpaperColorEnabled": True, "wallpaperColorMode": "Gradient"})
+    inv_dec = decode_code(inv_code)
+    assert inv_dec["wallpapersDisabled"] is True
+    assert inv_dec["wallpaperColorEnabled"] is False
 
     # Verify v2 backward compatibility with real existing v2 code
     legacy_v2 = "paish:Iz0t1iUEqGSKZCNBJGYxiqBB___-FtkeVOGIKAoWm"
@@ -745,6 +795,7 @@ def _self_test() -> None:
     assert dec_v2["customPillBg"] == ""
     assert dec_v2["wallpaperColorEnabled"] is False
     assert dec_v2["wallpaperColorMode"] == "Solid"
+    assert dec_v2["wallpapersDisabled"] is False
 
     # Verify v3 backward compatibility (synthesized v3 header + minimal body)
     v3_bw = BitWriter()
@@ -755,11 +806,25 @@ def _self_test() -> None:
     assert dec_v3["version"] == 3
     assert dec_v3["wallpaperColorEnabled"] is False
     assert dec_v3["wallpaperColorMode"] == "Solid"
+    assert dec_v3["wallpapersDisabled"] is False
+
+    # Verify v4 backward compatibility (synthesized v4 header + minimal body + wp_enabled=1, Gradient)
+    v4_bw = BitWriter()
+    v4_bw.write(4, 4)  # version 4
+    for _ in range(48 + 51 + 30 + 35 + 30 + 5 + 4):
+        v4_bw.write(0, 1)
+    v4_bw.write(1, 1)  # wallpaperColorEnabled
+    v4_bw.write(1, 1)  # Gradient
+    dec_v4 = decode_code(PREFIX + v4_bw.to_b64url())
+    assert dec_v4["version"] == 4
+    assert dec_v4["wallpaperColorEnabled"] is True
+    assert dec_v4["wallpaperColorMode"] == "Gradient"
+    assert dec_v4["wallpapersDisabled"] is False
 
     # Verify v1 & unsupported versions are rejected
-    bad_v5_bw = BitWriter()
-    bad_v5_bw.write(5, 4)
-    for bad in ("PAISH1:abc", "1;0;0;26", "paish:", PREFIX + bad_v5_bw.to_b64url()):
+    bad_v6_bw = BitWriter()
+    bad_v6_bw.write(6, 4)
+    for bad in ("PAISH1:abc", "1;0;0;26", "paish:", PREFIX + bad_v6_bw.to_b64url()):
         try:
             decode_code(bad)
             raise AssertionError(f"Expected failure for {bad!r}")
@@ -769,7 +834,7 @@ def _self_test() -> None:
     c0 = encode_state(cases[0])
     c1 = encode_state(cases[1])
     assert len(c0) <= 48, f"Expected compact default code <=48 chars, got {len(c0)}: {c0}"
-    print(f"OK ({len(cases)} v4 round-trip + v2/v3 compat passed)")
+    print(f"OK ({len(cases)} v5 round-trip + v2/v3/v4 compat passed)")
     print(f"  unnamed ({len(c0)} chars): {c0}")
     print(f"  named   ({len(c1)} chars): {c1}")
 
