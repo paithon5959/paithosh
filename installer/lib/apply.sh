@@ -391,10 +391,12 @@ HYPR_CONF="${HYPR_DIR}/hyprland.conf"
 has_paithosh_launch() {
     local f="$1"
     [[ -f "$f" ]] || return 1
-    if grep -Eq 'qs[[:space:]]+-p[[:space:]]+.*(paithosh/shell|shell/shell\.qml|paithosh\.root)' "$f"; then
+    local active
+    active="$(grep -Ev '^[[:space:]]*(--|#)' "$f" || true)"
+    if grep -Eq 'qs[[:space:]]+-p[[:space:]]+.*(paithosh/shell|shell/shell\.qml|paithosh\.root)' <<<"$active"; then
         return 0
     fi
-    if grep -Eq 'qs[[:space:]]+-p' "$f" && grep -Fq "${REPO_ROOT}/shell" "$f"; then
+    if grep -Eq 'qs[[:space:]]+-p' <<<"$active" && grep -Fq "${REPO_ROOT}/shell" <<<"$active"; then
         return 0
     fi
     return 1
@@ -443,16 +445,28 @@ if [[ "$AUTOSTART" == "true" ]]; then
 import re, sys
 path, cmd = sys.argv[1:3]
 txt = open(path, "r", encoding="utf-8").read()
-lua_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
-line = f'    hl.exec_cmd("{lua_cmd}")'
-hm = re.search(r'hl\.on\(\s*["\']hyprland\.start["\']', txt)
-m = re.search(r'(?m)^([ \t]*)end\)', txt[hm.end():]) if hm else None
-if hm and m:
-    idx = hm.end() + m.start()
-    new_txt = txt[:idx] + line + "\n" + txt[idx:]
+out_lines = []
+uncommented = False
+for ln in txt.splitlines(keepends=True):
+    m_c = re.match(r'^([ \t]*)--[ \t]*(hl\.exec_cmd\(.*qs\s+-p.*)$', ln)
+    if not uncommented and m_c:
+        out_lines.append(m_c.group(1) + m_c.group(2) + ("\n" if ln.endswith("\n") else ""))
+        uncommented = True
+    else:
+        out_lines.append(ln)
+if uncommented:
+    new_txt = "".join(out_lines)
 else:
-    sep = "" if (not txt or txt.endswith("\n")) else "\n"
-    new_txt = txt + f'{sep}\n-- Paithosh Shell\nhl.on("hyprland.start", function()\n{line}\nend)\n'
+    lua_cmd = cmd.replace("\\", "\\\\").replace('"', '\\"')
+    line = f'    hl.exec_cmd("{lua_cmd}")'
+    hm = re.search(r'hl\.on\(\s*["\']hyprland\.start["\']', txt)
+    m = re.search(r'(?m)^([ \t]*)end\)', txt[hm.end():]) if hm else None
+    if hm and m:
+        idx = hm.end() + m.start()
+        new_txt = txt[:idx] + line + "\n" + txt[idx:]
+    else:
+        sep = "" if (not txt or txt.endswith("\n")) else "\n"
+        new_txt = txt + f'{sep}\n-- Paithosh Shell\nhl.on("hyprland.start", function()\n{line}\nend)\n'
 with open(path, "w", encoding="utf-8") as f:
     f.write(new_txt)
 PY

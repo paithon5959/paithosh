@@ -34,6 +34,7 @@ trap cleanup EXIT
 
 run_self_checks() {
     TMP_HOME="$(mktemp -d /tmp/paithosh-installer-check.XXXXXX)"
+    unset XDG_CONFIG_HOME || true
 
     echo "[1/7] Checking shell & Python script syntax..."
     local sh_files=(
@@ -155,6 +156,12 @@ EOF
     compgen -G "$lua_home/.config/hypr.bak.*" >/dev/null
     [[ ! -e "$lua_home/.config/hypr/hyprland.conf" ]]
     [[ "$(grep -c "qs -p " "$lua_home/.config/hypr/config/autostart.lua")" -eq 1 ]]
+    # Verify commented-out autostart is re-enabled when apply.sh runs with --autostart true
+    sed -i 's/^\([[:space:]]*\)hl\.exec_cmd(.*qs -p/\1-- &/' "$lua_home/.config/hypr/config/autostart.lua"
+    HOME="$lua_home" bash "$REPO_ROOT/installer/lib/apply.sh" \
+        --backup-hypr false --packages "" --theme "Nord Frost" \
+        --bar-position bottom --autostart true --setup-portals true >/dev/null
+    [[ "$(grep -Ec '^[[:space:]]*hl\.exec_cmd\(.*qs -p ' "$lua_home/.config/hypr/config/autostart.lua")" -eq 1 ]]
     python3 - "$lua_home/.config/paithosh/settings.json" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -750,7 +757,11 @@ write_stub("pkill", f'echo "pkill:$*" >> "{log_file}"; exit 0')
 write_stub("hyprctl", f'echo "hyprctl:$*" >> "{log_file}"')
 write_stub("qs", f'echo "qs:NO_POPUP=${{QS_NO_RELOAD_POPUP:-}}:$*" >> "{log_file}"')
 
+launch_home = os.path.join(tmp_home, "launch-home")
+os.makedirs(os.path.join(launch_home, ".config"), exist_ok=True)
 base_env = os.environ.copy()
+base_env["HOME"] = launch_home
+base_env["XDG_CONFIG_HOME"] = os.path.join(launch_home, ".config")
 base_env["PATH"] = mock_bin + ":" + base_env.get("PATH", "")
 
 # Case A: sync_hypr=1, stream=main in Hyprland session -> pkill then hyprctl reload then qs -d -p
