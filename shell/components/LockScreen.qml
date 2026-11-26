@@ -160,7 +160,13 @@ Scope {
             property bool notifTrayOpen: false
             property bool pillHovered: false
             property real shakeX: 0
+            property real shownOsdVal: lockRoot.shellState ? lockRoot.shellState.osdValue : 0
 
+            Behavior on shownOsdVal {
+                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
+
+            readonly property bool hasLockOsd: lockRoot.shellState && lockRoot.shellState.osdOpen && !LockService.exiting && !(surface.isActiveScreen && surface.inputOpen)
             readonly property bool hasLockNotifBadge: LockService.showNotifications && NotificationService.hasUnreadBadge && !surface.inputOpen && !LockService.exiting
             readonly property bool hasLockMedia: LockService.showMedia && MediaService.active && !LockService.exiting
             readonly property string lockAlertKind: {
@@ -261,6 +267,18 @@ Scope {
                     LockService.activeScreenName = surface.screenName;
 
                     if (!surface.inputOpen) {
+                        if (event.key === Qt.Key_Escape) {
+                            if (surface.notifTrayOpen) {
+                                surface.notifTrayOpen = false;
+                                event.accepted = true;
+                                return;
+                            }
+                            if (NotificationService.activeToast) {
+                                NotificationService.dismissToast();
+                                event.accepted = true;
+                                return;
+                            }
+                        }
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                             surface.inputOpen = true;
                             idleCollapseTimer.restart();
@@ -351,6 +369,11 @@ Scope {
                     }
                     onClicked: {
                         LockService.activeScreenName = surface.screenName;
+                        if (surface.notifTrayOpen) {
+                            surface.notifTrayOpen = false;
+                            if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                            return;
+                        }
                         if (surface.inputOpen && passwordInput.text.length === 0 && !LockService.authenticating) {
                             surface.inputOpen = false;
                             idleCollapseTimer.stop();
@@ -437,7 +460,7 @@ Scope {
                 ClippingRectangle {
                     id: mainPill
 
-                    readonly property real slotsTargetWidth: slotLockedIcon.targetWidth + slotPassword.targetWidth + slotNotif.targetWidth
+                    readonly property real slotsTargetWidth: slotLockedIcon.targetWidth + slotPassword.targetWidth + slotOsd.targetWidth + slotNotif.targetWidth
 
                     height: Theme.islandHeight
                     width: Math.max(260, Math.min(surface.width - 48, Math.ceil(weatherLabel.implicitWidth + slotsTargetWidth + clockLabel.implicitWidth + 84)))
@@ -515,7 +538,7 @@ Scope {
                             // 1. Locked Idle Indicator Slot
                             IslandSlot {
                                 id: slotLockedIcon
-                                open: !(surface.isActiveScreen && (surface.inputOpen || LockService.unlockSuccess)) || LockService.exiting
+                                open: (!(surface.isActiveScreen && (surface.inputOpen || LockService.unlockSuccess)) && !surface.hasLockOsd) || LockService.exiting
                                 maxSlotWidth: 52
 
                                 Item {
@@ -712,7 +735,79 @@ Scope {
                                 Item { width: 10; height: 1 }
                             }
 
-                            // 3. Inline Notification Bell Slot
+                            // 3. Inline Volume / Brightness OSD Slot
+                            IslandSlot {
+                                id: slotOsd
+                                open: surface.hasLockOsd
+                                maxSlotWidth: 280
+
+                                Item { width: 14; height: 1 }
+
+                                SvgIcon {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    sourceName: {
+                                        const kind = lockRoot.shellState ? lockRoot.shellState.osdKind : "vol";
+                                        if (kind === "bri") return "sun";
+                                        if (kind === "mute") return "volume-x";
+                                        return "volume";
+                                    }
+                                    iconSize: 18
+                                    color: (lockRoot.shellState && lockRoot.shellState.osdKind === "mute") ? Theme.dangerText : Theme.text
+                                }
+
+                                Item { width: 10; height: 1 }
+
+                                Rectangle {
+                                    visible: !lockRoot.shellState || lockRoot.shellState.osdKind !== "mute"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 156
+                                    height: 6
+                                    radius: 3
+                                    clip: true
+                                    color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.16)
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.top: parent.top
+                                        anchors.bottom: parent.bottom
+                                        radius: 3
+                                        color: Theme.text
+                                        width: Math.max(0, Math.min(parent.width, parent.width * ((lockRoot.shellState ? lockRoot.shellState.osdValue : 0) / 100.0)))
+
+                                        Behavior on width {
+                                            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: lockRoot.shellState && lockRoot.shellState.osdKind === "mute"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: "Audio Muted"
+                                    color: Theme.dangerText
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: 13
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Item { visible: !lockRoot.shellState || lockRoot.shellState.osdKind !== "mute"; width: 10; height: 1 }
+
+                                Text {
+                                    visible: !lockRoot.shellState || lockRoot.shellState.osdKind !== "mute"
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    width: 42
+                                    horizontalAlignment: Text.AlignRight
+                                    text: Math.round(surface.shownOsdVal) + "%"
+                                    color: Theme.text
+                                    font.family: Theme.fontMono
+                                    font.pixelSize: 14
+                                    font.weight: Font.DemiBold
+                                }
+
+                                Item { width: 14; height: 1 }
+                            }
+
+                            // 4. Inline Notification Bell Slot
                             IslandSlot {
                                 id: slotNotif
                                 open: surface.hasLockNotifBadge
@@ -1050,15 +1145,14 @@ Scope {
                 Rectangle {
                     id: lockNotifCard
 
+                    readonly property bool isListMode: surface.notifTrayOpen && NotificationService.historyList.length > 0
+                    readonly property bool isToastMode: !isListMode && NotificationService.activeToast !== null
                     readonly property bool showNotifCard: LockService.showNotifications
                         && !LockService.exiting
                         && !surface.inputOpen
-                        && (NotificationService.activeToast !== null || (surface.notifTrayOpen && NotificationService.historyList.length > 0))
-                    readonly property var cardItems: surface.notifTrayOpen
-                        ? NotificationService.historyList.slice(0, 3)
-                        : (NotificationService.activeToast ? [NotificationService.activeToast] : [])
+                        && (isListMode || isToastMode)
 
-                    width: Math.min(380, surface.width - 48)
+                    width: Math.min(400, surface.width - 48)
                     height: notifCardCol.implicitHeight + 28
                     radius: 22
                     color: Theme.pillBg
@@ -1077,6 +1171,9 @@ Scope {
                     transformOrigin: surface.isBottom ? Item.Bottom : Item.Top
                     visible: opacity > 0.01
 
+                    Behavior on height {
+                        NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
+                    }
                     Behavior on y {
                         NumberAnimation { duration: showNotifCard ? Theme.springMs : Theme.smoothMs; easing.type: showNotifCard ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.75 }
                     }
@@ -1085,6 +1182,15 @@ Scope {
                     }
                     Behavior on scale {
                         NumberAnimation { duration: showNotifCard ? Theme.springMs : Theme.smoothMs; easing.type: showNotifCard ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.85 }
+                    }
+
+                    HoverHandler {
+                        onHoveredChanged: {
+                            if (lockNotifCard.isToastMode) {
+                                if (hovered) NotificationService.pauseToastTimer();
+                                else NotificationService.resumeToastTimer();
+                            }
+                        }
                     }
 
                     MouseArea {
@@ -1100,96 +1206,71 @@ Scope {
                         anchors.margins: 14
                         spacing: 10
 
-                        Repeater {
-                            model: lockNotifCard.cardItems
-                            delegate: ColumnLayout {
-                                required property var modelData
-                                required property int index
-                                Layout.fillWidth: true
-                                spacing: 4
-
-                                Rectangle {
-                                    visible: index > 0
-                                    Layout.fillWidth: true
-                                    Layout.bottomMargin: 4
-                                    height: 1
-                                    color: Theme.borderSubtle
-                                }
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 7
-
-                                    Rectangle {
-                                        width: 7
-                                        height: 7
-                                        radius: 3.5
-                                        color: Theme.danger
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 0
-                                        text: modelData ? (modelData.appName || "System") : ""
-                                        color: Theme.textSub
-                                        font.family: Theme.fontSans
-                                        font.pixelSize: 12
-                                        font.weight: Font.DemiBold
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        text: modelData ? (modelData.timeText || "now") : "now"
-                                        color: Theme.textMuted
-                                        font.family: Theme.fontMono
-                                        font.pixelSize: 11
-                                    }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    text: LockService.hideNotifContent ? "New notification" : (modelData ? (modelData.summary || "Notification") : "")
-                                    color: Theme.text
-                                    font.family: Theme.fontSans
-                                    font.pixelSize: 14
-                                    font.weight: Font.DemiBold
-                                    elide: Text.ElideRight
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    Layout.minimumWidth: 0
-                                    visible: LockService.hideNotifContent || (modelData && modelData.body !== "")
-                                    text: LockService.hideNotifContent ? "Content hidden on lock screen" : (modelData ? modelData.body : "")
-                                    color: LockService.hideNotifContent ? Theme.textMuted : Theme.textSub
-                                    font.family: Theme.fontSans
-                                    font.pixelSize: LockService.hideNotifContent ? 11 : 12
-                                    wrapMode: Text.WrapAnywhere
-                                    maximumLineCount: 2
-                                    elide: Text.ElideRight
-                                }
-                            }
-                        }
-
+                        // ── MODE A: NOTIFICATION LIST HEADER ──
                         RowLayout {
+                            visible: lockNotifCard.isListMode
                             Layout.fillWidth: true
-                            Layout.topMargin: 2
                             spacing: 8
 
-                            PillButton {
-                                text: "Dismiss"
-                                subtle: true
-                                onClicked: {
-                                    NotificationService.dismissToast();
-                                    surface.notifTrayOpen = false;
-                                    if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                            SvgIcon {
+                                sourceName: "bell"
+                                iconSize: 15
+                                color: Theme.accent
+                            }
+
+                            Text {
+                                text: "Notifications"
+                                color: Theme.text
+                                font.family: Theme.fontSans
+                                font.pixelSize: 13
+                                font.weight: Font.DemiBold
+                            }
+
+                            Rectangle {
+                                implicitWidth: countBadgeText.implicitWidth + 12
+                                height: 20
+                                radius: 10
+                                color: Theme.surfaceRaised
+                                border.width: 1
+                                border.color: Theme.borderSubtle
+
+                                Text {
+                                    id: countBadgeText
+                                    anchors.centerIn: parent
+                                    text: String(NotificationService.historyList.length)
+                                    color: Theme.textSub
+                                    font.family: Theme.fontMono
+                                    font.pixelSize: 11
+                                    font.weight: Font.DemiBold
                                 }
                             }
 
+                            Rectangle {
+                                visible: LockService.hideNotifContent
+                                width: 22
+                                height: 20
+                                radius: 7
+                                color: Theme.surfaceRaised
+                                border.width: 1
+                                border.color: Theme.borderSubtle
+
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    sourceName: "eye-off"
+                                    iconSize: 11
+                                    color: Theme.textMuted
+                                }
+                            }
+
+                            Item { Layout.fillWidth: true }
+
                             PillButton {
-                                visible: surface.notifTrayOpen && NotificationService.historyList.length > 1
+                                visible: NotificationService.historyList.length > 0
                                 text: "Clear All"
+                                iconName: "trash"
+                                iconSize: 12
+                                fixedHeight: 28
+                                radius: 9
                                 danger: true
                                 onClicked: {
                                     NotificationService.clearAll();
@@ -1198,7 +1279,340 @@ Scope {
                                 }
                             }
 
-                            Item { Layout.fillWidth: true }
+                            Rectangle {
+                                width: 28
+                                height: 28
+                                radius: 9
+                                color: closeTrayMouse.containsMouse ? Theme.cardHover : Theme.surfaceRaised
+                                border.width: 1
+                                border.color: closeTrayMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22) : Theme.borderSubtle
+                                scale: closeTrayMouse.pressed ? 0.92 : 1.0
+
+                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    sourceName: "close"
+                                    iconSize: 13
+                                    color: closeTrayMouse.containsMouse ? Theme.text : Theme.textSub
+                                }
+
+                                MouseArea {
+                                    id: closeTrayMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        surface.notifTrayOpen = false;
+                                        if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── MODE A: SCROLLABLE NOTIFICATION LIST ──
+                        Flickable {
+                            id: notifListFlick
+                            visible: lockNotifCard.isListMode
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Math.min(notifListCol.implicitHeight, 340)
+                            contentWidth: width
+                            contentHeight: notifListCol.implicitHeight
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            interactive: contentHeight > height
+
+                            ColumnLayout {
+                                id: notifListCol
+                                width: notifListFlick.width
+                                spacing: 6
+
+                                Repeater {
+                                    model: lockNotifCard.isListMode ? NotificationService.historyList : []
+                                    delegate: Rectangle {
+                                        id: notifItemCard
+                                        required property var modelData
+                                        required property int index
+
+                                        Layout.fillWidth: true
+                                        implicitHeight: itemRow.implicitHeight + 18
+                                        radius: 14
+                                        clip: true
+                                        color: itemHover.hovered ? Theme.cardHover : Theme.cardBg
+                                        border.width: 1
+                                        border.color: itemHover.hovered
+                                            ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22)
+                                            : Theme.borderSubtle
+
+                                        Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                                        Behavior on border.color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+                                        HoverHandler { id: itemHover }
+
+                                        RowLayout {
+                                            id: itemRow
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            anchors.leftMargin: 10
+                                            anchors.rightMargin: 10
+                                            spacing: 10
+
+                                            // Concentric 34x34 icon well
+                                            Rectangle {
+                                                Layout.preferredWidth: 34
+                                                Layout.preferredHeight: 34
+                                                Layout.alignment: Qt.AlignTop
+                                                radius: 10
+                                                clip: true
+                                                color: Theme.surfaceRaised
+                                                border.width: 1
+                                                border.color: Theme.borderSubtle
+
+                                                SvgIcon {
+                                                    anchors.centerIn: parent
+                                                    sourceName: LockService.hideNotifContent ? "lock" : "bell"
+                                                    iconSize: 15
+                                                    color: notifItemCard.index === 0 ? Theme.accent : Theme.textSub
+                                                }
+                                            }
+
+                                            ColumnLayout {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                spacing: 2
+
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    spacing: 6
+
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        Layout.minimumWidth: 0
+                                                        text: notifItemCard.modelData ? (notifItemCard.modelData.appName || "System") : ""
+                                                        color: Theme.textSub
+                                                        font.family: Theme.fontSans
+                                                        font.pixelSize: 11
+                                                        font.weight: Font.DemiBold
+                                                        elide: Text.ElideRight
+                                                    }
+
+                                                    Text {
+                                                        text: notifItemCard.modelData ? (notifItemCard.modelData.timeText || "now") : "now"
+                                                        color: Theme.textMuted
+                                                        font.family: Theme.fontMono
+                                                        font.pixelSize: 10
+                                                    }
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    text: LockService.hideNotifContent
+                                                        ? "New notification"
+                                                        : (notifItemCard.modelData ? (notifItemCard.modelData.summary || "Notification") : "")
+                                                    color: Theme.text
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: 13
+                                                    font.weight: Font.DemiBold
+                                                    elide: Text.ElideRight
+                                                }
+
+                                                Text {
+                                                    Layout.fillWidth: true
+                                                    Layout.minimumWidth: 0
+                                                    visible: LockService.hideNotifContent || (notifItemCard.modelData && notifItemCard.modelData.body !== "")
+                                                    text: LockService.hideNotifContent
+                                                        ? "Content hidden on lock screen"
+                                                        : (notifItemCard.modelData ? notifItemCard.modelData.body : "")
+                                                    color: LockService.hideNotifContent ? Theme.textMuted : Theme.textSub
+                                                    font.family: Theme.fontSans
+                                                    font.pixelSize: LockService.hideNotifContent ? 11 : 12
+                                                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                                    maximumLineCount: 2
+                                                    elide: Text.ElideRight
+                                                }
+                                            }
+
+                                            // Per-item dismiss button
+                                            Rectangle {
+                                                Layout.preferredWidth: 26
+                                                Layout.preferredHeight: 26
+                                                Layout.alignment: Qt.AlignTop
+                                                radius: 8
+                                                color: dismissItemMouse.containsMouse ? Theme.surfaceRaised : "transparent"
+                                                scale: dismissItemMouse.pressed ? 0.90 : 1.0
+
+                                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                                SvgIcon {
+                                                    anchors.centerIn: parent
+                                                    sourceName: "close"
+                                                    iconSize: 12
+                                                    color: dismissItemMouse.containsMouse ? Theme.text : Theme.textMuted
+                                                }
+
+                                                MouseArea {
+                                                    id: dismissItemMouse
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        if (notifItemCard.modelData) {
+                                                            NotificationService.dismissById(notifItemCard.modelData.id);
+                                                        }
+                                                        if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── MODE B: ACTIVE TOAST CARD ──
+                        Rectangle {
+                            visible: lockNotifCard.isToastMode
+                            Layout.fillWidth: true
+                            implicitHeight: toastContentCol.implicitHeight + 20
+                            radius: 14
+                            clip: true
+                            color: Theme.cardBg
+                            border.width: 1
+                            border.color: Theme.borderSubtle
+
+                            ColumnLayout {
+                                id: toastContentCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 8
+
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 10
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 36
+                                        Layout.preferredHeight: 36
+                                        Layout.alignment: Qt.AlignTop
+                                        radius: 10
+                                        clip: true
+                                        color: Theme.surfaceRaised
+                                        border.width: 1
+                                        border.color: Theme.borderSubtle
+
+                                        SvgIcon {
+                                            anchors.centerIn: parent
+                                            sourceName: LockService.hideNotifContent ? "lock" : "bell"
+                                            iconSize: 16
+                                            color: Theme.accent
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        spacing: 2
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            spacing: 6
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: NotificationService.activeToast ? (NotificationService.activeToast.appName || "System") : ""
+                                                color: Theme.textSub
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 12
+                                                font.weight: Font.DemiBold
+                                                elide: Text.ElideRight
+                                            }
+
+                                            Text {
+                                                text: NotificationService.activeToast ? (NotificationService.activeToast.timeText || "now") : "now"
+                                                color: Theme.textMuted
+                                                font.family: Theme.fontMono
+                                                font.pixelSize: 11
+                                            }
+                                        }
+
+                                        Text {
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            text: LockService.hideNotifContent
+                                                ? "New notification"
+                                                : (NotificationService.activeToast ? (NotificationService.activeToast.summary || "Notification") : "")
+                                            color: Theme.text
+                                            font.family: Theme.fontSans
+                                            font.pixelSize: 14
+                                            font.weight: Font.Bold
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    visible: LockService.hideNotifContent || (NotificationService.activeToast && NotificationService.activeToast.body !== "")
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    Layout.leftMargin: 46
+                                    text: LockService.hideNotifContent
+                                        ? "Content hidden on lock screen"
+                                        : (NotificationService.activeToast ? NotificationService.activeToast.body : "")
+                                    color: LockService.hideNotifContent ? Theme.textMuted : Theme.textSub
+                                    font.family: Theme.fontSans
+                                    font.pixelSize: LockService.hideNotifContent ? 11 : 12
+                                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                    maximumLineCount: 3
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        // ── MODE B: TOAST ACTION BAR ──
+                        RowLayout {
+                            visible: lockNotifCard.isToastMode
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            PillButton {
+                                visible: NotificationService.historyList.length > 1
+                                fillWidth: true
+                                fixedHeight: 32
+                                radius: 10
+                                subtle: true
+                                iconName: "bell"
+                                iconSize: 13
+                                text: "View All (" + NotificationService.historyList.length + ")"
+                                onClicked: {
+                                    NotificationService.dismissToast();
+                                    surface.notifTrayOpen = true;
+                                    if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                                }
+                            }
+
+                            PillButton {
+                                fillWidth: true
+                                fixedHeight: 32
+                                radius: 10
+                                iconName: "close"
+                                iconSize: 13
+                                text: "Dismiss"
+                                onClicked: {
+                                    NotificationService.dismissToast();
+                                    if (!surface.inputOpen) keyCatcher.forceActiveFocus();
+                                }
+                            }
                         }
                     }
                 }
