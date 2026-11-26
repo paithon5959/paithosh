@@ -112,6 +112,15 @@ QtObject {
             icon: "volume"
         },
         {
+            id: "sound-system",
+            page: "sound",
+            pageLabel: "Sound & Audio",
+            title: "System Sound",
+            subtitle: "Independent SFX volume for UI, alerts and feedback",
+            keywords: "system sound sfx effects ui notification alert volume mute independent",
+            icon: "bell"
+        },
+        {
             id: "sound-input",
             page: "sound",
             pageLabel: "Sound & Audio",

@@ -163,6 +163,8 @@ ShellRoot {
                     if (typeof obj.lockEffectIntensity === "number") LockService.effectIntensity = Math.max(50, Math.min(150, Math.round(obj.lockEffectIntensity)));
                     if (typeof obj.lockAmbientVolume === "number") LockService.ambientVolume = Math.max(5, Math.min(100, Math.round(obj.lockAmbientVolume)));
                     if (typeof obj.lockDimOpacity === "number") LockService.dimOpacity = Math.max(15, Math.min(75, Math.round(obj.lockDimOpacity)));
+                    if (typeof obj.systemSoundEnabled === "boolean") SoundService.enabled = obj.systemSoundEnabled;
+                    if (typeof obj.systemSoundVolume === "number") SoundService.setVolumePct(obj.systemSoundVolume);
                     if (typeof obj.cursorStyle === "string") CursorService.style = CursorService.normalizeStyle(obj.cursorStyle);
                     if (typeof obj.cursorSize === "number") CursorService.size = Math.max(16, Math.min(64, Math.round(obj.cursorSize)));
                     if (typeof obj.cursorColorMode === "string") CursorService.colorMode = CursorService.normalizeColorMode(obj.cursorColorMode);
@@ -1077,6 +1079,8 @@ ShellRoot {
                 lockEffectIntensity: LockService.effectIntensity,
                 lockAmbientVolume: LockService.ambientVolume,
                 lockDimOpacity: LockService.dimOpacity,
+                systemSoundEnabled: SoundService.enabled,
+                systemSoundVolume: SoundService.volumePct,
                 cursorStyle: CursorService.style,
                 cursorSize: CursorService.size,
                 cursorColorMode: CursorService.colorMode,
@@ -1859,6 +1863,12 @@ ShellRoot {
         function onMotionBlurChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onMotionBlurStrengthChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
         function onMotionBlurThresholdChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+    }
+
+    Connections {
+        target: SoundService
+        function onEnabledChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
+        function onVolumeChanged() { if (!stateObj._applyingExternalState) stateObj.saveSettings(); }
     }
 
     // Experimental Motion Blur Cursor Overlay (lazy-loaded & completely click-through)

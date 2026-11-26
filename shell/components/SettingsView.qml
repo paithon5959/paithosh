@@ -2934,6 +2934,50 @@ Item {
                                 }
                             }
 
+                            // System Sound (Independent SFX Volume)
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconName: (!SoundService.enabled || SoundService.volumePct === 0) ? "bell-off" : "bell"
+                                    title: "System Sound"
+                                    subtitle: SoundService.enabled
+                                        ? ("UI & alert effects • " + SoundService.volumePct + "%")
+                                        : "Muted • Independent from app audio"
+                                    searchKeywords: "system sound sfx effects ui notification alert volume mute"
+                                    CtrlSwitch {
+                                        checked: SoundService.enabled
+                                        onToggled: (v) => SoundService.setEnabled(v)
+                                    }
+                                }
+                                SettingRow {
+                                    iconName: "sliders"
+                                    title: "System sound volume"
+                                    subtitle: "Independent SFX level for UI, alerts & feedback"
+                                    searchKeywords: "system sound sfx volume slider effects ui independent"
+                                    RowLayout {
+                                        spacing: 8
+                                        CtrlBtn {
+                                            text: "Test"
+                                            ghost: true
+                                            enabled: SoundService.enabled && SoundService.volumePct > 0
+                                            onClicked: SoundService.playSystemPreview(true)
+                                        }
+                                        CtrlSlider {
+                                            from: 0; to: 100
+                                            value: SoundService.volumePct
+                                            unit: "%"
+                                            enabled: SoundService.enabled
+                                            opacity: SoundService.enabled ? 1.0 : 0.45
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            onMoved: (v) => {
+                                                SoundService.setVolumePct(v);
+                                                SoundService.playSystemPreview(false);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             SettingGroup {
                                 SettingRow {
                                     showDivider: false

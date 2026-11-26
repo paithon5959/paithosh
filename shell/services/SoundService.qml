@@ -13,8 +13,10 @@ Singleton {
     property int duckHoldMs: 220
     property int duckUpMs: 420
     property real volume: 0.72
+    readonly property int volumePct: Math.max(0, Math.min(100, Math.round(volume * 100)))
     property double _lastKeyMs: 0
     property double _lastVolSfxMs: 0
+    property double _lastPreviewSfxMs: 0
     property int _keyIdx: 0
 
     property real _duckGain: 1.0
@@ -772,6 +774,39 @@ Singleton {
         if (now - _lastVolSfxMs < 35) return;
         _lastVolSfxMs = now;
         play("volume-down.wav", 0.55, false);
+    }
+
+    function setVolumePct(pct) {
+        const clamped = Math.max(0, Math.min(100, Math.round(Number(pct))));
+        if (isNaN(clamped)) return;
+        const nextVol = clamped / 100.0;
+        if (Math.abs(volume - nextVol) > 0.0001) {
+            volume = nextVol;
+        }
+    }
+
+    function setEnabled(val) {
+        const next = Boolean(val);
+        if (enabled === next) return;
+        enabled = next;
+        if (!enabled) {
+            _fadeOutAmbient(320);
+        } else if (_ambientActive && !_ambientPreview) {
+            _syncLockAmbientState();
+        }
+    }
+
+    function playSystemPreview(forceChime) {
+        if (!enabled || volume <= 0.001) return;
+        const now = Date.now();
+        const minGap = forceChime ? 180 : 95;
+        if (now - _lastPreviewSfxMs < minGap) return;
+        _lastPreviewSfxMs = now;
+        if (forceChime) {
+            play("notify-gentle.wav", 0.85, false);
+        } else {
+            play("icon-pop.wav", 0.65, false);
+        }
     }
 
     function playKey() {
