@@ -1104,7 +1104,21 @@ Singleton {
                 "ahead=$(git -C \"$dir\" rev-list --count \"${latest_tag}..HEAD\" 2>/dev/null || echo 0); fi; " +
                 "summary=''; [ \"$behind\" -gt 0 ] 2>/dev/null && summary=$(git -C \"$dir\" log -1 --pretty=%s \"$latest_tag\" 2>/dev/null || echo ''); " +
                 "printf 'BRANCH=%s\\nLOCAL=%s\\nCUR_TAG=%s\\nTARGET=%s\\nBEHIND=%s\\nAHEAD=%s\\nSUMMARY=%s\\n' \"$branch\" \"$local_hash\" \"$cur_tag\" \"$latest_tag\" \"$behind\" \"$ahead\" \"$summary\"; " +
-                "([ \"$behind\" -gt 0 ] || [ \"$ahead\" -gt 0 ]) 2>/dev/null && git -C \"$dir\" tag -l --format='%(contents)' \"$latest_tag\" 2>/dev/null | sed 's/^/CHANGELOG=/' || true; " +
+                "if ([ \"$behind\" -gt 0 ] || [ \"$ahead\" -gt 0 ]) 2>/dev/null; then " +
+                    "remote_url=$(git -C \"$dir\" remote get-url \"$remote\" 2>/dev/null || echo ''); " +
+                    "gh_body=$(python3 -c 'import json, re, sys, urllib.parse, urllib.request\n" +
+                    "url_raw, tag = sys.argv[1], sys.argv[2]\n" +
+                    "m = re.search(r\"github\\.com[:/]([^/]+/[^/]+?)(?:\\.git)?/?$\", url_raw.strip())\n" +
+                    "if not m: sys.exit(1)\n" +
+                    "api_url = \"https://api.github.com/repos/\" + m.group(1) + \"/releases/tags/\" + urllib.parse.quote(tag, safe=\"\")\n" +
+                    "req = urllib.request.Request(api_url, headers={\"Accept\": \"application/vnd.github+json\", \"User-Agent\": \"paithosh-shell\"})\n" +
+                    "with urllib.request.urlopen(req, timeout=5) as resp:\n" +
+                    "    body = (json.loads(resp.read().decode(\"utf-8\")).get(\"body\") or \"\").strip()\n" +
+                    "if not body: sys.exit(1)\n" +
+                    "print(body)\n' \"$remote_url\" \"$latest_tag\" 2>/dev/null || true); " +
+                    "if [ -n \"$gh_body\" ]; then printf '%s\\n' \"$gh_body\" | sed 's/^/CHANGELOG=/'; " +
+                    "else git -C \"$dir\" tag -l --format='%(contents)' \"$latest_tag\" 2>/dev/null | sed 's/^/CHANGELOG=/' || true; fi; " +
+                "fi; " +
             "else " +
                 "GIT_TERMINAL_PROMPT=0 timeout 30 git -C \"$dir\" fetch --quiet \"$remote\" 2>/dev/null || { echo \"ERR=Failed to fetch from $remote\"; exit 1; }; " +
                 "if git -C \"$dir\" rev-parse --verify \"${remote}/main\" >/dev/null 2>&1; then target=\"${remote}/main\"; " +

@@ -3393,6 +3393,7 @@ Item {
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: 0
                                         text: PackageService.shellReleaseChangelog
+                                        textFormat: Text.MarkdownText
                                         color: Theme.textSub
                                         font.family: Theme.fontSans
                                         font.pixelSize: 12
