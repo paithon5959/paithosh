@@ -571,7 +571,7 @@ Item {
             id: notifBox
             readonly property bool hasItems: NotificationService.unreadCount > 0
             Layout.fillWidth: true
-            Layout.preferredHeight: hasItems ? Math.min(200, 44 + notifList.contentHeight) : 0
+            Layout.preferredHeight: hasItems ? Math.min(220, notifHeader.implicitHeight + 32 + notifList.contentHeight) : 0
             radius: 14
             color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.05)
             border.width: 1
@@ -593,6 +593,7 @@ Item {
                 spacing: 8
 
                 RowLayout {
+                    id: notifHeader
                     Layout.fillWidth: true
 
                     RowLayout {
@@ -674,11 +675,12 @@ Item {
                             radius: 10
                             color: rowMouse.containsMouse ? Theme.cardHover : Theme.cardBg
                             border.width: 1
-                            border.color: Theme.borderSubtle
+                            border.color: rowMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24) : Theme.borderSubtle
                             clip: true
 
                             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
                             Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
                             MouseArea {
                                 id: rowMouse
@@ -703,7 +705,7 @@ Item {
                                         spacing: 4
 
                                         Text {
-                                            Layout.maximumWidth: parent.width * 0.65
+                                            Layout.maximumWidth: 160
                                             text: rowWrap.modelData.appName
                                             color: Theme.textMuted
                                             font.family: Theme.fontSans

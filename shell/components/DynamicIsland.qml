@@ -751,7 +751,7 @@ PanelWindow {
                                 Keys.onEscapePressed: shellState.closePopovers()
                                 Keys.onDownPressed: {
                                     const q = text.trim();
-                                    const n = AppService.searchApps(q, "All").slice(0, 4).length
+                                    const n = AppService.searchAllApps(q, 4).length
                                             + (q !== "" ? SettingsSearchService.search(q).slice(0, 4).length : 0)
                                             + 2
                                             + (q !== "" ? 1 : 0);
@@ -759,7 +759,7 @@ PanelWindow {
                                 }
                                 Keys.onUpPressed: {
                                     const q = text.trim();
-                                    const n = AppService.searchApps(q, "All").slice(0, 4).length
+                                    const n = AppService.searchAllApps(q, 4).length
                                             + (q !== "" ? SettingsSearchService.search(q).slice(0, 4).length : 0)
                                             + 2
                                             + (q !== "" ? 1 : 0);
@@ -767,12 +767,11 @@ PanelWindow {
                                 }
                                 Keys.onReturnPressed: {
                                     const q = text.trim();
-                                    const apps = AppService.searchApps(q, "All").slice(0, 4);
+                                    const apps = AppService.searchAllApps(q, 4);
                                     const settings = q !== "" ? SettingsSearchService.search(q).slice(0, 4) : [];
                                     const idx = shellState.searchSel;
                                     if (idx < apps.length) {
-                                        AppService.launchApp(apps[idx]);
-                                        shellState.closePopovers();
+                                        AppService.openApp(apps[idx], shellState);
                                     } else if (idx < apps.length + settings.length) {
                                         const hit = settings[idx - apps.length];
                                         shellState.settingsSpotlight = q;

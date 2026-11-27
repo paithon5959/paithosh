@@ -1962,85 +1962,268 @@ Item {
                             sourceComponent: ColumnLayout {
                             spacing: 12
 
-                            Rectangle {
-                                Layout.fillWidth: true; height: 68; radius: 12
-                                color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle
-                                clip: true
-                                RowLayout {
-                                    anchors.fill: parent; anchors.margins: 14; spacing: 12
-                                    Rectangle {
-                                        width: 40; height: 40; radius: 10; color: Theme.surfaceRaised; border.width: 1; border.color: Theme.borderSubtle
-                                        SvgIcon { anchors.centerIn: parent; sourceName: "paithosh"; iconSize: 22; preserveColor: true }
+                            SectionLabel { text: "Most used pages" }
+                            GridLayout {
+                                Layout.fillWidth: true
+                                columns: 3
+                                rowSpacing: 8
+                                columnSpacing: 8
+
+                                PresetCard {
+                                    iconName: "monitor"
+                                    title: "Display"
+                                    subtitle: root.displayRes
+                                    onTriggered: root.openPage("display")
+                                }
+                                PresetCard {
+                                    iconName: "volume"
+                                    title: "Sound & Audio"
+                                    subtitle: AudioService.muted ? "Muted" : (AudioService.volumePct + "% volume")
+                                    onTriggered: root.openPage("sound")
+                                }
+                                PresetCard {
+                                    iconName: "palette"
+                                    title: "Appearance"
+                                    subtitle: Theme.activePreset
+                                    onTriggered: root.openPage("appearance")
+                                }
+                                PresetCard {
+                                    iconName: "keyboard"
+                                    title: "Binding"
+                                    subtitle: "Shortcuts & triggers"
+                                    onTriggered: root.openPage("keybind")
+                                }
+                                PresetCard {
+                                    iconName: "layout"
+                                    title: "Layout"
+                                    subtitle: "Tiling & window gaps"
+                                    onTriggered: root.openPage("layout")
+                                }
+                                PresetCard {
+                                    iconName: "gauge"
+                                    title: "Performance"
+                                    subtitle: Theme.reduceMotion ? "Reduced motion" : "Full motion"
+                                    onTriggered: root.openPage("performance")
+                                }
+                            }
+
+                            SettingGroup {
+                                SettingRow {
+                                    showDivider: false
+                                    iconName: AudioService.muted ? "volume-x" : "volume"
+                                    title: "Master Volume"
+                                    subtitle: AudioService.hasLiveSink
+                                        ? ((AudioService.muted ? "Muted • " : "") + "PipeWire default sink")
+                                        : "PipeWire sink (wpctl)"
+                                    RowLayout {
+                                        spacing: 8
+                                        CtrlBtn {
+                                            text: AudioService.muted ? "Unmute" : "Mute"
+                                            ghost: !AudioService.muted
+                                            onClicked: AudioService.toggleMute()
+                                        }
+                                        CtrlSlider {
+                                            from: 0; to: 100
+                                            value: AudioService.volumePct
+                                            unit: "%"
+                                            onMoved: (v) => AudioService.setVolume(v, false)
+                                        }
                                     }
-                                    ColumnLayout {
-                                        Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: TelemetryService.osName + " — " + TelemetryService.arch
-                                            font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.DemiBold
-                                            color: Theme.text; elide: Text.ElideRight
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: TelemetryService.hyprVersion
-                                                + (TelemetryService.kernel !== "" ? " • Kernel " + TelemetryService.kernel : "")
-                                                + (TelemetryService.shellName !== "" ? " • " + TelemetryService.shellName : "")
-                                            font.family: Theme.fontSans; font.pixelSize: 11
-                                            color: Theme.textSub; elide: Text.ElideRight
-                                        }
-                                    }
-                                    Rectangle {
-                                        implicitWidth: Math.max(78, uptimeLbl.implicitWidth + 18)
-                                        height: 24; radius: 12; color: Theme.surfaceRaised; border.width: 1; border.color: Theme.borderSubtle
-                                        clip: true
-                                        Text {
-                                            id: uptimeLbl
-                                            anchors.centerIn: parent
-                                            text: TelemetryService.uptimeText
-                                            font.family: Theme.fontMono; font.pixelSize: 10; color: Theme.textSub
-                                        }
+                                }
+                                SettingRow {
+                                    iconName: "monitor"
+                                    title: "Display Brightness"
+                                    subtitle: "Backlight brightness level"
+                                    CtrlSlider {
+                                        from: 10; to: 100
+                                        value: BrightnessService.brightnessPct
+                                        unit: "%"
+                                        onMoved: (v) => BrightnessService.setBrightness(v, false)
                                     }
                                 }
                             }
 
-                            SectionLabel { text: "System specifications" }
                             GridLayout {
                                 Layout.fillWidth: true; columns: 2; columnSpacing: 10; rowSpacing: 10
-                                Repeater {
-                                    model: [
-                                        {
-                                            title: "PROCESSOR",
-                                            main: TelemetryService.cpuModel,
-                                            sub: (TelemetryService.cpuCores !== "" ? TelemetryService.cpuCores + " • " : "")
-                                                + "Load " + TelemetryService.cpuPct + "% • " + TelemetryService.cpuTempC + "°C"
-                                        },
-                                        {
-                                            title: "MEMORY",
-                                            main: TelemetryService.ramTotalGb,
-                                            sub: TelemetryService.memDetail + " (" + TelemetryService.ramPct + "%) • " + TelemetryService.swapSummary
-                                        },
-                                        {
-                                            title: "GRAPHICS",
-                                            main: TelemetryService.gpuName,
-                                            sub: root.focusedMonitorSummary()
-                                        },
-                                        {
-                                            title: "STORAGE",
-                                            main: TelemetryService.storageTotal,
-                                            sub: TelemetryService.storageDetail !== "" ? TelemetryService.storageDetail : "Root filesystem (/)"
+
+                                // Wi-Fi Quick Toggle
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 60; radius: 12
+                                    color: NetworkService.wifiEnabled
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, wifiTileMouse.containsMouse ? 0.16 : 0.10)
+                                        : (wifiTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                    border.width: 1
+                                    border.color: NetworkService.wifiEnabled
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.48)
+                                        : (wifiTileMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24) : Theme.borderSubtle)
+                                    scale: wifiTileMouse.pressed ? 0.98 : 1.0
+                                    clip: true
+                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Theme.motionEasing; easing.overshoot: Theme.springOvershoot } }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 12; spacing: 10
+                                        Rectangle {
+                                            width: 32; height: 32; radius: 8; clip: true
+                                            color: NetworkService.wifiEnabled ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1
+                                            border.color: NetworkService.wifiEnabled ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "wifi"; iconSize: 16; color: NetworkService.wifiEnabled ? Theme.accent : Theme.textSub }
                                         }
-                                    ]
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        Layout.fillWidth: true; height: 68; radius: 10
-                                        color: Theme.cardBg; border.width: 1; border.color: Theme.borderSubtle
-                                        clip: true
                                         ColumnLayout {
-                                            anchors.fill: parent; anchors.margins: 12; spacing: 2
-                                            Text { text: modelData.title; font.family: Theme.fontSans; font.pixelSize: 9; font.weight: Font.DemiBold; color: Theme.textMuted }
-                                            Text { Layout.fillWidth: true; text: modelData.main; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                                            Text { Layout.fillWidth: true; text: modelData.sub; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Wi-Fi"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: NetworkService.wifiEnabled ? (NetworkService.activeSsid !== "" ? NetworkService.activeSsid : "On • Disconnected") : "Disabled"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
                                         }
+                                        CtrlSwitch {
+                                            checked: NetworkService.wifiEnabled
+                                            onToggled: (v) => NetworkService.setWifiEnabled(v)
+                                        }
+                                    }
+                                    MouseArea {
+                                        id: wifiTileMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.openPage("wifi")
+                                    }
+                                }
+
+                                // Do Not Disturb Quick Toggle
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 60; radius: 12
+                                    color: NotificationService.dnd
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, dndTileMouse.containsMouse ? 0.16 : 0.10)
+                                        : (dndTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                    border.width: 1
+                                    border.color: NotificationService.dnd
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.48)
+                                        : (dndTileMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24) : Theme.borderSubtle)
+                                    scale: dndTileMouse.pressed ? 0.98 : 1.0
+                                    clip: true
+                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Theme.motionEasing; easing.overshoot: Theme.springOvershoot } }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 12; spacing: 10
+                                        Rectangle {
+                                            width: 32; height: 32; radius: 8; clip: true
+                                            color: NotificationService.dnd ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1
+                                            border.color: NotificationService.dnd ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            SvgIcon { anchors.centerIn: parent; sourceName: NotificationService.dnd ? "bell-off" : "bell"; iconSize: 16; color: NotificationService.dnd ? Theme.accent : Theme.textSub }
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Do Not Disturb"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: NotificationService.dnd ? "Popups silenced" : (NotificationService.unreadCount + " unread notifications"); font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
+                                        }
+                                        CtrlSwitch {
+                                            checked: NotificationService.dnd
+                                            onToggled: (v) => NotificationService.dnd = v
+                                        }
+                                    }
+                                    MouseArea {
+                                        id: dndTileMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: NotificationService.dnd = !NotificationService.dnd
+                                    }
+                                }
+
+                                // Power Profile Quick Cycler
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 60; radius: 12
+                                    color: pwrTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                                    border.width: 1
+                                    border.color: pwrTileMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24) : Theme.borderSubtle
+                                    scale: pwrTileMouse.pressed ? 0.98 : 1.0
+                                    clip: true
+                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Theme.motionEasing; easing.overshoot: Theme.springOvershoot } }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 12; spacing: 10
+                                        Rectangle {
+                                            width: 32; height: 32; radius: 8; clip: true
+                                            color: Theme.surfaceRaised
+                                            border.width: 1; border.color: Theme.borderSubtle
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "bolt"; iconSize: 16; color: Theme.textSub }
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Power Profile"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "%"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
+                                        }
+                                        CtrlBtn { text: "Cycle"; ghost: true; onClicked: root.cyclePowerProfile() }
+                                    }
+                                    MouseArea {
+                                        id: pwrTileMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.cyclePowerProfile()
+                                    }
+                                }
+
+                                // System Updates Quick Card
+                                Rectangle {
+                                    Layout.fillWidth: true; height: 60; radius: 12
+                                    color: PackageService.updateCount > 0
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, updTileMouse.containsMouse ? 0.16 : 0.10)
+                                        : (updTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg)
+                                    border.width: 1
+                                    border.color: PackageService.updateCount > 0
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.48)
+                                        : (updTileMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24) : Theme.borderSubtle)
+                                    scale: updTileMouse.pressed ? 0.98 : 1.0
+                                    clip: true
+                                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 180; easing.type: Theme.motionEasing; easing.overshoot: Theme.springOvershoot } }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 12; spacing: 10
+                                        Rectangle {
+                                            width: 32; height: 32; radius: 8; clip: true
+                                            color: PackageService.updateCount > 0 ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16) : Theme.surfaceRaised
+                                            border.width: 1
+                                            border.color: PackageService.updateCount > 0 ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
+                                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            SvgIcon { anchors.centerIn: parent; sourceName: "package-update"; iconSize: 16; color: PackageService.updateCount > 0 ? Theme.accent : Theme.textSub }
+                                        }
+                                        ColumnLayout {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
+                                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "System Updates"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
+                                            Text {
+                                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                text: PackageService.checking
+                                                    ? "Checking repositories..."
+                                                    : (PackageService.updateCount > 0 ? PackageService.updateCount + " updates ready" : "All packages up to date")
+                                                font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight
+                                            }
+                                        }
+                                        CtrlBtn { text: "Open"; ghost: true; onClicked: root.openPage("updates") }
+                                    }
+                                    MouseArea {
+                                        id: updTileMouse
+                                        anchors.fill: parent
+                                        z: -1
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: root.openPage("updates")
                                     }
                                 }
                             }
@@ -2090,199 +2273,6 @@ Item {
                             }
                             WallpaperLockBanner {
                                 message: "Theme presets are disabled while \"Adjust colors based on what you see\" is active — Paithosh is matching colors automatically to your wallpaper."
-                            }
-
-                            SettingGroup {
-                                SettingRow {
-                                    showDivider: false
-                                    iconName: AudioService.muted ? "volume-x" : "volume"
-                                    title: "Master Volume"
-                                    subtitle: AudioService.hasLiveSink
-                                        ? ((AudioService.muted ? "Muted • " : "") + "PipeWire default sink")
-                                        : "PipeWire sink (wpctl)"
-                                    RowLayout {
-                                        spacing: 8
-                                        CtrlBtn {
-                                            text: AudioService.muted ? "Unmute" : "Mute"
-                                            ghost: !AudioService.muted
-                                            onClicked: AudioService.toggleMute()
-                                        }
-                                        CtrlSlider {
-                                            from: 0; to: 100
-                                            value: AudioService.volumePct
-                                            unit: "%"
-                                            onMoved: (v) => AudioService.setVolume(v, false)
-                                        }
-                                    }
-                                }
-                                SettingRow {
-                                    iconName: "monitor"
-                                    title: "Display Brightness"
-                                    subtitle: "Backlight brightness level"
-                                    CtrlSlider {
-                                        from: 10; to: 100
-                                        value: BrightnessService.brightnessPct
-                                        unit: "%"
-                                        onMoved: (v) => BrightnessService.setBrightness(v, false)
-                                    }
-                                }
-                            }
-
-                            GridLayout {
-                                Layout.fillWidth: true; columns: 2; columnSpacing: 10; rowSpacing: 10
-
-                                // Wi-Fi Quick Toggle
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 56; radius: 10
-                                    color: wifiTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                    border.width: 1
-                                    border.color: NetworkService.wifiEnabled ? Theme.accent : (wifiTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-                                    scale: wifiTileMouse.pressed ? 0.98 : 1.0
-                                    clip: true
-                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                            Text { Layout.fillWidth: true; text: "Wi-Fi"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                                            Text { Layout.fillWidth: true; text: NetworkService.wifiEnabled ? (NetworkService.activeSsid !== "" ? NetworkService.activeSsid : "On • Disconnected") : "Disabled"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
-                                        }
-                                        CtrlSwitch {
-                                            checked: NetworkService.wifiEnabled
-                                            onToggled: (v) => NetworkService.setWifiEnabled(v)
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: wifiTileMouse
-                                        anchors.fill: parent
-                                        z: -1
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.openPage("wifi")
-                                    }
-                                }
-
-                                // Do Not Disturb Quick Toggle
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 56; radius: 10
-                                    color: dndTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                    border.width: 1
-                                    border.color: NotificationService.dnd ? Theme.accent : (dndTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-                                    scale: dndTileMouse.pressed ? 0.98 : 1.0
-                                    clip: true
-                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                            Text { Layout.fillWidth: true; text: "Do Not Disturb"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                                            Text { Layout.fillWidth: true; text: NotificationService.dnd ? "Popups silenced" : (NotificationService.unreadCount + " unread notifications"); font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
-                                        }
-                                        CtrlSwitch {
-                                            checked: NotificationService.dnd
-                                            onToggled: (v) => NotificationService.dnd = v
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: dndTileMouse
-                                        anchors.fill: parent
-                                        z: -1
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: NotificationService.dnd = !NotificationService.dnd
-                                    }
-                                }
-
-                                // Power Profile Quick Cycler
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 56; radius: 10
-                                    color: pwrTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                    border.width: 1; border.color: pwrTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle
-                                    scale: pwrTileMouse.pressed ? 0.98 : 1.0
-                                    clip: true
-                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                            Text { Layout.fillWidth: true; text: "Power Profile"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                                            Text { Layout.fillWidth: true; text: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "%"; font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight }
-                                        }
-                                        Rectangle {
-                                            implicitWidth: pwrPill.implicitWidth + 16; height: 24; radius: 12
-                                            color: Theme.surfaceRaised; border.width: 1; border.color: pwrTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Text { id: pwrPill; anchors.centerIn: parent; text: "Cycle"; font.family: Theme.fontSans; font.pixelSize: 11; color: pwrTileMouse.containsMouse ? Theme.text : Theme.textSub; Behavior on color { ColorAnimation { duration: 140 } } }
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: pwrTileMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.cyclePowerProfile()
-                                    }
-                                }
-
-                                // System Updates Quick Card
-                                Rectangle {
-                                    Layout.fillWidth: true; height: 56; radius: 10
-                                    color: updTileMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                    border.width: 1
-                                    border.color: PackageService.updateCount > 0 ? Theme.accent : (updTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45) : Theme.borderSubtle)
-                                    scale: updTileMouse.pressed ? 0.98 : 1.0
-                                    clip: true
-                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-
-                                    RowLayout {
-                                        anchors.fill: parent; anchors.margins: 12; spacing: 10
-                                        ColumnLayout {
-                                            Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 2
-                                            Text { Layout.fillWidth: true; text: "System Updates"; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; color: Theme.text; elide: Text.ElideRight }
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: PackageService.checking
-                                                    ? "Checking repositories..."
-                                                    : (PackageService.updateCount > 0 ? PackageService.updateCount + " updates ready" : "All packages up to date")
-                                                font.family: Theme.fontSans; font.pixelSize: 11; color: Theme.textSub; elide: Text.ElideRight
-                                            }
-                                        }
-                                        Rectangle {
-                                            implicitWidth: updPill.implicitWidth + 16; height: 24; radius: 12
-                                            color: Theme.surfaceRaised; border.width: 1; border.color: updTileMouse.containsMouse ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35) : Theme.borderSubtle
-                                            Behavior on border.color { ColorAnimation { duration: 140 } }
-                                            Text { id: updPill; anchors.centerIn: parent; text: "Open"; font.family: Theme.fontSans; font.pixelSize: 11; color: updTileMouse.containsMouse ? Theme.text : Theme.textSub; Behavior on color { ColorAnimation { duration: 140 } } }
-                                        }
-                                    }
-                                    MouseArea {
-                                        id: updTileMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.openPage("updates")
-                                    }
-                                }
-                            }
-
-                            SectionLabel { text: "Most used pages" }
-                            Flow {
-                                Layout.fillWidth: true; spacing: 8
-                                CtrlBtn { text: "Display"; ghost: true; onClicked: root.openPage("display") }
-                                CtrlBtn { text: "Sound & Audio"; ghost: true; onClicked: root.openPage("sound") }
-                                CtrlBtn { text: "Appearance"; ghost: true; onClicked: root.openPage("appearance") }
-                                CtrlBtn { text: "Binding"; ghost: true; onClicked: root.openPage("keybind") }
-                                CtrlBtn { text: "Layout"; ghost: true; onClicked: root.openPage("layout") }
                             }
                         }
                         }
