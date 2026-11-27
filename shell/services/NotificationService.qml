@@ -26,6 +26,7 @@ Singleton {
                 id: "n-" + notif.id + "-" + Date.now(),
                 appName: notif.appName || "System",
                 desktopEntry: notif.desktopEntry || "",
+                appIcon: root.resolveAppIcon(notif.appIcon, notif.desktopEntry, notif.appName),
                 summary: notif.summary || "Notification",
                 body: notif.body || "",
                 timeText: "now",
@@ -117,11 +118,47 @@ Singleton {
         previewNotifActive = false;
     }
 
+    function resolveAppIcon(appIcon, desktopEntry, appName) {
+        const tryPath = (name) => {
+            if (!name) return "";
+            const p = Quickshell.iconPath(name, true);
+            if (p !== "") return p;
+            if (name.indexOf("/") === 0 || name.indexOf("file://") === 0) return name;
+            return "";
+        };
+
+        let resolved = tryPath(String(appIcon || "").trim());
+        if (resolved !== "") return resolved;
+
+        const desk = String(desktopEntry || "").trim().toLowerCase().replace(/\.desktop$/, "");
+        const app = String(appName || "").trim().toLowerCase();
+        const entries = DesktopEntries.applications ? DesktopEntries.applications.values : [];
+        if (entries) {
+            for (let i = 0; i < entries.length; ++i) {
+                const e = entries[i];
+                if (!e || !e.icon) continue;
+                const eid = String(e.id || "").toLowerCase().replace(/\.desktop$/, "");
+                const ename = String(e.name || "").toLowerCase();
+                if ((desk !== "" && eid === desk) || (app !== "" && (ename === app || eid === app))) {
+                    resolved = tryPath(e.icon);
+                    if (resolved !== "") return resolved;
+                }
+            }
+        }
+
+        if (desk !== "") {
+            resolved = tryPath(desk);
+            if (resolved !== "") return resolved;
+        }
+        return app !== "" ? tryPath(app) : "";
+    }
+
     function pushPreviewNotification(appName, summary, body) {
         nextPreviewId += 1;
         const entry = {
             id: "preview-" + nextPreviewId,
             appName: appName || "Hyprland",
+            appIcon: root.resolveAppIcon("", "", appName),
             summary: summary || "Screenshot saved",
             body: body || "~/Pictures/Screenshots/2026-11-18.png",
             timeText: "now",

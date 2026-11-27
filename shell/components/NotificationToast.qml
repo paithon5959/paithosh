@@ -1,6 +1,8 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Widgets
 import ".."
 import "../services"
 import "common"
@@ -98,11 +100,28 @@ Item {
                         border.width: 1
                         border.color: Theme.borderSubtle
 
+                        IconImage {
+                            id: appIconImg
+                            anchors.centerIn: parent
+                            width: 20
+                            height: 20
+                            implicitSize: 20
+                            mipmap: true
+                            source: root.toast && root.toast.appIcon ? root.toast.appIcon : ""
+                            visible: source !== ""
+                            layer.enabled: visible
+                            layer.effect: MultiEffect {
+                                colorization: 1.0
+                                colorizationColor: Theme.accent
+                            }
+                        }
+
                         SvgIcon {
                             anchors.centerIn: parent
                             sourceName: "bell"
                             iconSize: 16
                             color: Theme.accent
+                            visible: !appIconImg.visible
                         }
                     }
 
