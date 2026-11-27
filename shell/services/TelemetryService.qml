@@ -8,10 +8,22 @@ Singleton {
 
     property int cpuPct: 0
     property int ramPct: 0
+    property int gpuPct: 0
+    property int gpuTempC: 0
+    property string gpuDetail: ""
     property int cpuTempC: 0
     property int cpuThreadCount: 1
     property bool cpuHistorySeeded: false
     property bool ramHistorySeeded: false
+    property bool gpuHistorySeeded: false
+
+    property real netDownBps: 0
+    property real netUpBps: 0
+    property string netDownText: "0 B/s"
+    property string netUpText: "0 B/s"
+    property real _lastNetRx: -1
+    property real _lastNetTx: -1
+    property double _lastNetMs: 0
     readonly property bool overheatAlert: cpuTempC >= 90
     property bool _lastOverheatAlert: false
     property double _lastOverheatSfxMs: 0
@@ -48,7 +60,38 @@ Singleton {
 
     property var cpuHistory: [0, 0]
     property var ramHistory: [0, 0]
+    property var gpuHistory: [0, 0]
+    property var netDownRawHistory: [0, 0]
+    property var netUpRawHistory: [0, 0]
+    property var netDownHistory: [0, 0]
+    property var netUpHistory: [0, 0]
     property var processList: []
+
+    function formatNetRate(bps) {
+        if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/s";
+        if (bps >= 1024) return Math.round(bps / 1024) + " KB/s";
+        return Math.round(bps) + " B/s";
+    }
+
+    function _rebuildNetSparklines() {
+        let peak = 65536; // 64 KB/s floor so idle noise stays low
+        for (let i = 0; i < netDownRawHistory.length; ++i) {
+            if (netDownRawHistory[i] > peak) peak = netDownRawHistory[i];
+        }
+        for (let i = 0; i < netUpRawHistory.length; ++i) {
+            if (netUpRawHistory[i] > peak) peak = netUpRawHistory[i];
+        }
+        const dNorm = [];
+        const uNorm = [];
+        for (let i = 0; i < netDownRawHistory.length; ++i) {
+            dNorm.push(Math.max(0, Math.min(100, Math.round((netDownRawHistory[i] / peak) * 100))));
+        }
+        for (let i = 0; i < netUpRawHistory.length; ++i) {
+            uNorm.push(Math.max(0, Math.min(100, Math.round((netUpRawHistory[i] / peak) * 100))));
+        }
+        netDownHistory = dNorm;
+        netUpHistory = uNorm;
+    }
     property var appList: []
     property var pidStatsMap: ({})
     property var pidChildrenMap: ({})
@@ -138,7 +181,33 @@ Singleton {
             "    if [ -n \"$v\" ] && [ \"$v\" -gt 0 ] 2>/dev/null; then t=\"$v\"; break; fi; " +
             "  done; " +
             "fi; " +
-            "[ -n \"$t\" ] && printf 'TEMP=%s\\n' \"$t\""
+            "[ -n \"$t\" ] && printf 'TEMP=%s\\n' \"$t\"; " +
+            "awk -F'[: ]+' 'NR>2 && $1!=\"\" && $1!=\"lo\" {rx+=$2; tx+=$10} END {printf \"NET=%s %s\\n\", rx+0, tx+0}' /proc/net/dev 2>/dev/null; " +
+            "if command -v nvidia-smi >/dev/null 2>&1; then " +
+            "  nv=$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null | head -n1); " +
+            "  [ -n \"$nv\" ] && printf 'GPU_NV=%s\\n' \"$nv\"; " +
+            "else " +
+            "  gdone=0; " +
+            "  for c in /sys/class/drm/card*/device; do " +
+            "    if [ -r \"$c/gpu_busy_percent\" ]; then " +
+            "      u=$(cat \"$c/gpu_busy_percent\" 2>/dev/null); " +
+            "      vu=$(cat \"$c/mem_info_vram_used\" 2>/dev/null || echo 0); " +
+            "      vt=$(cat \"$c/mem_info_vram_total\" 2>/dev/null || echo 0); " +
+            "      gt=$(cat \"$c\"/hwmon/hwmon*/temp1_input 2>/dev/null | head -n1 || echo 0); " +
+            "      printf 'GPU_AMD=%s,%s,%s,%s\\n' \"$u\" \"$vu\" \"$vt\" \"$gt\"; gdone=1; break; " +
+            "    fi; " +
+            "  done; " +
+            "  if [ \"$gdone\" -eq 0 ]; then " +
+            "    for c in /sys/class/drm/card*; do " +
+            "      if [ -r \"$c/gt_act_freq_mhz\" ] && [ -r \"$c/gt_max_freq_mhz\" ]; then " +
+            "        fa=$(cat \"$c/gt_act_freq_mhz\" 2>/dev/null || echo 0); " +
+            "        fn=$(cat \"$c/gt_min_freq_mhz\" 2>/dev/null || echo 0); " +
+            "        fx=$(cat \"$c/gt_max_freq_mhz\" 2>/dev/null || echo 1); " +
+            "        printf 'GPU_INTEL=%s,%s,%s\\n' \"$fa\" \"$fn\" \"$fx\"; break; " +
+            "      fi; " +
+            "    done; " +
+            "  fi; " +
+            "fi"
         ]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -180,6 +249,65 @@ Singleton {
                         const rawT = parseInt(line.slice(5), 10);
                         if (!isNaN(rawT) && rawT > 0) {
                             root.cpuTempC = rawT > 1000 ? Math.round(rawT / 1000) : rawT;
+                        }
+                    } else if (line.startsWith("NET=")) {
+                        const parts = line.slice(4).trim().split(/\s+/);
+                        const rx = parseFloat(parts[0]);
+                        const tx = parseFloat(parts[1]);
+                        const nowMs = Date.now();
+                        if (!isNaN(rx) && !isNaN(tx)) {
+                            if (root._lastNetRx >= 0 && root._lastNetMs > 0 && nowMs > root._lastNetMs) {
+                                const dt = Math.max(0.2, (nowMs - root._lastNetMs) / 1000.0);
+                                const dRx = Math.max(0, rx - root._lastNetRx) / dt;
+                                const dTx = Math.max(0, tx - root._lastNetTx) / dt;
+                                root.netDownBps = dRx;
+                                root.netUpBps = dTx;
+                                root.netDownText = root.formatNetRate(dRx);
+                                root.netUpText = root.formatNetRate(dTx);
+                                root.netDownRawHistory = root.pushPoint(root.netDownRawHistory, dRx);
+                                root.netUpRawHistory = root.pushPoint(root.netUpRawHistory, dTx);
+                                root._rebuildNetSparklines();
+                            }
+                            root._lastNetRx = rx;
+                            root._lastNetTx = tx;
+                            root._lastNetMs = nowMs;
+                        }
+                    } else if (line.startsWith("GPU_NV=")) {
+                        const p = line.slice(7).split(",").map(s => parseFloat(s.trim()));
+                        const util = Math.max(0, Math.min(100, Math.round(p[0] || 0)));
+                        root.gpuPct = util;
+                        if (p[2] > 0) root.gpuDetail = (p[1] / 1024).toFixed(1) + "/" + (p[2] / 1024).toFixed(0) + "G";
+                        if (p[3] > 0) root.gpuTempC = Math.round(p[3]);
+                        if (!root.gpuHistorySeeded) {
+                            root.gpuHistory = [util, util];
+                            root.gpuHistorySeeded = true;
+                        } else {
+                            root.gpuHistory = root.pushPoint(root.gpuHistory, util);
+                        }
+                    } else if (line.startsWith("GPU_AMD=")) {
+                        const p = line.slice(8).split(",").map(s => parseFloat(s.trim()));
+                        const util = Math.max(0, Math.min(100, Math.round(p[0] || 0)));
+                        root.gpuPct = util;
+                        if (p[2] > 0) root.gpuDetail = (p[1] / 1073741824).toFixed(1) + "/" + (p[2] / 1073741824).toFixed(0) + "G";
+                        if (p[3] > 0) root.gpuTempC = p[3] > 1000 ? Math.round(p[3] / 1000) : Math.round(p[3]);
+                        if (!root.gpuHistorySeeded) {
+                            root.gpuHistory = [util, util];
+                            root.gpuHistorySeeded = true;
+                        } else {
+                            root.gpuHistory = root.pushPoint(root.gpuHistory, util);
+                        }
+                    } else if (line.startsWith("GPU_INTEL=")) {
+                        const p = line.slice(10).split(",").map(s => parseFloat(s.trim()));
+                        const act = p[0] || 0;
+                        const maxF = Math.max(1, p[2] || 1);
+                        const util = Math.max(0, Math.min(100, Math.round((act / maxF) * 100)));
+                        root.gpuPct = util;
+                        root.gpuDetail = Math.round(act) + "/" + Math.round(maxF) + " MHz";
+                        if (!root.gpuHistorySeeded) {
+                            root.gpuHistory = [util, util];
+                            root.gpuHistorySeeded = true;
+                        } else {
+                            root.gpuHistory = root.pushPoint(root.gpuHistory, util);
                         }
                     } else if (/^\d+\.\d+\s+\d+\.\d+$/.test(line)) {
                         const secs = Math.floor(parseFloat(line.split(/\s+/)[0]));

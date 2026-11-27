@@ -41,6 +41,8 @@ Item {
     function animateSparklines() {
         cpuSpark.animateDraw();
         ramSpark.animateDraw();
+        gpuSpark.animateDraw();
+        netSpark.animateDraw();
     }
 
     onActiveSectionChanged: listSwitchAnim.restart()
@@ -185,6 +187,153 @@ Item {
                         Layout.fillHeight: true
                         points: TelemetryService.ramHistory
                         lineColor: parent.parent.metricColor
+                    }
+                }
+            }
+        }
+
+        // GPU & Network (Upload / Download) Sparkline Cards
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10
+
+            // GPU Sparkline Card
+            Rectangle {
+                readonly property bool isHigh: TelemetryService.gpuPct >= 85
+                readonly property bool isCrit: TelemetryService.gpuPct >= 95
+                readonly property color metricColor: isCrit ? Theme.danger : (isHigh ? Theme.warn : Theme.accent)
+
+                Layout.fillWidth: true
+                height: 92
+                radius: 14
+                color: Theme.cardBg
+                border.width: 1
+                border.color: isCrit
+                    ? Qt.rgba(Theme.danger.r, Theme.danger.g, Theme.danger.b, 0.45)
+                    : (isHigh ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40) : Theme.borderSubtle)
+                clip: true
+
+                Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        SvgIcon {
+                            sourceName: "monitor"
+                            iconSize: 14
+                            color: Theme.textSub
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Text {
+                            text: "GPU"
+                            color: Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            text: TelemetryService.gpuDetail
+                            visible: text.length > 0
+                            color: Theme.textMuted
+                            font.family: Theme.fontMono
+                            font.pixelSize: 10
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                        }
+                        Item {
+                            Layout.fillWidth: true
+                            visible: TelemetryService.gpuDetail.length === 0
+                        }
+                        Text {
+                            text: TelemetryService.gpuPct + "%"
+                            color: parent.parent.parent.isCrit
+                                ? Theme.dangerText
+                                : (parent.parent.parent.isHigh ? Theme.warn : Theme.text)
+                            font.family: Theme.fontMono
+                            font.pixelSize: 16
+                            font.weight: Font.Bold
+                            Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                        }
+                    }
+
+                    Sparkline {
+                        id: gpuSpark
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        points: TelemetryService.gpuHistory
+                        lineColor: parent.parent.metricColor
+                    }
+                }
+            }
+
+            // Network Upload & Download Sparkline Card
+            Rectangle {
+                Layout.fillWidth: true
+                height: 92
+                radius: 14
+                color: Theme.cardBg
+                border.width: 1
+                border.color: Theme.borderSubtle
+                clip: true
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    spacing: 6
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 6
+
+                        SvgIcon {
+                            sourceName: "globe"
+                            iconSize: 14
+                            color: Theme.textSub
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        Text {
+                            text: "NET"
+                            color: Theme.textSub
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            font.weight: Font.DemiBold
+                        }
+                        Item { Layout.fillWidth: true }
+                        Text {
+                            text: "↓" + TelemetryService.netDownText
+                            color: Theme.text
+                            font.family: Theme.fontMono
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            text: "↑" + TelemetryService.netUpText
+                            color: Theme.info
+                            font.family: Theme.fontMono
+                            font.pixelSize: 10
+                            font.weight: Font.DemiBold
+                            Layout.minimumWidth: 0
+                            elide: Text.ElideRight
+                        }
+                    }
+
+                    Sparkline {
+                        id: netSpark
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        points: TelemetryService.netDownHistory
+                        lineColor: Theme.accent
+                        secondaryPoints: TelemetryService.netUpHistory
+                        secondaryLineColor: Theme.info
                     }
                 }
             }
