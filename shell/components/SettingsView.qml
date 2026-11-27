@@ -4699,7 +4699,7 @@ Item {
                                 iconName: "message-square"
                                 title: "Discord RPC"
                                 subtitle: "Live presence & Linux larper persona"
-                                pillText: !DiscordRpcService.enabled ? "Off" : (DiscordRpcService.connected ? "Connected" : "Discord Offline")
+                                pillText: !DiscordRpcService.enabled ? "Off" : (DiscordRpcService.connected ? "Connected" : (DiscordRpcService.yielding ? "Yielding" : "Discord Offline"))
                                 onTriggered: root.openPage("discord_rpc")
                             }
                             HubCard { iconName: "globe"; title: "DNS & Routing"; subtitle: "Encrypted DoH & split-horizon"; pillText: "1.1.1.1 • DoH Active"; onTriggered: {} }
@@ -5167,7 +5167,9 @@ Item {
                                         ? Theme.borderSubtle
                                         : (DiscordRpcService.connected
                                             ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.42)
-                                            : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42))
+                                            : (DiscordRpcService.yielding
+                                                ? Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.42)
+                                                : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.42)))
                                     Behavior on border.color { ColorAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                                     ColumnLayout {
@@ -5190,7 +5192,12 @@ Item {
                                                     anchors.centerIn: parent
                                                     sourceName: "terminal"
                                                     iconSize: 16
-                                                    color: DiscordRpcService.connected ? Theme.ok : (DiscordRpcService.enabled ? Theme.warn : Theme.textMuted)
+                                                    color: DiscordRpcService.connected
+                                                        ? Theme.ok
+                                                        : (DiscordRpcService.yielding
+                                                            ? Theme.info
+                                                            : (DiscordRpcService.enabled ? Theme.warn : Theme.textMuted))
+                                                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                                 }
                                             }
 
@@ -5218,7 +5225,9 @@ Item {
                                                         ? ((DiscordRpcService.currentDetails || "Paithosh Shell") + " • " + (DiscordRpcService.currentState || "Wayland"))
                                                         : (!DiscordRpcService.enabled
                                                             ? "Presence paused — toggle below to broadcast again"
-                                                            : "Waiting for Discord IPC socket (auto-connects when Discord opens)")
+                                                            : (DiscordRpcService.yielding
+                                                                ? "Yielding to another app — resumes automatically when it disconnects"
+                                                                : "Waiting for Discord — connects automatically when Discord opens"))
                                                     color: Theme.textSub
                                                     font.family: Theme.fontSans
                                                     font.pixelSize: 12
@@ -5236,11 +5245,15 @@ Item {
                                                 opacity: showStatusPill ? 1.0 : 0.0
                                                 color: !DiscordRpcService.enabled
                                                     ? Theme.surfaceRaised
-                                                    : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14)
+                                                    : (DiscordRpcService.yielding
+                                                        ? Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.14)
+                                                        : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.14))
                                                 border.width: showStatusPill ? 1 : 0
                                                 border.color: !DiscordRpcService.enabled
                                                     ? Theme.borderSubtle
-                                                    : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.38)
+                                                    : (DiscordRpcService.yielding
+                                                        ? Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.38)
+                                                        : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.38))
                                                 Behavior on Layout.preferredWidth { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                                 Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                                                 Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -5248,8 +5261,9 @@ Item {
                                                 Text {
                                                     id: statusPillLbl
                                                     anchors.centerIn: parent
-                                                    text: !DiscordRpcService.enabled ? "DISABLED" : "DISCORD OFFLINE"
-                                                    color: !DiscordRpcService.enabled ? Theme.textMuted : Theme.warn
+                                                    text: !DiscordRpcService.enabled ? "DISABLED" : (DiscordRpcService.yielding ? "YIELDING" : "DISCORD OFFLINE")
+                                                    color: !DiscordRpcService.enabled ? Theme.textMuted : (DiscordRpcService.yielding ? Theme.info : Theme.warn)
+                                                    Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                                     font.family: Theme.fontMono
                                                     font.pixelSize: 10
                                                     font.weight: Font.DemiBold
@@ -5443,11 +5457,20 @@ Item {
                                     SettingRow {
                                         showDivider: false
                                         title: "Enable Discord RPC"
-                                        subtitle: "Automatically detect Discord IPC and broadcast shell presence"
+                                        subtitle: "Automatically detect Discord and broadcast shell presence"
                                         searchKeywords: "discord rpc enable toggle broadcast"
                                         CtrlSwitch {
                                             checked: DiscordRpcService.enabled
                                             onToggled: (v) => DiscordRpcService.enabled = v
+                                        }
+                                    }
+                                    SettingRow {
+                                        title: "Yield to Other RPC Apps"
+                                        subtitle: "Disconnect shell presence automatically when another app uses Discord RPC"
+                                        searchKeywords: "discord rpc yield pause game other app auto disconnect"
+                                        CtrlSwitch {
+                                            checked: DiscordRpcService.yieldToOtherRpc
+                                            onToggled: (v) => DiscordRpcService.yieldToOtherRpc = v
                                         }
                                     }
                                     SettingRow {

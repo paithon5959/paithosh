@@ -264,7 +264,7 @@ QtObject {
             pageLabel: "Discord RPC",
             title: "Discord RPC",
             subtitle: "Live Discord Rich Presence, Linux larper presets & custom flex",
-            keywords: "discord rpc rich presence larper satire status custom client id",
+            keywords: "discord rpc rich presence larper satire status custom client id yield pause",
             icon: "message-square"
         },
 

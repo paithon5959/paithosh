@@ -9,6 +9,7 @@ QtObject {
     readonly property string defaultClientId: "920711890211053579"
 
     property bool enabled: true
+    property bool yieldToOtherRpc: true
     property string preset: "auto" // "auto" | "larper" | "satire" | "minimal" | "music" | "dj" | "custom"
     property string customDetails: "Compiling kernel with -O3"
     property string customState: "I use Fedora btw"
@@ -22,6 +23,7 @@ QtObject {
 
     property bool discordRunning: false
     property bool connected: false
+    property bool yielding: false
     property string currentDetails: ""
     property string currentState: ""
 
@@ -40,6 +42,7 @@ QtObject {
             cmd: "config",
             config: {
                 enabled: root.enabled,
+                yieldToOtherRpc: root.yieldToOtherRpc,
                 preset: root.preset,
                 customDetails: root.customDetails,
                 customState: root.customState,
@@ -77,6 +80,7 @@ QtObject {
     }
 
     onEnabledChanged: pushConfig()
+    onYieldToOtherRpcChanged: pushConfig()
     onPresetChanged: pushConfig()
     onCustomDetailsChanged: pushConfig()
     onCustomStateChanged: pushConfig()
@@ -119,6 +123,7 @@ QtObject {
                         root._hydrating = true;
                         const c = data.config;
                         if (typeof c.enabled === "boolean") root.enabled = c.enabled;
+                        if (typeof c.yieldToOtherRpc === "boolean") root.yieldToOtherRpc = c.yieldToOtherRpc;
                         if (typeof c.preset === "string") root.preset = c.preset;
                         if (typeof c.customDetails === "string") root.customDetails = c.customDetails;
                         if (typeof c.customState === "string") root.customState = c.customState;
@@ -132,6 +137,7 @@ QtObject {
                     } else {
                         root.discordRunning = !!data.discord_running;
                         root.connected = !!data.connected;
+                        root.yielding = !!data.yielding;
                         root.currentDetails = data.details || "";
                         root.currentState = data.state || "";
                     }
@@ -143,6 +149,7 @@ QtObject {
         onExited: function(_code, _status) {
             root.discordRunning = false;
             root.connected = false;
+            root.yielding = false;
             restartTimer.restart();
         }
     }

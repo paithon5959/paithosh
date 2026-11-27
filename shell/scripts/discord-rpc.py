@@ -46,11 +46,18 @@ def emit(payload: dict) -> None:
     sys.stdout.flush()
 
 
-def emit_status(discord_running: bool, connected: bool, details: str = "", state: str = "") -> None:
+def emit_status(
+    discord_running: bool,
+    connected: bool,
+    details: str = "",
+    state: str = "",
+    yielding: bool = False,
+) -> None:
     emit({
         "type": "status",
         "discord_running": discord_running,
         "connected": connected,
+        "yielding": yielding,
         "details": details,
         "state": state,
     })
@@ -82,14 +89,18 @@ def save_config(path: str, cfg: dict) -> None:
 
 def find_ipc_sockets() -> list[str]:
     """Return candidate Discord IPC socket paths that currently exist."""
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    search_dirs = [
-        runtime_dir,
-        "/tmp",
-        os.path.join(runtime_dir, "app", "com.discordapp.Discord"),
-        os.path.join(runtime_dir, "app", "dev.vencord.Vesktop"),
-        os.path.join(runtime_dir, "snap.discord"),
-    ]
+    override_dir = os.environ.get("PAITHOSH_DISCORD_IPC_DIR", "").strip()
+    if override_dir:
+        search_dirs = [override_dir]
+    else:
+        runtime_dir = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        search_dirs = [
+            runtime_dir,
+            "/tmp",
+            os.path.join(runtime_dir, "app", "com.discordapp.Discord"),
+            os.path.join(runtime_dir, "app", "dev.vencord.Vesktop"),
+            os.path.join(runtime_dir, "snap.discord"),
+        ]
     found: list[str] = []
     for base in search_dirs:
         if not base or not os.path.isdir(base):
@@ -99,6 +110,29 @@ def find_ipc_sockets() -> list[str]:
             if os.path.exists(path):
                 found.append(path)
     return found
+
+
+def count_ipc_connections(socket_paths: list[str], proc_net_unix: str = "/proc/net/unix") -> int:
+    """Count active connected (St=03) Unix sockets bound to any Discord IPC path."""
+    if not socket_paths:
+        return 0
+    targets = set(socket_paths)
+    for p in socket_paths:
+        try:
+            targets.add(os.path.realpath(p))
+        except OSError:
+            pass
+    count = 0
+    try:
+        with open(proc_net_unix, "r", encoding="utf-8") as f:
+            next(f, None)
+            for line in f:
+                parts = line.split(None, 7)
+                if len(parts) >= 8 and parts[5] == "03" and parts[7].strip() in targets:
+                    count += 1
+    except OSError:
+        return 0
+    return count
 
 
 def send_packet(sock: socket.socket, opcode: int, payload: dict) -> None:
@@ -328,6 +362,7 @@ def main() -> int:
 
     defaults = {
         "enabled": True,
+        "yieldToOtherRpc": True,
         "preset": "auto",
         "customDetails": "Compiling kernel with -O3",
         "customState": "I use Fedora btw",
@@ -350,41 +385,47 @@ def main() -> int:
     emit({"type": "config", "config": cfg})
 
     start_ts = int(time.time())
-    last_discord_running: bool | None = None
+    last_state: tuple[bool, bool, bool] | None = None
     last_pair: tuple[str, str] | None = None
 
-    while _running:
-        # Process any pending stdin commands before connecting
-        for cmd in poll_stdin_commands(0.05):
-            if cmd.get("cmd") == "config" and isinstance(cmd.get("config"), dict):
+    def set_status(discord_running: bool, connected: bool, yielding: bool = False) -> None:
+        nonlocal last_state
+        st = (discord_running, connected, yielding)
+        if last_state != st:
+            emit_status(discord_running=discord_running, connected=connected, yielding=yielding)
+            last_state = st
+
+    def apply_stdin(timeout: float) -> bool:
+        changed = False
+        for cmd in poll_stdin_commands(timeout):
+            c = cmd.get("cmd")
+            if c == "config" and isinstance(cmd.get("config"), dict):
                 cfg.update(cmd["config"])
                 if not cfg.get("clientId"):
                     cfg["clientId"] = DEFAULT_CLIENT_ID
                 save_config(args.config_file, cfg)
+                changed = True
+            elif c == "reroll":
+                changed = True
+        return changed
+
+    while _running:
+        apply_stdin(0.05)
 
         if not cfg.get("enabled", True):
-            if last_discord_running is not False:
-                emit_status(discord_running=False, connected=False)
-                last_discord_running = False
-            for cmd in poll_stdin_commands(args.poll_interval):
-                if cmd.get("cmd") == "config" and isinstance(cmd.get("config"), dict):
-                    cfg.update(cmd["config"])
-                    if not cfg.get("clientId"):
-                        cfg["clientId"] = DEFAULT_CLIENT_ID
-                    save_config(args.config_file, cfg)
+            set_status(False, False, False)
+            apply_stdin(args.poll_interval)
             continue
 
         sockets = find_ipc_sockets()
         if not sockets:
-            if last_discord_running is not False:
-                emit_status(discord_running=False, connected=False)
-                last_discord_running = False
-            for cmd in poll_stdin_commands(args.poll_interval):
-                if cmd.get("cmd") == "config" and isinstance(cmd.get("config"), dict):
-                    cfg.update(cmd["config"])
-                    if not cfg.get("clientId"):
-                        cfg["clientId"] = DEFAULT_CLIENT_ID
-                    save_config(args.config_file, cfg)
+            set_status(False, False, False)
+            apply_stdin(args.poll_interval)
+            continue
+
+        if cfg.get("yieldToOtherRpc", True) and count_ipc_connections(sockets) > 0:
+            set_status(True, False, True)
+            apply_stdin(args.poll_interval)
             continue
 
         active_client_id = str(cfg.get("clientId") or DEFAULT_CLIENT_ID)
@@ -408,18 +449,11 @@ def main() -> int:
                 continue
 
         if not connected or sock is None:
-            if last_discord_running is not False:
-                emit_status(discord_running=False, connected=False)
-                last_discord_running = False
-            for cmd in poll_stdin_commands(args.poll_interval):
-                if cmd.get("cmd") == "config" and isinstance(cmd.get("config"), dict):
-                    cfg.update(cmd["config"])
-                    if not cfg.get("clientId"):
-                        cfg["clientId"] = DEFAULT_CLIENT_ID
-                    save_config(args.config_file, cfg)
+            set_status(False, False, False)
+            apply_stdin(args.poll_interval)
             continue
 
-        last_discord_running = True
+        last_state = (True, True, False)
         try:
             force_update = True
             last_update = 0.0
@@ -429,6 +463,9 @@ def main() -> int:
                 if str(cfg.get("clientId") or DEFAULT_CLIENT_ID) != active_client_id:
                     # Reconnect with new Client ID
                     break
+                if cfg.get("yieldToOtherRpc", True) and count_ipc_connections(sockets) > 1:
+                    set_status(True, False, True)
+                    break
 
                 interval = max(15.0, float(cfg.get("updateInterval", 60)))
                 now = time.time()
@@ -436,24 +473,15 @@ def main() -> int:
                     details, state = get_status_for_config(cfg, last_pair)
                     last_pair = (details, state)
                     set_activity(sock, start_ts, details, state, bool(cfg.get("showElapsed", True)))
-                    emit_status(discord_running=True, connected=True, details=details, state=state)
+                    emit_status(discord_running=True, connected=True, details=details, state=state, yielding=False)
+                    last_state = (True, True, False)
                     last_update = now
                     force_update = False
 
-                cmds = poll_stdin_commands(0.5)
-                for cmd in cmds:
-                    c = cmd.get("cmd")
-                    if c == "config" and isinstance(cmd.get("config"), dict):
-                        cfg.update(cmd["config"])
-                        if not cfg.get("clientId"):
-                            cfg["clientId"] = DEFAULT_CLIENT_ID
-                        save_config(args.config_file, cfg)
-                        force_update = True
-                    elif c == "reroll":
-                        force_update = True
+                if apply_stdin(0.5):
+                    force_update = True
         except (OSError, ConnectionError, ValueError):
-            emit_status(discord_running=False, connected=False)
-            last_discord_running = False
+            set_status(False, False, False)
         finally:
             try:
                 send_packet(sock, OP_CLOSE, {})
