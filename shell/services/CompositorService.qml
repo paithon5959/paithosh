@@ -712,8 +712,12 @@ with open(lock_path, "w") as lf:
     Process {
         id: hyprConfigWriter
         onExited: (code) => {
-            if (code === 0 && root._writerNeedsReload && root.isHyprland) {
-                Quickshell.execDetached(["hyprctl", "reload"]);
+            if (code === 0 && root.isHyprland) {
+                if (root._writerNeedsReload) {
+                    Quickshell.execDetached(["hyprctl", "reload"]);
+                }
+                // Any write to appearance.lua/colors.lua/animations.lua triggers Hyprland autoreload,
+                // which resets live hl.config/hl.animation overrides — always re-apply Reduce Motion.
                 if (root.reduceMotionActive) reduceMotionReapplyTimer.restart();
             }
             root._writerNeedsReload = false;
@@ -726,7 +730,7 @@ with open(lock_path, "w") as lf:
 
     Timer {
         id: reduceMotionReapplyTimer
-        interval: 120
+        interval: 220
         repeat: false
         onTriggered: if (root.reduceMotionActive) root._applyReduceMotionLive()
     }
@@ -796,7 +800,7 @@ with open(lock_path, "w") as lf:
         const bAlpha = Math.max(0.08, Math.min(0.60, Number(cfg.borderAlpha) || 0.14));
         const bAlphaHex = _byteHex(bAlpha * 255);
         const activeHi = cfg.activeBorderHighlight !== false;
-        const gradAcc = Boolean(cfg.accentGradientEnabled);
+        const gradAcc = Boolean(cfg.accentGradientEnabled) && !root.reduceMotionActive;
         const angle = Math.max(0, Math.min(360, Math.round(Number(cfg.gradientAngle) || 45)));
 
         _pendingThemeColors = {

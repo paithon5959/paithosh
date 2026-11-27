@@ -454,7 +454,7 @@ PanelWindow {
                 property color pillColorMid: Theme.pillBgMid
                 property color pillColor2: Theme.pillBg2
                 property real angleRad: Theme.gradientAngle * Math.PI / 180.0
-                property real gradEnabled: Theme.shellGradientEnabled ? 1.0 : 0.0
+                property real gradEnabled: Theme.effectiveShellGradient ? 1.0 : 0.0
             }
 
             Rectangle {

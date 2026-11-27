@@ -464,7 +464,8 @@ ShellRoot {
                     return;
                 }
                 stateObj.cacheWallpaperColors(reqPath, reqMode, parsed);
-                if (reqPath === bgLayer.currentWallpaperPath && reqMode === Theme.wallpaperColorMode) {
+                const effectiveWpMode = (Theme.wallpaperColorMode === "Gradient" && !Theme.reduceMotion) ? "Gradient" : "Solid";
+                if (reqPath === bgLayer.currentWallpaperPath && reqMode === effectiveWpMode) {
                     Theme.applyWallpaperPalette(parsed, reqPath, anim);
                 } else {
                     Theme.wallpaperColorBusy = false;
@@ -574,7 +575,7 @@ ShellRoot {
             if (!Theme.wallpaperColorEnabled || Theme.wallpapersDisabled) return;
             const path = bgLayer.currentWallpaperPath;
             if (!path || path === "") return;
-            const mode = Theme.wallpaperColorMode === "Gradient" ? "Gradient" : "Solid";
+            const mode = (Theme.wallpaperColorMode === "Gradient" && !Theme.reduceMotion) ? "Gradient" : "Solid";
             const key = path + "|" + mode;
             const anim = (animate !== false);
 
@@ -616,22 +617,35 @@ ShellRoot {
             Theme.reduceMotion = next;
             reloadState.lastReduceMotion = next;
             CompositorService.applyReduceMotion(next);
+            if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled && Theme.wallpaperColorMode === "Gradient") {
+                syncWallpaperColors(false, false);
+            } else {
+                syncHyprThemeColors();
+            }
             saveSettings();
         }
 
         function setWallpaperColorEnabled(enabled) {
             const next = Boolean(enabled) && !Theme.wallpapersDisabled;
             if (Theme.wallpaperColorEnabled === next) return;
+            if (!next) {
+                _wpColorSeq += 1;
+                wallpaperColorProc.running = false;
+                Theme.wallpaperColorBusy = false;
+            }
             const hasWp = Boolean(bgLayer.currentWallpaperPath && bgLayer.currentWallpaperPath !== "");
             Theme.setWallpaperColorEnabled(next, next && hasWp);
             if (Theme.wallpaperColorEnabled && !Theme.wallpapersDisabled) {
                 syncWallpaperColors(true, false);
+            } else {
+                syncHyprThemeColors();
             }
             if (!_applyingExternalState) markAppearanceCustomized();
             saveSettings();
         }
 
         function setWallpaperColorMode(mode) {
+            if (Theme.reduceMotion && String(mode || "").trim().toLowerCase() === "gradient") return;
             const next = (String(mode || "").trim().toLowerCase() === "gradient") ? "Gradient" : "Solid";
             if (Theme.wallpaperColorMode === next) return;
             Theme.setWallpaperColorMode(next);
@@ -672,7 +686,7 @@ ShellRoot {
                 accent2: t.accent2,
                 borderColor: t.borderColor,
                 borderAlpha: t.borderAlpha,
-                accentGradientEnabled: t.accentGradientEnabled,
+                accentGradientEnabled: Theme.effectiveAccentGradient,
                 gradientAngle: t.gradientAngle,
                 activeBorderHighlight: activeBorderHighlight
             });

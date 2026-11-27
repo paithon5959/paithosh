@@ -1353,7 +1353,8 @@ Item {
         enabled: !Theme.wallpapersDisabled
         opacity: Theme.wallpapersDisabled ? 0.45 : 1.0
         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-        readonly property var paletteSwatches: Theme.wallpaperColorMode === "Gradient"
+        readonly property string effectiveMode: (Theme.wallpaperColorMode === "Gradient" && !Theme.reduceMotion) ? "Gradient" : "Solid"
+        readonly property var paletteSwatches: effectiveMode === "Gradient"
             ? Theme.wallpaperRefinedPalette
             : Theme.wallpaperExtractedColors
 
@@ -1366,9 +1367,11 @@ Item {
                 : (Theme.wallpaperColorEnabled
                     ? (Theme.wallpaperColorBusy
                         ? "Analyzing active wallpaper palette..."
-                        : (Theme.wallpaperColorMode === "Gradient"
-                            ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
-                            : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast"))
+                        : (Theme.reduceMotion
+                            ? "Active • Solid palette (Gradient disabled by Reduce motion~)"
+                            : (Theme.wallpaperColorMode === "Gradient"
+                                ? "Active • 10–12 wallpaper tones refined into smooth light/dark gradients"
+                                : "Active • 3–5 prominent wallpaper colors analyzed for UI contrast")))
                     : "Match interface colors automatically to your active wallpaper")
             searchKeywords: "adjust colors based on what you see wallpaper adaptive dynamic solid gradient match palette"
 
@@ -1433,9 +1436,11 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
-                                text: Theme.wallpaperColorMode === "Gradient"
-                                    ? "10–12 balanced light/dark spectrum stops"
-                                    : "3–5 prominent colors analyzed for solid UI roles"
+                                text: Theme.reduceMotion
+                                    ? "Gradient disabled by Reduce motion~"
+                                    : (Theme.wallpaperColorMode === "Gradient"
+                                        ? "10–12 balanced light/dark spectrum stops"
+                                        : "3–5 prominent colors analyzed for solid UI roles")
                                 color: Theme.textSub
                                 font.family: Theme.fontSans
                                 font.pixelSize: 11
@@ -1455,7 +1460,7 @@ Item {
 
                             Rectangle {
                                 y: 2
-                                x: Theme.wallpaperColorMode === "Gradient" ? (wpSegTrack.width / 2) : 2
+                                x: wpColorCard.effectiveMode === "Gradient" ? (wpSegTrack.width / 2) : 2
                                 width: wpSegTrack.width / 2 - 2
                                 height: wpSegTrack.height - 4
                                 radius: 7
@@ -1476,10 +1481,10 @@ Item {
                                     Text {
                                         anchors.centerIn: parent
                                         text: "Solid"
-                                        color: Theme.wallpaperColorMode === "Solid" ? Theme.text : (wpSolidMouse.containsMouse ? Theme.text : Theme.textSub)
+                                        color: wpColorCard.effectiveMode === "Solid" ? Theme.text : (wpSolidMouse.containsMouse ? Theme.text : Theme.textSub)
                                         font.family: Theme.fontSans
                                         font.pixelSize: 11
-                                        font.weight: Theme.wallpaperColorMode === "Solid" ? Font.DemiBold : Font.Medium
+                                        font.weight: wpColorCard.effectiveMode === "Solid" ? Font.DemiBold : Font.Medium
                                         Behavior on color { ColorAnimation { duration: 140 } }
                                     }
                                     MouseArea {
@@ -1497,23 +1502,27 @@ Item {
                                     width: wpSegTrack.width / 2
                                     height: wpSegTrack.height
                                     clip: true
-                                    scale: wpGradMouse.pressed ? 0.94 : 1.0
+                                    enabled: !Theme.reduceMotion
+                                    opacity: Theme.reduceMotion ? 0.40 : 1.0
+                                    scale: (!Theme.reduceMotion && wpGradMouse.pressed) ? 0.94 : 1.0
                                     Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
                                     Text {
                                         anchors.centerIn: parent
                                         text: "Gradient"
-                                        color: Theme.wallpaperColorMode === "Gradient" ? Theme.text : (wpGradMouse.containsMouse ? Theme.text : Theme.textSub)
+                                        color: wpColorCard.effectiveMode === "Gradient" ? Theme.text : ((!Theme.reduceMotion && wpGradMouse.containsMouse) ? Theme.text : Theme.textSub)
                                         font.family: Theme.fontSans
                                         font.pixelSize: 11
-                                        font.weight: Theme.wallpaperColorMode === "Gradient" ? Font.DemiBold : Font.Medium
+                                        font.weight: wpColorCard.effectiveMode === "Gradient" ? Font.DemiBold : Font.Medium
                                         Behavior on color { ColorAnimation { duration: 140 } }
                                     }
                                     MouseArea {
                                         id: wpGradMouse
                                         anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
+                                        enabled: !Theme.reduceMotion
+                                        hoverEnabled: !Theme.reduceMotion
+                                        cursorShape: !Theme.reduceMotion ? Qt.PointingHandCursor : Qt.ForbiddenCursor
                                         onClicked: {
+                                            if (Theme.reduceMotion) return;
                                             if (root.shellState) root.shellState.setWallpaperColorMode("Gradient");
                                             else Theme.setWallpaperColorMode("Gradient");
                                         }
@@ -5562,7 +5571,7 @@ Item {
                                             Layout.fillWidth: true; spacing: 2
                                             Text { text: "Desktop Preview"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
                                             Text {
-                                                text: (Theme.wallpaperColorEnabled ? ("Wallpaper Match (" + Theme.wallpaperColorMode + ")") : Theme.activePreset) + " • Rounding " + CompositorService.cornerRounding + "px • Gaps " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px • " + (CompositorService.blurEnabled ? ("Blur " + CompositorService.blurSize + "px") : "Blur Off")
+                                                text: (Theme.wallpaperColorEnabled ? ("Wallpaper Match (" + (Theme.reduceMotion ? "Solid" : Theme.wallpaperColorMode) + ")") : Theme.activePreset) + " • Rounding " + (Theme.reduceMotion ? 10 : CompositorService.cornerRounding) + "px • Gaps " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px • " + ((!Theme.reduceMotion && CompositorService.blurEnabled) ? ("Blur " + CompositorService.blurSize + "px") : "Blur Off")
                                                 color: Theme.textSub
                                                 font.family: Theme.fontSans
                                                 font.pixelSize: 11
@@ -6003,7 +6012,7 @@ Item {
 
                             // 4. Customize by Area
                             SectionLabel { text: "Customize by area" }
-                            HubCard { iconName: "palette"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: (Theme.wallpaperColorEnabled ? ("Wallpaper (" + Theme.wallpaperColorMode + ")") : Theme.activePreset) + " • " + (CompositorService.blurEnabled ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
+                            HubCard { iconName: "palette"; title: "Appearance"; subtitle: "Themes, colors, wallpaper, decoration & blur"; pillText: (Theme.wallpaperColorEnabled ? ("Wallpaper (" + (Theme.reduceMotion ? "Solid" : Theme.wallpaperColorMode) + ")") : Theme.activePreset) + " • " + ((!Theme.reduceMotion && CompositorService.blurEnabled) ? "Blur" : "No Blur"); onTriggered: root.openPage("appearance") }
                             HubCard { iconName: "keyboard"; title: "Binding"; subtitle: "Shortcuts, apps, capture & Island IPC"; pillText: KeybindService.totalComboCount + " binds"; onTriggered: root.openPage("keybind") }
                             HubCard { iconName: "layout"; title: "Layout"; subtitle: "Tiling, gaps, borders & Dynamic Island"; pillText: CompositorService.layoutName + " • " + CompositorService.gapsIn + "/" + CompositorService.gapsOut + "px"; onTriggered: root.openPage("layout") }
                             HubCard {
@@ -6054,10 +6063,14 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconName: "layers"; title: "Shell Gradient"; subtitle: "Directional gradient on Island, Popover, Menu & Sidebars"
+                                    iconName: "layers"; title: "Shell Gradient"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Directional gradient on Island, Popover, Menu & Sidebars"
                                     searchKeywords: "shell gradient pillbg island popover sidebar"
+                                    enabled: !Theme.reduceMotion
+                                    opacity: Theme.reduceMotion ? 0.45 : 1.0
                                     CtrlSwitch {
-                                        checked: Theme.wallpaperColorEnabled ? Theme.manualShellGradientEnabled : Theme.shellGradientEnabled
+                                        checked: !Theme.reduceMotion && (Theme.wallpaperColorEnabled ? Theme.manualShellGradientEnabled : Theme.shellGradientEnabled)
+                                        enabled: !Theme.reduceMotion
                                         onToggled: (v) => {
                                             if (root.shellState) root.shellState.setThemeGradients(v, Theme.manualSurfaceGradientEnabled, Theme.manualAccentMode === "Gradient");
                                             else Theme.setGradientFlags(v, Theme.manualSurfaceGradientEnabled, Theme.manualAccentMode === "Gradient");
@@ -6066,10 +6079,14 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconName: "layers"; title: "Surface Gradient"; subtitle: "Directional gradient on Workspace canvas, Detached windows & Modals"
+                                    iconName: "layers"; title: "Surface Gradient"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Directional gradient on Workspace canvas, Detached windows & Modals"
                                     searchKeywords: "surface gradient background workspace modal"
+                                    enabled: !Theme.reduceMotion
+                                    opacity: Theme.reduceMotion ? 0.45 : 1.0
                                     CtrlSwitch {
-                                        checked: Theme.wallpaperColorEnabled ? Theme.manualSurfaceGradientEnabled : Theme.surfaceGradientEnabled
+                                        checked: !Theme.reduceMotion && (Theme.wallpaperColorEnabled ? Theme.manualSurfaceGradientEnabled : Theme.surfaceGradientEnabled)
+                                        enabled: !Theme.reduceMotion
                                         onToggled: (v) => {
                                             if (root.shellState) root.shellState.setThemeGradients(Theme.manualShellGradientEnabled, v, Theme.manualAccentMode === "Gradient");
                                             else Theme.setGradientFlags(Theme.manualShellGradientEnabled, v, Theme.manualAccentMode === "Gradient");
@@ -6078,10 +6095,14 @@ Item {
                                     }
                                 }
                                 SettingRow {
-                                    iconName: "sparkles"; title: "Accent Gradient"; subtitle: "Directional gradient on active buttons, switches, sliders & Hyprland border"
+                                    iconName: "sparkles"; title: "Accent Gradient"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Directional gradient on active buttons, switches, sliders & Hyprland border"
                                     searchKeywords: "accent gradient border active control"
+                                    enabled: !Theme.reduceMotion
+                                    opacity: Theme.reduceMotion ? 0.45 : 1.0
                                     CtrlSwitch {
-                                        checked: Theme.wallpaperColorEnabled ? (Theme.manualAccentMode === "Gradient") : Theme.accentGradientEnabled
+                                        checked: !Theme.reduceMotion && (Theme.wallpaperColorEnabled ? (Theme.manualAccentMode === "Gradient") : Theme.accentGradientEnabled)
+                                        enabled: !Theme.reduceMotion
                                         onToggled: (v) => {
                                             if (root.shellState) root.shellState.setThemeGradients(Theme.manualShellGradientEnabled, Theme.manualSurfaceGradientEnabled, v);
                                             else Theme.setGradientFlags(Theme.manualShellGradientEnabled, Theme.manualSurfaceGradientEnabled, v);
@@ -6090,9 +6111,9 @@ Item {
                                     }
                                 }
                                 Item {
-                                    readonly property bool anyGrad: Theme.wallpaperColorEnabled
+                                    readonly property bool anyGrad: !Theme.reduceMotion && (Theme.wallpaperColorEnabled
                                         ? (Theme.manualShellGradientEnabled || Theme.manualSurfaceGradientEnabled || Theme.manualAccentMode === "Gradient")
-                                        : (Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled)
+                                        : (Theme.shellGradientEnabled || Theme.surfaceGradientEnabled || Theme.accentGradientEnabled))
                                     Layout.fillWidth: true
                                     implicitHeight: anyGrad ? angleRow.implicitHeight : 0
                                     clip: true
@@ -6687,24 +6708,32 @@ Item {
                                 opacity: Theme.wallpapersDisabled ? 0.45 : 1.0
                                 Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
+                                WallpaperLockBanner {
+                                    active: Theme.reduceMotion && !Theme.wallpapersDisabled
+                                    message: "Wallpaper transitions are locked to fast crossfade while Reduce motion~ is active."
+                                }
+
                                 GridLayout {
                                     Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
+                                    enabled: !Theme.reduceMotion
+                                    opacity: Theme.reduceMotion ? 0.45 : 1.0
+                                    Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                     PresetCard {
                                         title: "Crossfade + Scale"
                                         subtitle: "Smooth zoom & fade"
-                                        active: bgLayer.transitionMode === "crossfade-scale"
+                                        active: !Theme.reduceMotion && bgLayer.transitionMode === "crossfade-scale"
                                         onTriggered: { bgLayer.transitionMode = "crossfade-scale"; }
                                     }
                                     PresetCard {
                                         title: "Crossfade"
                                         subtitle: "Clean opacity blend"
-                                        active: bgLayer.transitionMode === "crossfade"
+                                        active: Theme.reduceMotion || bgLayer.transitionMode === "crossfade"
                                         onTriggered: { bgLayer.transitionMode = "crossfade"; }
                                     }
                                     PresetCard {
                                         title: "Instant"
                                         subtitle: "Zero transition delay"
-                                        active: bgLayer.transitionMode === "instant"
+                                        active: !Theme.reduceMotion && bgLayer.transitionMode === "instant"
                                         onTriggered: { bgLayer.transitionMode = "instant"; }
                                     }
                                 }
@@ -6907,9 +6936,17 @@ Item {
                                 }
                             }
 
+                            WallpaperLockBanner {
+                                active: Theme.reduceMotion
+                                message: "Window decoration, shadows, Kawase blur, and spring physics are locked while Reduce motion~ is active (blur & shadows off, fast slide/fade curves)."
+                            }
+
                             SectionLabel { text: "Window Decoration" }
                             GridLayout {
                                 Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
+                                enabled: !Theme.reduceMotion
+                                opacity: Theme.reduceMotion ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 PresetCard {
                                     title: "Soft Glass"
                                     subtitle: "18px • Shadows On"
@@ -6933,6 +6970,9 @@ Item {
                             SectionLabel { text: "Motion & Blur" }
                             GridLayout {
                                 Layout.fillWidth: true; columns: 3; columnSpacing: 8; rowSpacing: 8
+                                enabled: !Theme.reduceMotion
+                                opacity: Theme.reduceMotion ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 PresetCard {
                                     title: "Paithosh Spring"
                                     subtitle: "Stiffness 260 • Blur 6px"
@@ -6954,26 +6994,36 @@ Item {
                             }
 
                             SettingGroup {
+                                enabled: !Theme.reduceMotion
+                                opacity: Theme.reduceMotion ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                 SettingRow {
-                                    showDivider: false; iconName: "palette"; title: "Drop Shadows"; subtitle: "Render soft ambient window shadows"
-                                    CtrlSwitch { checked: CompositorService.shadowEnabled; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, v, CompositorService.inactiveOpacity); root.markAppearanceChanged(); } }
+                                    showDivider: false; iconName: "palette"; title: "Drop Shadows"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Render soft ambient window shadows"
+                                    CtrlSwitch { checked: !Theme.reduceMotion && CompositorService.shadowEnabled; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, v, CompositorService.inactiveOpacity); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconName: "palette"; title: "Dim inactive windows"; subtitle: "Subtle translucency on unfocused windows"
-                                    CtrlSwitch { checked: CompositorService.inactiveOpacity < 0.99; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, CompositorService.shadowEnabled, v ? 0.94 : 1.0); root.markAppearanceChanged(); } }
+                                    iconName: "palette"; title: "Dim inactive windows"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Subtle translucency on unfocused windows"
+                                    CtrlSwitch { checked: !Theme.reduceMotion && CompositorService.inactiveOpacity < 0.99; onToggled: (v) => { CompositorService.setDecoration(CompositorService.cornerRounding, CompositorService.shadowEnabled, v ? 0.94 : 1.0); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconName: "palette"; title: "Hyprland Animations"; subtitle: CompositorService.animationsEnabled ? "Enabled • Spring & bezier motion active" : "Disabled • Instant window transitions"
-                                    CtrlSwitch { checked: CompositorService.animationsEnabled; onToggled: (v) => { CompositorService.setAnimationsEnabled(v); root.markAppearanceChanged(); } }
+                                    iconName: "palette"; title: "Hyprland Animations"
+                                    subtitle: Theme.reduceMotion ? "Managed by Reduce motion~ (fast slide/fade)" : (CompositorService.animationsEnabled ? "Enabled • Spring & bezier motion active" : "Disabled • Instant window transitions")
+                                    CtrlSwitch { checked: Theme.reduceMotion || CompositorService.animationsEnabled; onToggled: (v) => { CompositorService.setAnimationsEnabled(v); root.markAppearanceChanged(); } }
                                 }
                                 SettingRow {
-                                    iconName: "palette"; title: "Kawase Blur"; subtitle: CompositorService.blurEnabled ? ("Enabled • " + CompositorService.blurSize + "px • " + CompositorService.blurPasses + " passes") : "Disabled"
-                                    CtrlSwitch { checked: CompositorService.blurEnabled; onToggled: (v) => { CompositorService.setBlurConfig(v, CompositorService.blurSize, CompositorService.blurPasses, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
+                                    iconName: "palette"; title: "Kawase Blur"
+                                    subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : (CompositorService.blurEnabled ? ("Enabled • " + CompositorService.blurSize + "px • " + CompositorService.blurPasses + " passes") : "Disabled")
+                                    CtrlSwitch { checked: !Theme.reduceMotion && CompositorService.blurEnabled; onToggled: (v) => { CompositorService.setBlurConfig(v, CompositorService.blurSize, CompositorService.blurPasses, CompositorService.blurVibrancy); root.markAppearanceChanged(); } }
                                 }
                             }
 
                             AdvancedSection {
-                                subtitle: "Corner rounding, shadow spread, spring physics & Kawase blur"
+                                enabled: !Theme.reduceMotion
+                                opacity: Theme.reduceMotion ? 0.45 : 1.0
+                                Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                subtitle: Theme.reduceMotion ? "Locked while Reduce motion~ is active" : "Corner rounding, shadow spread, spring physics & Kawase blur"
                                 SettingRow {
                                     showDivider: false; iconName: "palette"; title: "Corner rounding"; subtitle: "Window border radius"
                                     CtrlSlider { from: 0; to: 28; value: CompositorService.cornerRounding; unit: "px"; onMoved: (v) => { CompositorService.setDecoration(v, CompositorService.shadowEnabled, CompositorService.inactiveOpacity); root.markAppearanceChanged(); } }
@@ -7524,10 +7574,14 @@ Item {
                                     SettingRow {
                                         iconName: "sparkles"
                                         title: "Motion Blur Cursor"
-                                        subtitle: CursorService.motionBlur
-                                            ? ("32-tap GPU shutter blur • Synced to " + Math.round(CursorService.cursorRefreshHz) + " Hz display")
-                                            : "Continuous directional GPU blur synced to display refresh rate"
+                                        subtitle: Theme.reduceMotion
+                                            ? "Disabled by Reduce motion~"
+                                            : (CursorService.motionBlur
+                                                ? ("32-tap GPU shutter blur • Synced to " + Math.round(CursorService.cursorRefreshHz) + " Hz display")
+                                                : "Continuous directional GPU blur synced to display refresh rate")
                                         searchKeywords: "cursor motion blur experimental trail refresh rate hz"
+                                        enabled: !Theme.reduceMotion
+                                        opacity: Theme.reduceMotion ? 0.45 : 1.0
 
                                         RowLayout {
                                             spacing: 10
@@ -7550,7 +7604,8 @@ Item {
                                                 }
                                             }
                                             CtrlSwitch {
-                                                checked: CursorService.motionBlur
+                                                checked: !Theme.reduceMotion && CursorService.motionBlur
+                                                enabled: !Theme.reduceMotion
                                                 onToggled: (v) => {
                                                     CursorService.setMotionBlur(v);
                                                     root.markAppearanceChanged();
@@ -7561,7 +7616,7 @@ Item {
 
                                     Item {
                                         Layout.fillWidth: true
-                                        Layout.preferredHeight: CursorService.motionBlur ? blurThreshRow.implicitHeight : 0
+                                        Layout.preferredHeight: (!Theme.reduceMotion && CursorService.motionBlur) ? blurThreshRow.implicitHeight : 0
                                         clip: true
                                         visible: Layout.preferredHeight > 0.5
                                         Behavior on Layout.preferredHeight { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -7575,12 +7630,12 @@ Item {
                                                 ? "Always active • Blurs even during slow pointer movement"
                                                 : ("No shadow on slow moves • Triggers above " + CursorService.motionBlurThreshold + " px/s")
                                             searchKeywords: "cursor motion blur activation speed threshold acceleration trigger"
-                                            opacity: CursorService.motionBlur ? 1.0 : 0.0
+                                            opacity: (!Theme.reduceMotion && CursorService.motionBlur) ? 1.0 : 0.0
                                             Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
                                             CtrlSlider {
                                                 from: 0; to: 2400; stepSize: 100; value: CursorService.motionBlurThreshold; unit: "px/s"
-                                                enabled: CursorService.motionBlur
+                                                enabled: !Theme.reduceMotion && CursorService.motionBlur
                                                 onMoved: (v) => {
                                                     CursorService.setMotionBlurThreshold(v);
                                                 }
@@ -7628,11 +7683,13 @@ Item {
                                     SettingRow {
                                         iconName: "sparkles"
                                         title: "Motion Blur Intensity"
-                                        subtitle: "Trail opacity & velocity stretch"
+                                        subtitle: Theme.reduceMotion ? "Disabled by Reduce motion~" : "Trail opacity & velocity stretch"
                                         searchKeywords: "cursor motion blur intensity strength"
+                                        enabled: !Theme.reduceMotion
+                                        opacity: Theme.reduceMotion ? 0.45 : 1.0
                                         CtrlSlider {
                                             from: 30; to: 100; stepSize: 5; value: Math.round(CursorService.motionBlurStrength * 100); unit: "%"
-                                            enabled: CursorService.motionBlur
+                                            enabled: !Theme.reduceMotion && CursorService.motionBlur
                                             onMoved: (v) => {
                                                 CursorService.setMotionBlurStrength(v / 100.0);
                                             }
