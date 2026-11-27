@@ -370,6 +370,8 @@ FocusScope {
             Layout.fillHeight: true
             color: Theme.pillBg
             clip: true
+            bottomLeftRadius: (root.shellState && root.shellState.detachedApp === "music") ? 13 : ((root.shellState && root.shellState.islandApp === "music" && root.shellState.barPosition !== "bottom") ? 17 : 0)
+            topLeftRadius: (root.shellState && root.shellState.islandApp === "music" && root.shellState.barPosition === "bottom") ? 17 : 0
 
             ThemeGradientFill {
                 anchors.fill: parent
@@ -1172,7 +1174,7 @@ FocusScope {
                                 to: 360
                                 duration: 760
                                 loops: Animation.Infinite
-                                running: MixcloudService.feedLoading
+                                running: MixcloudService.feedLoading && !Theme.reduceMotion
                                 onRunningChanged: if (!running) refreshIcon.rotation = 0
                             }
                         }
@@ -1408,7 +1410,7 @@ FocusScope {
                                 to: 360
                                 duration: 800
                                 loops: Animation.Infinite
-                                running: MixcloudService.feedLoading
+                                running: MixcloudService.feedLoading && !Theme.reduceMotion
                             }
                         }
 
@@ -1601,7 +1603,7 @@ FocusScope {
                                 spacing: 7
 
                                 // Cover Artwork (r=8)
-                                ClippingRectangle {
+                                AdaptiveClipRect {
                                     Layout.fillWidth: true
                                     Layout.fillHeight: true
                                     radius: 8
@@ -1809,7 +1811,7 @@ FocusScope {
                             anchors.rightMargin: 10
                             spacing: 10
 
-                            ClippingRectangle {
+                            AdaptiveClipRect {
                                 width: 38
                                 height: 38
                                 radius: 7
@@ -2064,7 +2066,7 @@ FocusScope {
                             Layout.preferredWidth: 240
                             spacing: 10
 
-                            ClippingRectangle {
+                            AdaptiveClipRect {
                                 width: 42
                                 height: 42
                                 radius: 9
@@ -2267,7 +2269,7 @@ FocusScope {
                                         to: 360
                                         duration: 720
                                         loops: Animation.Infinite
-                                        running: MixcloudService.isBusy
+                                        running: MixcloudService.isBusy && !Theme.reduceMotion
                                     }
                                 }
                             }
@@ -2730,7 +2732,7 @@ FocusScope {
                         Layout.fillWidth: true
                         spacing: 12
 
-                        ClippingRectangle {
+                        AdaptiveClipRect {
                             width: 68
                             height: 68
                             radius: 10

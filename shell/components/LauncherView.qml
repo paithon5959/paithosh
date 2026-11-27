@@ -214,6 +214,7 @@ Item {
             clip: true
 
             Behavior on implicitHeight {
+                enabled: !Theme.reduceMotion
                 NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
             }
 
@@ -243,7 +244,7 @@ Item {
                     width: grid.cellWidth
                     height: grid.cellHeight
 
-                    Component.onCompleted: hitInAnim.restart()
+                    Component.onCompleted: if (!Theme.reduceMotion) hitInAnim.restart()
 
                     ParallelAnimation {
                         id: hitInAnim
@@ -260,12 +261,12 @@ Item {
                         color: (tileMouse.containsMouse || tileWrap.index === root.sel) ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(1, 1, 1, 0.07)
                         border.width: 1
                         border.color: Qt.rgba(1, 1, 1, tileWrap.index === root.sel ? 0.40 : (tileMouse.containsMouse ? 0.16 : 0.08))
-                        y: tileMouse.containsMouse && !tileMouse.pressed ? -2 : 0
+                        y: (!Theme.reduceMotion && tileMouse.containsMouse && !tileMouse.pressed) ? -2 : 0
                         scale: tileMouse.pressed ? 0.94 : 1.0
 
-                        Behavior on color { ColorAnimation { duration: 180 } }
-                        Behavior on y { NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
-                        Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                        Behavior on color { ColorAnimation { duration: Theme.reduceMotion ? 90 : 180 } }
+                        Behavior on y { enabled: !Theme.reduceMotion; NumberAnimation { duration: 220; easing.type: Easing.OutBack } }
+                        Behavior on scale { NumberAnimation { duration: Theme.reduceMotion ? 100 : 220; easing.type: Theme.motionEasing; easing.overshoot: Theme.reduceMotion ? 0.0 : Theme.springOvershoot } }
 
                         ColumnLayout {
                             anchors.fill: parent

@@ -112,40 +112,40 @@ Item {
             shellState: root.shellState
             width: parent.width
             opacity: root.activeTab === "mission" ? 1.0 : 0.0
-            y: root.activeTab === "mission" ? 0 : 8
+            y: Theme.reduceMotion ? 0 : (root.activeTab === "mission" ? 0 : 8)
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+            Behavior on opacity { NumberAnimation { duration: Theme.reduceMotion ? 100 : 200; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !Theme.reduceMotion; NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         TaskManagerTab {
             id: tasksTab
             width: parent.width
             opacity: root.activeTab === "tasks" ? 1.0 : 0.0
-            y: root.activeTab === "tasks" ? 0 : 8
+            y: Theme.reduceMotion ? 0 : (root.activeTab === "tasks" ? 0 : 8)
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+            Behavior on opacity { NumberAnimation { duration: Theme.reduceMotion ? 100 : 200; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !Theme.reduceMotion; NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         KdeConnectTab {
             id: kdeTab
             width: parent.width
             opacity: root.activeTab === "kde" ? 1.0 : 0.0
-            y: root.activeTab === "kde" ? 0 : 8
+            y: Theme.reduceMotion ? 0 : (root.activeTab === "kde" ? 0 : 8)
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+            Behavior on opacity { NumberAnimation { duration: Theme.reduceMotion ? 100 : 200; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !Theme.reduceMotion; NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
 
         PowerStationTab {
             id: powerTab
             width: parent.width
             opacity: root.activeTab === "power" ? 1.0 : 0.0
-            y: root.activeTab === "power" ? 0 : 8
+            y: Theme.reduceMotion ? 0 : (root.activeTab === "power" ? 0 : 8)
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-            Behavior on y { NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+            Behavior on opacity { NumberAnimation { duration: Theme.reduceMotion ? 100 : 200; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !Theme.reduceMotion; NumberAnimation { duration: 260; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
         }
     }
 }

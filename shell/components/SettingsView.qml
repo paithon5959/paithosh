@@ -14,6 +14,7 @@ Item {
     property var shellState: null
     property string currentPage: ""
     property var loadedPages: ({})
+    property bool _cursorPagePrimed: false
     property string pendingHyprMode: ""
     property string searchQuery: ""
     readonly property string activeSearchQuery: searchQuery.trim()
@@ -486,7 +487,7 @@ Item {
         { key: "system", label: "System", icon: "settings", group: "system", sub: false, hasChildren: true },
         { key: "display", label: "Display", icon: "", group: "system", sub: true },
         { key: "sound", label: "Sound & Audio", icon: "", group: "system", sub: true },
-        { key: "power", label: "Power & Battery", icon: "", group: "system", sub: true },
+        { key: "performance", label: "Performance", icon: "", group: "system", sub: true },
         { key: "updates", label: "Updates", icon: "", group: "system", sub: true },
         { key: "backup", label: "Backup & Restore", icon: "", group: "system", sub: true },
         { key: "storage", label: "Storage", icon: "", group: "system", sub: true },
@@ -518,6 +519,7 @@ Item {
 
     function resolvePageKey(pageKey) {
         const legacyMap = {
+            "power": "performance",
             "fonts": "appearance",
             "decoration": "appearance",
             "animations": "appearance",
@@ -552,9 +554,12 @@ Item {
             BackupService.refreshSystemBackups();
         }
         if (resolved === "cursor") {
-            CursorService.checkDeps();
-            CursorService.refreshPreviews();
-            PackageService.checkRequiredDeps();
+            if (!Theme.reduceMotion || !root._cursorPagePrimed) {
+                root._cursorPagePrimed = true;
+                CursorService.checkDeps();
+                CursorService.refreshPreviews();
+                PackageService.checkRequiredDeps();
+            }
         }
         if (resolved === "backup") BackupService.refreshAll();
         if (resolved === "storage") StorageService.scanIfStale();
@@ -563,7 +568,7 @@ Item {
         else if (keybindEditorLoader.item && keybindEditorLoader.item.open) keybindEditorLoader.item.close();
         currentPage = resolved;
         if (root.shellState && root.shellState.settingsPage !== resolved) root.shellState.settingsPage = resolved;
-        if (["display", "sound", "power", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
+        if (["display", "sound", "performance", "updates", "backup", "storage", "accessibility"].indexOf(resolved) !== -1) systemOpen = true;
         if (["wifi", "vpn", "discord_rpc"].indexOf(resolved) !== -1) networkOpen = true;
         if (["appearance", "cursor", "keybind", "layout", "lockscreen"].indexOf(resolved) !== -1) personalizationOpen = true;
         pageFlick.contentY = 0;
@@ -1660,6 +1665,8 @@ Item {
             Layout.preferredWidth: 248
             Layout.fillHeight: true
             color: Theme.pillBg
+            bottomLeftRadius: (root.shellState && root.shellState.detachedApp === "settings") ? 13 : ((root.shellState && root.shellState.islandApp === "settings" && root.shellState.barPosition !== "bottom") ? 17 : 0)
+            topLeftRadius: (root.shellState && root.shellState.islandApp === "settings" && root.shellState.barPosition === "bottom") ? 17 : 0
 
             ThemeGradientFill {
                 anchors.fill: parent
@@ -1899,8 +1906,8 @@ Item {
 
                     ParallelAnimation {
                         id: pageInAnim
-                        NumberAnimation { target: pageCol; property: "opacity"; from: 0.0; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
-                        NumberAnimation { target: pageCol; property: "y"; from: 10; to: 0; duration: 180; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: pageCol; property: "opacity"; from: 0.0; to: 1.0; duration: Theme.reduceMotion ? 90 : 180; easing.type: Easing.OutCubic }
+                        NumberAnimation { target: pageCol; property: "y"; from: Theme.reduceMotion ? 0 : 10; to: 0; duration: Theme.reduceMotion ? 0 : 180; easing.type: Easing.OutCubic }
                     }
 
                     ColumnLayout {
@@ -2282,7 +2289,7 @@ Item {
                             SectionLabel { text: "System options" }
                             HubCard { iconName: "monitor"; title: "Display"; subtitle: "Resolution, scaling & orientation"; pillText: root.displayRes + " • " + root.displayScale.replace(" (Recommended)", ""); onTriggered: root.openPage("display") }
                             HubCard { iconName: "volume"; title: "Sound & Audio"; subtitle: "PipeWire sinks, input & balance"; pillText: AudioService.muted ? "Muted" : (AudioService.volumePct + "%"); onTriggered: root.openPage("sound") }
-                            HubCard { iconName: "bolt"; title: "Power & Battery"; subtitle: "Profiles, sleep & AC behavior"; pillText: root.formatPowerProfile(PowerService.powerProfile); onTriggered: root.openPage("power") }
+                            HubCard { iconName: "gauge"; title: "Performance"; subtitle: "Motion tuning & lightweight rendering"; pillText: Theme.reduceMotion ? "Reduced" : "Default"; onTriggered: root.openPage("performance") }
                             HubCard {
                                 iconName: "package-update"
                                 title: "Updates"
@@ -2947,6 +2954,8 @@ Item {
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 smooth: true
+                                                sourceSize.width: Theme.reduceMotion ? 360 : 960
+                                                sourceSize.height: Theme.reduceMotion ? 202 : 540
                                                 opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
                                                 visible: opacity > 0.002
                                                 Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -3396,18 +3405,112 @@ Item {
                         }
                         }
 
-                        // ==================== 5. POWER ====================
+                        // ==================== 5. PERFORMANCE ====================
                         Loader {
                             Layout.fillWidth: true
                             Layout.preferredHeight: item ? item.implicitHeight : 0
-                            visible: root.currentPage === "power"
-                            active: Boolean(root.loadedPages["power"])
+                            visible: root.currentPage === "performance"
+                            active: Boolean(root.loadedPages["performance"])
                             sourceComponent: ColumnLayout {
                             spacing: 10
                             SettingGroup {
                                 SettingRow {
-                                    showDivider: false; iconName: "bolt"; title: "Power profile"; subtitle: root.formatPowerProfile(PowerService.powerProfile) + " • Battery " + PowerService.batteryPct + "% (" + PowerService.timeRemaining + ")"
-                                    CtrlSelect { options: ["Power Saver", "Balanced", "Performance"]; currentText: root.formatPowerProfile(PowerService.powerProfile); onSelected: (v) => PowerService.setPowerProfile(root.powerProfileKey(v)) }
+                                    showDivider: false
+                                    iconName: "bolt"
+                                    title: "Reduce motion~"
+                                    subtitle: "hacky way to increase performance"
+                                    searchKeywords: "reduce motion performance fps lag smooth blur shadow gooey animations potato pc"
+                                    CtrlSwitch {
+                                        checked: Theme.reduceMotion
+                                        onToggled: (v) => root.shellState.setReduceMotion(v)
+                                    }
+                                }
+                            }
+                            Rectangle {
+                                Layout.fillWidth: true
+                                implicitHeight: perfNoteRow.implicitHeight + 24
+                                radius: 12
+                                clip: true
+                                color: Theme.cardBg
+                                border.width: 1
+                                border.color: Theme.borderSubtle
+
+                                RowLayout {
+                                    id: perfNoteRow
+                                    anchors.fill: parent
+                                    anchors.margins: 12
+                                    spacing: 10
+
+                                    SvgIcon {
+                                        Layout.alignment: Qt.AlignTop
+                                        Layout.topMargin: 2
+                                        sourceName: "info"
+                                        iconSize: 14
+                                        color: Theme.textSub
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        wrapMode: Text.WordWrap
+                                        readonly property string baseNote: "To perceive the world at its purest is to strip away the illusion of excess—every superfluous blur, every theatrical bounce, every restless shader is merely noise standing between your eyes and true clarity. By embracing a calmer, smoother, and far more refined stillness, the interface transcends spectacle to become effortless thought. Overall, it increases performance for your potato pc"
+                                        function _corruptNote(src) {
+                                            if (!Theme.reduceMotion || Math.random() > 0.5) return src;
+                                            const glyphs = "▓▒░█╬╫┼¤§øæþð¿¡";
+                                            const jpEchoes = [
+                                                "私の言語の限界が、私の世界の限界だ。",
+                                                "素晴らしい日々——あるいは、ただの空と世界。",
+                                                "存在とは何か。世界はただそこにある。"
+                                            ];
+                                            const parts = src.split(". ");
+                                            for (let i = 0; i < parts.length - 1; ++i) {
+                                                const r = Math.random();
+                                                if (r < 0.30) {
+                                                    const bleakSwaps = {
+                                                        "purest": "emptiest",
+                                                        "clarity": "oblivion",
+                                                        "calmer": "colder",
+                                                        "smoother": "hollower",
+                                                        "refined": "fading",
+                                                        "stillness": "void",
+                                                        "effortless": "meaningless",
+                                                        "thought": "silence",
+                                                        "illusion": "truth",
+                                                        "noise": "echoes"
+                                                    };
+                                                    let bleak = parts[i];
+                                                    for (const k in bleakSwaps) {
+                                                        bleak = bleak.replace(new RegExp("\\b" + k + "\\b", "gi"), bleakSwaps[k]);
+                                                    }
+                                                    parts[i] = bleak.split("").reverse().join("");
+                                                } else if (r < 0.60) {
+                                                    let out = "";
+                                                    for (let j = 0; j < parts[i].length; ++j) {
+                                                        const ch = parts[i][j];
+                                                        out += (ch !== " " && Math.random() < 0.45)
+                                                            ? glyphs[Math.floor(Math.random() * glyphs.length)]
+                                                            : ch;
+                                                    }
+                                                    parts[i] = out;
+                                                } else if (r < 0.85) {
+                                                    parts[i] = jpEchoes[Math.floor(Math.random() * jpEchoes.length)];
+                                                }
+                                            }
+                                            if (Math.random() < 0.25) {
+                                                const endEchoes = [
+                                                    "世界の果てで、あなたのpotato pcはただ静かに動き続ける",
+                                                    "You don't know, and you never will"
+                                                ];
+                                                parts[parts.length - 1] = endEchoes[Math.floor(Math.random() * endEchoes.length)];
+                                            }
+                                            return parts.join(". ");
+                                        }
+                                        text: _corruptNote(baseNote)
+                                        color: Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        lineHeight: 1.4
+                                    }
                                 }
                             }
                         }
@@ -5500,6 +5603,8 @@ Item {
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
                                             smooth: true
+                                            sourceSize.width: Theme.reduceMotion ? 360 : 960
+                                            sourceSize.height: Theme.reduceMotion ? 202 : 540
                                             opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
                                             visible: opacity > 0.002
                                             Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
@@ -6725,8 +6830,8 @@ Item {
                                                         fillMode: Image.PreserveAspectCrop
                                                         asynchronous: true
                                                         cache: true
-                                                        sourceSize.width: 480
-                                                        sourceSize.height: 270
+                                                        sourceSize.width: Theme.reduceMotion ? 240 : 480
+                                                        sourceSize.height: Theme.reduceMotion ? 135 : 270
                                                         scale: wpMouse.containsMouse ? 1.04 : 1.0
                                                         opacity: status === Image.Ready ? 1.0 : 0.0
                                                         Behavior on scale { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
@@ -7959,6 +8064,8 @@ Item {
                                                 fillMode: Image.PreserveAspectCrop
                                                 asynchronous: true
                                                 smooth: true
+                                                sourceSize.width: Theme.reduceMotion ? 360 : 960
+                                                sourceSize.height: Theme.reduceMotion ? 202 : 540
                                                 opacity: (!Theme.wallpapersDisabled && status === Image.Ready) ? 1.0 : 0.0
                                                 visible: opacity > 0.002
                                                 Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }

@@ -21,6 +21,12 @@ Item {
     onHeightChanged: canvas.requestPaint()
 
     function animateDraw() {
+        if (Theme.reduceMotion) {
+            drawAnim.stop();
+            drawProgress = 1.0;
+            canvas.requestPaint();
+            return;
+        }
         drawProgress = 0.0;
         drawAnim.restart();
     }

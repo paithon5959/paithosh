@@ -298,7 +298,7 @@ Item {
                                     anchors.fill: parent
                                     anchors.margins: 1
                                     captureSource: root.resolveCaptureSource(modelData)
-                                    live: true
+                                    live: !Theme.reduceMotion
                                     visible: captureSource !== null && hasContent
                                 }
 

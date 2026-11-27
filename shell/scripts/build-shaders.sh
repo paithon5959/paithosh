@@ -30,4 +30,8 @@ fi
     -o "$SHADER_DIR/theme_gradient.frag.qsb" \
     "$SHADER_DIR/theme_gradient.frag"
 
-echo "Compiled gooey.frag.qsb, cursor_blur.frag.qsb, splash_glow.frag.qsb & theme_gradient.frag.qsb"
+"$QSB_BIN" --qt6 \
+    -o "$SHADER_DIR/icon_tint.frag.qsb" \
+    "$SHADER_DIR/icon_tint.frag"
+
+echo "Compiled gooey.frag.qsb, cursor_blur.frag.qsb, splash_glow.frag.qsb, theme_gradient.frag.qsb & icon_tint.frag.qsb"

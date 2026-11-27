@@ -29,6 +29,7 @@ PanelWindow {
     property bool usingA: true
     property bool importing: false
     property string transitionMode: "crossfade-scale" // "crossfade-scale" | "crossfade" | "instant"
+    readonly property string effectiveTransitionMode: Theme.reduceMotion ? "crossfade" : transitionMode
 
     readonly property real effectiveVeilOpacity: (!_reloadVeilSettled && initialVeilOpacity > 0.001)
         ? initialVeilOpacity
@@ -204,7 +205,7 @@ PanelWindow {
         currentWallpaperPath = _toLocalPath(url);
         const activeUrl = usingA ? imgA.source.toString() : imgB.source.toString();
         if (activeUrl === url) return;
-        const startScale = transitionMode === "crossfade-scale" ? 1.03 : 1.0;
+        const startScale = effectiveTransitionMode === "crossfade-scale" ? 1.03 : 1.0;
         if (usingA) {
             imgB.source = url;
             imgB.scale = startScale;
@@ -328,21 +329,22 @@ PanelWindow {
         anchors.fill: parent
         opacity: (root._bootRevealed && !Theme.wallpapersDisabled) ? 1.0 : 0.0
         visible: opacity > 0.002
-        scale: (Theme.wallpapersDisabled && root.transitionMode === "crossfade-scale")
+        scale: (Theme.wallpapersDisabled && root.effectiveTransitionMode === "crossfade-scale")
             ? 1.03
-            : root.effectiveStageScale
+            : (Theme.reduceMotion ? 1.0 : root.effectiveStageScale)
 
         Behavior on opacity {
             NumberAnimation {
-                duration: root.transitionMode === "instant"
+                duration: root.effectiveTransitionMode === "instant"
                     ? 0
-                    : (Theme.wallpapersDisabled ? root.exitFadeMs : root.enterFadeMs)
+                    : (Theme.reduceMotion ? 120 : (Theme.wallpapersDisabled ? root.exitFadeMs : root.enterFadeMs))
                 easing.type: Easing.OutCubic
             }
         }
         Behavior on scale {
+            enabled: !Theme.reduceMotion
             NumberAnimation {
-                duration: root.transitionMode === "instant"
+                duration: root.effectiveTransitionMode === "instant"
                     ? 0
                     : ((Theme.wallpapersDisabled || root.targetVeilOpacity > 0.01) ? root.exitFadeMs : root.enterFadeMs)
                 easing.type: (Theme.wallpapersDisabled || root.targetVeilOpacity > 0.01) ? Easing.InOutCubic : Easing.OutCubic
@@ -355,8 +357,10 @@ PanelWindow {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             smooth: true
+            sourceSize.width: Theme.reduceMotion ? Math.max(1, root.width) : 0
+            sourceSize.height: Theme.reduceMotion ? Math.max(1, root.height) : 0
             opacity: root.usingA ? 1.0 : 0.0
-            scale: root.usingA ? 1.0 : (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0)
+            scale: root.usingA ? 1.0 : (root.effectiveTransitionMode === "crossfade-scale" ? 1.03 : 1.0)
             onStatusChanged: {
                 if (status === Image.Ready && !root._bootRevealed) {
                     bootFallbackTimer.stop();
@@ -366,13 +370,14 @@ PanelWindow {
 
             Behavior on opacity {
                 NumberAnimation {
-                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
+                    duration: root.effectiveTransitionMode === "instant" ? 0 : (Theme.reduceMotion ? 120 : Theme.smoothMs * 1.5)
                     easing.type: Easing.OutCubic
                 }
             }
             Behavior on scale {
+                enabled: !Theme.reduceMotion
                 NumberAnimation {
-                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
+                    duration: root.effectiveTransitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
                     easing.type: Easing.OutCubic
                 }
             }
@@ -384,8 +389,10 @@ PanelWindow {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             smooth: true
+            sourceSize.width: Theme.reduceMotion ? Math.max(1, root.width) : 0
+            sourceSize.height: Theme.reduceMotion ? Math.max(1, root.height) : 0
             opacity: root.usingA ? 0.0 : 1.0
-            scale: root.usingA ? (root.transitionMode === "crossfade-scale" ? 1.03 : 1.0) : 1.0
+            scale: root.usingA ? (root.effectiveTransitionMode === "crossfade-scale" ? 1.03 : 1.0) : 1.0
             onStatusChanged: {
                 if (status === Image.Ready && !root._bootRevealed) {
                     bootFallbackTimer.stop();
@@ -395,13 +402,14 @@ PanelWindow {
 
             Behavior on opacity {
                 NumberAnimation {
-                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.5
+                    duration: root.effectiveTransitionMode === "instant" ? 0 : (Theme.reduceMotion ? 120 : Theme.smoothMs * 1.5)
                     easing.type: Easing.OutCubic
                 }
             }
             Behavior on scale {
+                enabled: !Theme.reduceMotion
                 NumberAnimation {
-                    duration: root.transitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
+                    duration: root.effectiveTransitionMode === "instant" ? 0 : Theme.smoothMs * 1.8
                     easing.type: Easing.OutCubic
                 }
             }

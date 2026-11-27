@@ -47,7 +47,7 @@ FloatingWindow {
         }
     }
 
-    ClippingRectangle {
+    AdaptiveClipRect {
         anchors.fill: parent
         radius: 14
         color: Theme.surfaceBg
@@ -73,6 +73,8 @@ FloatingWindow {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 38
                 color: Theme.surfaceRaised
+                topLeftRadius: 13
+                topRightRadius: 13
 
                 Rectangle {
                     anchors.bottom: parent.bottom

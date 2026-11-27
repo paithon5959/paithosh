@@ -33,6 +33,7 @@ Singleton {
     property bool shadowEnabled: true
     property real inactiveOpacity: 0.96
     property string layoutName: "dwindle"
+    property bool reduceMotionActive: false
 
     Process {
         id: hyprMonitorsProc
@@ -713,6 +714,7 @@ with open(lock_path, "w") as lf:
         onExited: (code) => {
             if (code === 0 && root._writerNeedsReload && root.isHyprland) {
                 Quickshell.execDetached(["hyprctl", "reload"]);
+                if (root.reduceMotionActive) reduceMotionReapplyTimer.restart();
             }
             root._writerNeedsReload = false;
             if (root._flushAgain) {
@@ -720,6 +722,13 @@ with open(lock_path, "w") as lf:
                 hyprConfigFlushTimer.restart();
             }
         }
+    }
+
+    Timer {
+        id: reduceMotionReapplyTimer
+        interval: 120
+        repeat: false
+        onTriggered: if (root.reduceMotionActive) root._applyReduceMotionLive()
     }
 
     function _scheduleHyprWrite(appearanceDirty, animationsDirty, needsReload) {
@@ -821,16 +830,57 @@ with open(lock_path, "w") as lf:
         Quickshell.execDetached(["hyprctl", "eval", batch]);
     }
 
+    function _applyReduceMotionLive() {
+        if (!isHyprland) return;
+        _hyprEval(
+            'hl.config({ ' +
+                'decoration = { rounding = 10, inactive_opacity = 1.0, shadow = { enabled = false }, blur = { enabled = false } }, ' +
+                'animations = { enabled = true } ' +
+            '}); ' +
+            'hl.animation({ leaf = "border", enabled = false }); ' +
+            'hl.animation({ leaf = "shadowangle", enabled = false }); ' +
+            'hl.animation({ leaf = "windows", enabled = true, speed = 2.0, bezier = "easeOutQuint", style = "slide" }); ' +
+            'hl.animation({ leaf = "windowsIn", enabled = true, speed = 2.0, bezier = "easeOutQuint", style = "slide" }); ' +
+            'hl.animation({ leaf = "windowsOut", enabled = true, speed = 1.6, bezier = "quick", style = "slide" }); ' +
+            'hl.animation({ leaf = "workspaces", enabled = true, speed = 2.0, bezier = "easeOutQuint", style = "slide" }); ' +
+            'hl.animation({ leaf = "workspacesIn", enabled = true, speed = 2.0, bezier = "easeOutQuint", style = "slide" }); ' +
+            'hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.8, bezier = "easeOutQuint", style = "slide" }); ' +
+            'hl.animation({ leaf = "layers", enabled = true, speed = 2.0, bezier = "quick", style = "fade" }); ' +
+            'hl.animation({ leaf = "layersIn", enabled = true, speed = 2.0, bezier = "quick", style = "fade" }); ' +
+            'hl.animation({ leaf = "layersOut", enabled = true, speed = 1.6, bezier = "quick", style = "fade" }); ' +
+            'hl.animation({ leaf = "fade", enabled = true, speed = 2.0, bezier = "quick" }); ' +
+            'hl.animation({ leaf = "fadeIn", enabled = true, speed = 1.8, bezier = "quick" }); ' +
+            'hl.animation({ leaf = "fadeOut", enabled = true, speed = 1.5, bezier = "quick" })'
+        );
+    }
+
+    function applyReduceMotion(enabled) {
+        const next = Boolean(enabled);
+        const prev = reduceMotionActive;
+        reduceMotionActive = next;
+        if (!isHyprland) return;
+        if (next) {
+            _applyReduceMotionLive();
+        } else if (prev) {
+            reduceMotionReapplyTimer.stop();
+            Quickshell.execDetached(["hyprctl", "reload", "config-only"]);
+        }
+    }
+
     function setAnimationsEnabled(enabled) {
         animationsEnabled = Boolean(enabled);
-        _hyprEval("hl.config({ animations = { enabled = " + (animationsEnabled ? "true" : "false") + " } })");
+        if (!reduceMotionActive) {
+            _hyprEval("hl.config({ animations = { enabled = " + (animationsEnabled ? "true" : "false") + " } })");
+        }
         _scheduleHyprWrite(false, true, false);
     }
 
     function setSpringCurve(stiffness, damping) {
         springStiffness = Math.max(80, Math.min(600, Math.round(stiffness)));
         springDamping = Math.max(5, Math.min(60, Math.round(damping)));
-        _hyprEval('hl.curve("paithoshSpring", { type = "spring", mass = 1, stiffness = ' + springStiffness + ', damping = ' + springDamping + ' })');
+        if (!reduceMotionActive) {
+            _hyprEval('hl.curve("paithoshSpring", { type = "spring", mass = 1, stiffness = ' + springStiffness + ', damping = ' + springDamping + ' })');
+        }
         _scheduleHyprWrite(false, true, false);
     }
 
@@ -840,7 +890,9 @@ with open(lock_path, "w") as lf:
         blurPasses = Math.max(1, Math.min(6, Math.round(passes)));
         blurVibrancy = Math.max(0.0, Math.min(1.0, Math.round(vibrancy * 100) / 100));
 
-        _hyprEval("hl.config({ decoration = { blur = { enabled = " + (blurEnabled ? "true" : "false") + ", size = " + blurSize + ", passes = " + blurPasses + ", vibrancy = " + blurVibrancy.toFixed(2) + " } } })");
+        if (!reduceMotionActive) {
+            _hyprEval("hl.config({ decoration = { blur = { enabled = " + (blurEnabled ? "true" : "false") + ", size = " + blurSize + ", passes = " + blurPasses + ", vibrancy = " + blurVibrancy.toFixed(2) + " } } })");
+        }
         _scheduleHyprWrite(true, false, false);
     }
 
@@ -856,7 +908,9 @@ with open(lock_path, "w") as lf:
         cornerRounding = Math.max(0, Math.min(32, Math.round(rounding)));
         shadowEnabled = Boolean(shadows);
         inactiveOpacity = Math.max(0.5, Math.min(1.0, Math.round(inactOp * 100) / 100));
-        _hyprEval("hl.config({ decoration = { rounding = " + cornerRounding + ", inactive_opacity = " + inactiveOpacity.toFixed(2) + ", shadow = { enabled = " + (shadowEnabled ? "true" : "false") + " } } })");
+        if (!reduceMotionActive) {
+            _hyprEval("hl.config({ decoration = { rounding = " + cornerRounding + ", inactive_opacity = " + inactiveOpacity.toFixed(2) + ", shadow = { enabled = " + (shadowEnabled ? "true" : "false") + " } } })");
+        }
         _scheduleHyprWrite(true, false, false);
     }
 

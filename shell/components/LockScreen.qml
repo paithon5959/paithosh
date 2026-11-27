@@ -90,7 +90,7 @@ Scope {
             }
 
             // Matching statusbar pill so transition between DynamicIsland <-> LockScreen is pixel-seamless
-            ClippingRectangle {
+            AdaptiveClipRect {
                 id: transPill
                 readonly property real edgeOffset: Theme.topOffsetRest
 
@@ -403,7 +403,7 @@ Scope {
                     Item {
                         id: gooSource
                         anchors.fill: parent
-                        layer.enabled: Theme.gooeyEnabled
+                        layer.enabled: Theme.effectiveGooey
                         layer.effect: ShaderEffect {
                             fragmentShader: Qt.resolvedUrl("../assets/shaders/gooey.frag.qsb")
                             property size texelSize: Qt.size(1.0 / Math.max(1, gooSource.width), 1.0 / Math.max(1, gooSource.height))
@@ -457,7 +457,7 @@ Scope {
                     spacing: 0
                     height: Theme.islandHeight
 
-                ClippingRectangle {
+                AdaptiveClipRect {
                     id: mainPill
 
                     readonly property real slotsTargetWidth: slotLockedIcon.targetWidth + slotPassword.targetWidth + slotOsd.targetWidth + slotNotif.targetWidth
@@ -575,7 +575,7 @@ Scope {
                                     }
 
                                     SequentialAnimation on opacity {
-                                        running: LockService.authenticating
+                                        running: LockService.authenticating && !Theme.reduceMotion
                                         loops: Animation.Infinite
                                         NumberAnimation { to: 0.35; duration: 550; easing.type: Easing.InOutSine }
                                         NumberAnimation { to: 1.0; duration: 550; easing.type: Easing.InOutSine }
@@ -922,7 +922,7 @@ Scope {
                         NumberAnimation { duration: surface.hasLockMedia ? 220 : 160; easing.type: Easing.OutCubic }
                     }
 
-                    ClippingRectangle {
+                    AdaptiveClipRect {
                         id: mediaPill
                         x: surface.hasLockMedia ? Theme.splitGap : 0
                         height: Theme.islandHeight
@@ -970,7 +970,7 @@ Scope {
                                         transform: Scale { id: eqScale; origin.y: eqBar.height / 2; yScale: 0.3 }
 
                                         SequentialAnimation {
-                                            running: MediaService.isPlaying && surface.hasLockMedia
+                                            running: MediaService.isPlaying && surface.hasLockMedia && !Theme.reduceMotion
                                             loops: Animation.Infinite
                                             onStopped: eqScale.yScale = 0.3
                                             NumberAnimation { target: eqScale; property: "yScale"; to: 1.0; duration: eq.durs[index]; easing.type: Easing.InOutSine }
@@ -1066,7 +1066,7 @@ Scope {
                         NumberAnimation { duration: surface.hasLockAlert ? 220 : 160; easing.type: Easing.OutCubic }
                     }
 
-                    ClippingRectangle {
+                    AdaptiveClipRect {
                         id: alertPill
                         x: surface.hasLockAlert ? Theme.splitGap : 0
                         height: Theme.islandHeight

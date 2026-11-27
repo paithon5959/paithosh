@@ -7,8 +7,8 @@ TextInput {
 
     property color textColor: Theme.text
     property color cursorColor: Theme.accent
-    property int cursorSlideDuration: 85
-    property int charFadeDuration: 180
+    property int cursorSlideDuration: Theme.reduceMotion ? 0 : 85
+    property int charFadeDuration: Theme.reduceMotion ? 0 : 180
     property bool soundEnabled: true
 
     property string _lastText: ""
@@ -20,8 +20,8 @@ TextInput {
         }
     }
 
-    color: preeditText.length > 0 ? textColor : "transparent"
-    selectedTextColor: "transparent"
+    color: (Theme.reduceMotion || preeditText.length > 0) ? textColor : "transparent"
+    selectedTextColor: Theme.reduceMotion ? Theme.accentFg : "transparent"
     selectionColor: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.32)
     cursorDelegate: Item { width: 0; height: 0; visible: false }
 
@@ -29,7 +29,20 @@ TextInput {
         id: charModel
     }
 
+    Connections {
+        target: Theme
+        function onReduceMotionChanged() {
+            if (Theme.reduceMotion) {
+                charModel.clear();
+                root._lastText = "";
+            } else {
+                root.syncCharModel(root.text, false);
+            }
+        }
+    }
+
     function syncCharModel(newText, animate) {
+        if (Theme.reduceMotion) return;
         const oldText = _lastText;
         if (oldText === newText)
             return;
@@ -76,8 +89,8 @@ TextInput {
 
     Repeater {
         id: charRepeater
-        model: charModel
-        visible: root.preeditText.length === 0
+        model: Theme.reduceMotion ? 0 : charModel
+        visible: !Theme.reduceMotion && root.preeditText.length === 0
 
         delegate: Text {
             id: charText
@@ -150,9 +163,9 @@ TextInput {
             loops: Animation.Infinite
             NumberAnimation { target: smoothCursor; property: "opacity"; to: 1.0; duration: 0 }
             PauseAnimation { duration: 480 }
-            NumberAnimation { target: smoothCursor; property: "opacity"; to: 0.15; duration: 240; easing.type: Easing.InOutSine }
+            NumberAnimation { target: smoothCursor; property: "opacity"; to: 0.15; duration: Theme.reduceMotion ? 0 : 240; easing.type: Easing.InOutSine }
             PauseAnimation { duration: 180 }
-            NumberAnimation { target: smoothCursor; property: "opacity"; to: 1.0; duration: 240; easing.type: Easing.InOutSine }
+            NumberAnimation { target: smoothCursor; property: "opacity"; to: 1.0; duration: Theme.reduceMotion ? 0 : 240; easing.type: Easing.InOutSine }
         }
     }
 }

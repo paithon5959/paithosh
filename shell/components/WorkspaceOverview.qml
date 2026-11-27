@@ -284,7 +284,7 @@ Item {
                         Repeater {
                             model: wsCard.winList
 
-                            delegate: ClippingRectangle {
+                            delegate: AdaptiveClipRect {
                                 id: winTile
                                 required property var modelData
 
@@ -325,7 +325,7 @@ Item {
                                     anchors.fill: parent
                                     anchors.margins: 1
                                     captureSource: root.visible && winTile.modelData.wayland ? winTile.modelData.wayland : null
-                                    live: true
+                                    live: !Theme.reduceMotion
                                     visible: captureSource !== null && hasContent
                                 }
 

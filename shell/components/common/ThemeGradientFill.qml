@@ -11,7 +11,7 @@ Item {
     property real angle: Theme.gradientAngle
     property real cornerRadius: 0
 
-    visible: enabled && width > 0 && height > 0
+    visible: enabled && !Theme.reduceMotion && width > 0 && height > 0
 
     Loader {
         anchors.fill: parent

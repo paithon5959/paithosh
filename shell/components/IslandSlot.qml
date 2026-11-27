@@ -21,23 +21,23 @@ Item {
     Behavior on implicitWidth {
         NumberAnimation {
             duration: root.open ? Theme.springMs : Theme.smoothMs
-            easing.type: root.open ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: 0.75
+            easing.type: root.open ? Theme.motionEasing : Easing.OutCubic
+            easing.overshoot: Theme.reduceMotion ? 0.0 : 0.75
         }
     }
 
     Behavior on opacity {
         NumberAnimation {
-            duration: root.open ? 240 : 160
+            duration: Theme.reduceMotion ? Theme.smoothMs : (root.open ? 240 : 160)
             easing.type: Easing.OutCubic
         }
     }
 
     Behavior on scale {
         NumberAnimation {
-            duration: root.open ? Theme.springMs : 200
-            easing.type: root.open ? Easing.OutBack : Easing.OutCubic
-            easing.overshoot: 1.15
+            duration: root.open ? Theme.springMs : (Theme.reduceMotion ? Theme.smoothMs : 200)
+            easing.type: root.open ? Theme.motionEasing : Easing.OutCubic
+            easing.overshoot: Theme.reduceMotion ? 0.0 : 1.15
         }
     }
 

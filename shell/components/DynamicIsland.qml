@@ -159,8 +159,39 @@ PanelWindow {
         onTriggered: root.clockText = Qt.formatTime(new Date(), "hh:mm")
     }
 
+    property bool _cachedSettings: false
+    property bool _cachedFiles: false
+    property bool _cachedMusic: false
+    property bool _cachedPicker: false
+    property bool _cachedWeather: false
+
+    function _markAppCached(appName) {
+        if (!Theme.reduceMotion) return;
+        if (appName === "settings") _cachedSettings = true;
+        else if (appName === "files") _cachedFiles = true;
+        else if (appName === "music") _cachedMusic = true;
+        else if (appName === "picker") _cachedPicker = true;
+        else if (appName === "weather") _cachedWeather = true;
+    }
+
+    Connections {
+        target: Theme
+        function onReduceMotionChanged() {
+            if (!Theme.reduceMotion) {
+                root._cachedSettings = false;
+                root._cachedFiles = false;
+                root._cachedMusic = false;
+                root._cachedPicker = false;
+                root._cachedWeather = false;
+            } else if (root.isAppExpandedOnScreen) {
+                root._markAppCached(root.shellState.islandApp);
+            }
+        }
+    }
+
     onIsAppExpandedOnScreenChanged: {
         if (isAppExpandedOnScreen) {
+            _markAppCached(shellState.islandApp);
             if (shellState.islandApp === "settings" && settingsLoader.item) {
                 settingsLoader.item.openPage(shellState.settingsPage || "home");
                 expandedFocusItem.forceActiveFocus();
@@ -181,6 +212,7 @@ PanelWindow {
         target: root.shellState
         function onIslandAppChanged() {
             if (root.isAppExpandedOnScreen) {
+                root._markAppCached(root.shellState.islandApp);
                 if (root.shellState.islandApp === "settings" && settingsLoader.item) {
                     settingsLoader.item.openPage(root.shellState.settingsPage || "home");
                     expandedFocusItem.forceActiveFocus();
@@ -374,15 +406,15 @@ PanelWindow {
         Behavior on animatedHideOffset {
             NumberAnimation {
                 duration: root.isLifecycleExiting ? Math.max(100, Math.round(170 / Math.max(0.5, Theme.speedMultiplier))) : Theme.springMs
-                easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutBack
-                easing.overshoot: 1.0
+                easing.type: root.isLifecycleExiting ? Easing.InCubic : Theme.motionEasing
+                easing.overshoot: Theme.reduceMotion ? 0.0 : 1.0
             }
         }
         Behavior on bottomProgress {
             NumberAnimation {
                 duration: Math.round(Theme.springMs * 1.1)
-                easing.type: Easing.OutBack
-                easing.overshoot: 0.6
+                easing.type: Theme.motionEasing
+                easing.overshoot: Theme.reduceMotion ? 0.0 : 0.6
             }
         }
         readonly property real topY: animatedEdgeOffset - Theme.shaderPad - animatedHideOffset
@@ -391,20 +423,20 @@ PanelWindow {
         width: contentRow.width + Theme.shaderPad * 2
         height: mainPill.height + Theme.shaderPad * 2
         opacity: (root.isHidden || root.isTucked) ? 0.0 : 1.0
-        scale: root.isTucked ? 0.76 : (root.isHidden ? 0.65 : 1.0)
+        scale: Theme.reduceMotion ? 1.0 : (root.isTucked ? 0.76 : (root.isHidden ? 0.65 : 1.0))
         transformOrigin: root.isBottom ? Item.Bottom : Item.Top
 
         Behavior on opacity {
             NumberAnimation {
-                duration: root.isLifecycleExiting ? Math.max(90, Math.round(160 / Math.max(0.5, Theme.speedMultiplier))) : 240
+                duration: root.isLifecycleExiting ? Math.max(90, Math.round(160 / Math.max(0.5, Theme.speedMultiplier))) : (Theme.reduceMotion ? Theme.smoothMs : 240)
                 easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutCubic
             }
         }
         Behavior on scale {
             NumberAnimation {
                 duration: root.isLifecycleExiting ? Math.max(100, Math.round(170 / Math.max(0.5, Theme.speedMultiplier))) : Theme.springMs
-                easing.type: root.isLifecycleExiting ? Easing.InCubic : Easing.OutBack
-                easing.overshoot: 1.05
+                easing.type: root.isLifecycleExiting ? Easing.InCubic : Theme.motionEasing
+                easing.overshoot: Theme.reduceMotion ? 0.0 : 1.05
             }
         }
 
@@ -412,7 +444,7 @@ PanelWindow {
         Item {
             id: gooSource
             anchors.fill: parent
-            layer.enabled: Theme.gooeyEnabled && !root.isAppExpandedOnScreen
+            layer.enabled: Theme.effectiveGooey && !root.isAppExpandedOnScreen
             layer.effect: ShaderEffect {
                 fragmentShader: Qt.resolvedUrl("../assets/shaders/gooey.frag.qsb")
                 property size texelSize: Qt.size(1.0 / Math.max(1, gooSource.width), 1.0 / Math.max(1, gooSource.height))
@@ -495,7 +527,7 @@ PanelWindow {
             spacing: 0
 
             // Main Status Pill (expands smoothly to host Settings / Files / Picker)
-            ClippingRectangle {
+            AdaptiveClipRect {
                 id: mainPill
                 // Uses slots' *target* widths so the frame leads the content instead of chasing it
                 readonly property real slotsTargetWidth: {
@@ -514,20 +546,23 @@ PanelWindow {
                 Behavior on border.color { ColorAnimation { duration: Theme.smoothMs } }
 
                 Behavior on width {
+                    enabled: !Theme.reduceMotion || !root.isAppExpandedOnScreen
                     NumberAnimation {
                         duration: root.isAppExpandedOnScreen ? Theme.springMs : Math.round(Theme.springMs * 0.6)
-                        easing.type: Easing.OutBack
-                        easing.overshoot: root.isAppExpandedOnScreen ? 0.85 : 1.5
+                        easing.type: Theme.motionEasing
+                        easing.overshoot: Theme.reduceMotion ? 0.0 : (root.isAppExpandedOnScreen ? 0.85 : 1.5)
                     }
                 }
                 Behavior on height {
+                    enabled: !Theme.reduceMotion
                     NumberAnimation {
                         duration: root.isAppExpandedOnScreen ? Theme.springMs : 110
-                        easing.type: root.isAppExpandedOnScreen ? Easing.OutBack : Easing.OutCubic
-                        easing.overshoot: 0.75
+                        easing.type: root.isAppExpandedOnScreen ? Theme.motionEasing : Easing.OutCubic
+                        easing.overshoot: Theme.reduceMotion ? 0.0 : 0.75
                     }
                 }
                 Behavior on radius {
+                    enabled: !Theme.reduceMotion
                     NumberAnimation {
                         duration: Theme.smoothMs
                         easing.type: Easing.OutCubic
@@ -1006,7 +1041,7 @@ PanelWindow {
                                 to: 360
                                 duration: 760
                                 loops: Animation.Infinite
-                                running: shellState.reloadSlotOpen && shellState.reloadSlotState === "loading"
+                                running: shellState.reloadSlotOpen && shellState.reloadSlotState === "loading" && !Theme.reduceMotion
                                 onRunningChanged: if (!running) reloadSlotIcon.rotation = 0
                             }
                         }
@@ -1171,7 +1206,7 @@ PanelWindow {
                                         opacity: 0.9
 
                                         ParallelAnimation {
-                                            running: ScreenRecordService.recording
+                                            running: ScreenRecordService.recording && !Theme.reduceMotion
                                             loops: Animation.Infinite
 
                                             SequentialAnimation {
@@ -1383,6 +1418,10 @@ PanelWindow {
                     width: parent.width
                     height: Math.max(0, parent.height - Theme.islandHeight - appHeaderSep.height - appStrip.height)
                     color: Theme.surfaceBg
+                    bottomLeftRadius: root.isBottom ? 0 : 17
+                    bottomRightRadius: root.isBottom ? 0 : 17
+                    topLeftRadius: root.isBottom ? 17 : 0
+                    topRightRadius: root.isBottom ? 17 : 0
                     clip: true
                     opacity: root.isAppExpandedOnScreen ? 1.0 : 0.0
                     visible: opacity > 0.01
@@ -1398,7 +1437,7 @@ PanelWindow {
 
                     Behavior on opacity {
                         NumberAnimation {
-                            duration: root.isAppExpandedOnScreen ? 200 : 120
+                            duration: Theme.reduceMotion ? 110 : (root.isAppExpandedOnScreen ? 200 : 120)
                             easing.type: Easing.OutCubic
                         }
                     }
@@ -1406,7 +1445,8 @@ PanelWindow {
                     Loader {
                         id: settingsLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "settings"
+                        active: (Theme.reduceMotion && root._cachedSettings) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "settings")
+                        visible: root.shellState.islandApp === "settings"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("SettingsView.qml", { shellState: root.shellState });
                         }
@@ -1418,7 +1458,8 @@ PanelWindow {
                     Loader {
                         id: filesLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "files"
+                        active: (Theme.reduceMotion && root._cachedFiles) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "files")
+                        visible: root.shellState.islandApp === "files"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("FilesView.qml", { shellState: root.shellState });
                         }
@@ -1430,7 +1471,8 @@ PanelWindow {
                     Loader {
                         id: musicLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "music"
+                        active: (Theme.reduceMotion && root._cachedMusic) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "music")
+                        visible: root.shellState.islandApp === "music"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("MusicView.qml", { shellState: root.shellState });
                         }
@@ -1442,7 +1484,8 @@ PanelWindow {
                     Loader {
                         id: pickerLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "picker"
+                        active: (Theme.reduceMotion && root._cachedPicker) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "picker")
+                        visible: root.shellState.islandApp === "picker"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("PickerView.qml", { shellState: root.shellState });
                         }
@@ -1458,6 +1501,7 @@ PanelWindow {
                         id: portalLoader
                         anchors.fill: parent
                         active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "portal"
+                        visible: root.shellState.islandApp === "portal"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("PortalView.qml", { shellState: root.shellState });
                         }
@@ -1469,7 +1513,8 @@ PanelWindow {
                     Loader {
                         id: weatherLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "weather"
+                        active: (Theme.reduceMotion && root._cachedWeather) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "weather")
+                        visible: root.shellState.islandApp === "weather"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("WeatherForecastView.qml", { shellState: root.shellState });
                         }
@@ -1510,12 +1555,12 @@ PanelWindow {
                 Behavior on width {
                     NumberAnimation {
                         duration: root.hasMedia ? Theme.springMs : Theme.smoothMs
-                        easing.type: root.hasMedia ? Easing.OutBack : Easing.OutCubic
-                        easing.overshoot: 0.75
+                        easing.type: root.hasMedia ? Theme.motionEasing : Easing.OutCubic
+                        easing.overshoot: Theme.reduceMotion ? 0.0 : 0.75
                     }
                 }
                 Behavior on opacity {
-                    NumberAnimation { duration: root.hasMedia ? 220 : 160; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: Theme.reduceMotion ? Theme.smoothMs : (root.hasMedia ? 220 : 160); easing.type: Easing.OutCubic }
                 }
 
                 Item {
@@ -1529,7 +1574,7 @@ PanelWindow {
                         NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
                     }
                     Behavior on scale {
-                        NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                        NumberAnimation { duration: Theme.springMs; easing.type: Theme.motionEasing; easing.overshoot: Theme.reduceMotion ? 0.0 : 1.2 }
                     }
 
                     Row {
@@ -1560,7 +1605,7 @@ PanelWindow {
                                     transform: Scale { id: sc; origin.y: bar.height / 2; yScale: 0.3 }
 
                                     SequentialAnimation {
-                                        running: MediaService.isPlaying && root.hasMedia
+                                        running: MediaService.isPlaying && root.hasMedia && !Theme.reduceMotion
                                         loops: Animation.Infinite
                                         onStopped: sc.yScale = 0.3
                                         NumberAnimation { target: sc; property: "yScale"; to: 1.0; duration: eq.durs[index]; easing.type: Easing.InOutSine }
@@ -1617,12 +1662,12 @@ PanelWindow {
                 Behavior on width {
                     NumberAnimation {
                         duration: root.hasAlert ? Theme.springMs : Theme.smoothMs
-                        easing.type: root.hasAlert ? Easing.OutBack : Easing.OutCubic
-                        easing.overshoot: 0.75
+                        easing.type: root.hasAlert ? Theme.motionEasing : Easing.OutCubic
+                        easing.overshoot: Theme.reduceMotion ? 0.0 : 0.75
                     }
                 }
                 Behavior on opacity {
-                    NumberAnimation { duration: root.hasAlert ? 220 : 160; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: Theme.reduceMotion ? Theme.smoothMs : (root.hasAlert ? 220 : 160); easing.type: Easing.OutCubic }
                 }
 
                 Item {
@@ -1636,7 +1681,7 @@ PanelWindow {
                         NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic }
                     }
                     Behavior on scale {
-                        NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+                        NumberAnimation { duration: Theme.springMs; easing.type: Theme.motionEasing; easing.overshoot: Theme.reduceMotion ? 0.0 : 1.2 }
                     }
 
                     readonly property color alertTint: root.alertMode === 1 ? Theme.dangerText : Theme.warn

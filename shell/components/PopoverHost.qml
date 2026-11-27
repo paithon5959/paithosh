@@ -29,7 +29,7 @@ PanelWindow {
         right: true
     }
     color: "transparent"
-    visible: showCard || cardBox.opacity > 0.01
+    visible: Theme.reduceMotion ? true : (showCard || cardBox.opacity > 0.01)
 
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Top
@@ -99,9 +99,10 @@ PanelWindow {
         anchors.fill: parent
         color: "#000000"
         opacity: root.activeMode === "overview" ? 0.42 : 0.0
+        visible: opacity > 0.01
 
         Behavior on opacity {
-            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Theme.reduceMotion ? 100 : 220; easing.type: Easing.OutCubic }
         }
     }
 
@@ -125,9 +126,9 @@ PanelWindow {
         property real slideOffset: root.showCard ? 0 : (root.isBottom ? 14 : -14)
         Behavior on slideOffset {
             NumberAnimation {
-                duration: root.showCard ? Theme.springMs : 200
-                easing.type: root.showCard ? Easing.OutBack : Easing.OutCubic
-                easing.overshoot: 1.15
+                duration: Theme.reduceMotion ? 100 : (root.showCard ? Theme.springMs : 200)
+                easing.type: Theme.reduceMotion ? Easing.OutCubic : (root.showCard ? Easing.OutBack : Easing.OutCubic)
+                easing.overshoot: Theme.reduceMotion ? 0.0 : 1.15
             }
         }
         y: (root.isBottom ? (root.height - height - baseMargin) : baseMargin) + slideOffset
@@ -155,7 +156,8 @@ PanelWindow {
         border.color: Theme.borderSubtle
         clip: true
         opacity: root.showCard ? 1.0 : 0.0
-        scale: root.showCard ? 1.0 : 0.94
+        visible: opacity > 0.01
+        scale: Theme.reduceMotion ? 1.0 : (root.showCard ? 1.0 : 0.94)
         transformOrigin: root.isBottom ? Item.Bottom : Item.Top
 
         onOpacityChanged: {
@@ -165,15 +167,18 @@ PanelWindow {
         }
 
         Behavior on width {
+            enabled: !Theme.reduceMotion
             NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         Behavior on height {
+            enabled: !Theme.reduceMotion
             NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
         }
         Behavior on opacity {
-            NumberAnimation { duration: root.showCard ? 220 : 180; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Theme.reduceMotion ? 100 : (root.showCard ? 220 : 180); easing.type: Easing.OutCubic }
         }
         Behavior on scale {
+            enabled: !Theme.reduceMotion
             NumberAnimation {
                 duration: root.showCard ? Theme.springMs : 200
                 easing.type: root.showCard ? Easing.OutBack : Easing.OutCubic

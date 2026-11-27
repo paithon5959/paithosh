@@ -22,7 +22,7 @@ Item {
     }
 
     readonly property int particleCount: {
-        if (!active || _renderedEffect === "none") return 0;
+        if (Theme.reduceMotion || !active || _renderedEffect === "none") return 0;
         let base = 0;
         if (_renderedEffect === "snow") base = previewMode ? 24 : 44;
         else if (_renderedEffect === "rain") base = previewMode ? 28 : 48;
@@ -210,7 +210,7 @@ Item {
     }
 
     FrameAnimation {
-        running: root.active && root.visible && root.opacity > 0.01 && root._renderedEffect !== "none" && root.width > 0 && root.height > 0
+        running: !Theme.reduceMotion && root.active && root.visible && root.opacity > 0.01 && root._renderedEffect !== "none" && root.width > 0 && root.height > 0
         onTriggered: root._updatePositions(Math.min(0.05, frameTime))
     }
 }

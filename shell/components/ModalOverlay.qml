@@ -32,7 +32,7 @@ PanelWindow {
         right: true
     }
     color: "transparent"
-    visible: isOpen || backdrop.opacity > 0.01
+    visible: Theme.reduceMotion ? true : (isOpen || backdrop.opacity > 0.01)
 
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
@@ -290,9 +290,10 @@ PanelWindow {
         anchors.bottomMargin: (root.kind === "monitor" && isBottom) ? (Theme.topOffsetHover + Theme.islandHeight) : 0
         color: (root.kind === "monitor" && root.portalTab === "portal") ? Qt.rgba(0, 0, 0, 0.72) : Qt.rgba(0, 0, 0, 0.52)
         opacity: root.isOpen ? 1.0 : 0.0
+        visible: opacity > 0.01
 
         Behavior on opacity {
-            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Theme.reduceMotion ? 100 : 220; easing.type: Easing.OutCubic }
         }
 
         MouseArea {
@@ -317,13 +318,13 @@ PanelWindow {
             border.width: 1
             border.color: Theme.borderSubtle
             clip: true
-            scale: root.isOpen ? 1.0 : 0.92
-            anchors.verticalCenterOffset: root.isOpen ? 0 : 10
+            scale: Theme.reduceMotion ? 1.0 : (root.isOpen ? 1.0 : 0.92)
+            anchors.verticalCenterOffset: Theme.reduceMotion ? 0 : (root.isOpen ? 0 : 10)
 
-            Behavior on width { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
-            Behavior on height { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
-            Behavior on scale { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.25 } }
-            Behavior on anchors.verticalCenterOffset { NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack } }
+            Behavior on width { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+            Behavior on height { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+            Behavior on scale { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack; easing.overshoot: 1.25 } }
+            Behavior on anchors.verticalCenterOffset { enabled: !Theme.reduceMotion; NumberAnimation { duration: Theme.springMs; easing.type: Easing.OutBack } }
 
             ThemeGradientFill {
                 anchors.fill: parent
@@ -625,7 +626,7 @@ PanelWindow {
                                                 anchors.fill: parent
                                                 anchors.margins: 1
                                                 captureSource: root.isOpen && root.portalTab === "portal" ? root.resolveCaptureSource(modelData) : null
-                                                live: true
+                                                live: !Theme.reduceMotion
                                                 visible: captureSource !== null && hasContent
                                             }
 

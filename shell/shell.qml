@@ -19,9 +19,14 @@ ShellRoot {
         property string reloadReason: ""
         property string lastWallpaperPath: ""
         property bool lastWallpapersDisabled: false
+        property bool lastReduceMotion: false
 
         onReloaded: {
             Theme.wallpapersDisabled = lastWallpapersDisabled;
+            Theme.reduceMotion = lastReduceMotion;
+            if (lastReduceMotion) {
+                Qt.callLater(() => CompositorService.applyReduceMotion(true));
+            }
             stateObj._handledReloadEntrance = true;
             const msg = pendingEntrance
                 ? (reloadReason !== "" ? reloadReason : "Config Reloaded")
@@ -163,6 +168,8 @@ ShellRoot {
                     if (typeof obj.preserveSplit === "boolean") Theme.preserveSplit = obj.preserveSplit;
                     if (typeof obj.shadowRange === "number") Theme.shadowRange = obj.shadowRange;
                     if (typeof obj.gooeyEnabled === "boolean") Theme.gooeyEnabled = obj.gooeyEnabled;
+                    if (typeof obj.reduceMotion === "boolean") Theme.reduceMotion = obj.reduceMotion;
+                    reloadState.lastReduceMotion = Theme.reduceMotion;
                     if (typeof obj.speedMultiplier === "number" && obj.speedMultiplier >= 0.5 && obj.speedMultiplier <= 2.5) Theme.speedMultiplier = obj.speedMultiplier;
                     if (typeof obj.transitionMode === "string") bgLayer.transitionMode = obj.transitionMode;
                     if (typeof obj.wallpaperPath === "string" && obj.wallpaperPath.length > 0) {
@@ -202,6 +209,7 @@ ShellRoot {
             stateObj.themeImportSeq += 1;
             Qt.callLater(function() {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
+                CompositorService.applyReduceMotion(Theme.reduceMotion);
                 stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 if (!hasSettings) stateObj.loadProfile("default", true);
@@ -217,6 +225,7 @@ ShellRoot {
             stateObj.themeImportSeq += 1;
             Qt.callLater(function() {
                 CompositorService.setActiveThemePresetName(stateObj.compositorKeyForPreset(Theme.activePreset));
+                CompositorService.applyReduceMotion(Theme.reduceMotion);
                 stateObj.syncHyprThemeColors();
                 stateObj.refreshProfiles();
                 stateObj.loadProfile("default", true);
@@ -276,7 +285,7 @@ ShellRoot {
 
     Timer {
         id: prewarmStepTimer
-        interval: 80
+        interval: Theme.reduceMotion ? 220 : 80
         repeat: false
         onTriggered: root._prewarmNext()
     }
@@ -598,6 +607,15 @@ ShellRoot {
             Theme.setWallpapersDisabled(next);
             syncHyprThemeColors();
             if (!_applyingExternalState) markAppearanceCustomized();
+            saveSettings();
+        }
+
+        function setReduceMotion(enabled) {
+            const next = Boolean(enabled);
+            if (Theme.reduceMotion === next) return;
+            Theme.reduceMotion = next;
+            reloadState.lastReduceMotion = next;
+            CompositorService.applyReduceMotion(next);
             saveSettings();
         }
 
@@ -1136,6 +1154,7 @@ ShellRoot {
                 preserveSplit: Theme.preserveSplit,
                 shadowRange: Theme.shadowRange,
                 gooeyEnabled: Theme.gooeyEnabled,
+                reduceMotion: Theme.reduceMotion,
                 speedMultiplier: Theme.speedMultiplier,
                 transitionMode: bgLayer.transitionMode,
                 wallpaperIndex: bgLayer.currentIndex,
@@ -1976,7 +1995,7 @@ ShellRoot {
 
     // Experimental Motion Blur Cursor Overlay (lazy-loaded & completely click-through)
     Loader {
-        active: CursorService.motionBlur && CompositorService.isHyprland && !LockService.locked
+        active: CursorService.motionBlur && !Theme.reduceMotion && CompositorService.isHyprland && !LockService.locked
         source: "components/CursorMotionOverlay.qml"
     }
 
@@ -2099,6 +2118,10 @@ ShellRoot {
 
         function setWallpapersDisabled(disabled: bool): void {
             stateObj.setWallpapersDisabled(disabled);
+        }
+
+        function setReduceMotion(enabled: bool): void {
+            stateObj.setReduceMotion(enabled);
         }
 
         function detachApp(appKind: string): void {

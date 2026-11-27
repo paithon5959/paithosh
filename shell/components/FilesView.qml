@@ -1340,6 +1340,8 @@ FocusScope {
             Layout.preferredWidth: 224
             Layout.fillHeight: true
             color: Theme.pillBg
+            bottomLeftRadius: (root.shellState && root.shellState.detachedApp === "files") ? 13 : ((root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition !== "bottom") ? 17 : 0)
+            topLeftRadius: (root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition === "bottom") ? 17 : 0
 
             ThemeGradientFill {
                 anchors.fill: parent
@@ -3053,6 +3055,8 @@ FocusScope {
             visible: Layout.preferredWidth > 1 || root.showPreviewPanel
             color: Theme.pillBg
             clip: true
+            bottomRightRadius: (root.shellState && root.shellState.detachedApp === "files") ? 13 : ((root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition !== "bottom") ? 17 : 0)
+            topRightRadius: (root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition === "bottom") ? 17 : 0
 
             ThemeGradientFill {
                 anchors.fill: parent

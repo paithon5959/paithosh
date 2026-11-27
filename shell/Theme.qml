@@ -41,19 +41,23 @@ Singleton {
     property int shaderPad: 32
 
     // Motion Curves (Zero Dead Animations)
+    property bool reduceMotion: false
     property real speedMultiplier: 1.0
-    property int springMs: Math.max(80, Math.round(420 / speedMultiplier))
-    property int smoothMs: Math.max(60, Math.round(320 / speedMultiplier))
-    property real springOvershoot: 1.35
+    property int springMs: reduceMotion ? 110 : Math.max(80, Math.round(420 / speedMultiplier))
+    property int smoothMs: reduceMotion ? 90 : Math.max(60, Math.round(320 / speedMultiplier))
+    property real springOvershoot: reduceMotion ? 0.0 : 1.35
+    readonly property int motionEasing: reduceMotion ? Easing.OutCubic : Easing.OutBack
 
     // Visual Features
     property bool gooeyEnabled: true
+    readonly property bool effectiveGooey: gooeyEnabled && !reduceMotion
     property string activePreset: "OLED Pure"
 
     // Extended Personalization State (manual backing state — preserved across wallpaper mode & .paish)
     property string surfaceTheme: "OLED Pure"
     property string accentMode: "Solid"
     property bool accentGradientEnabled: false
+    readonly property bool effectiveAccentGradient: accentGradientEnabled && !reduceMotion
     property real hueVal: 0.0
     property real satVal: 0.0
     property real valVal: 0.92
@@ -77,8 +81,10 @@ Singleton {
     property string customBorderColor: ""
 
     property bool shellGradientEnabled: false
+    readonly property bool effectiveShellGradient: shellGradientEnabled && !reduceMotion
     property color pillBg2: "#0e0e0e"
     property bool surfaceGradientEnabled: false
+    readonly property bool effectiveSurfaceGradient: surfaceGradientEnabled && !reduceMotion
     property color surfaceBg2: "#18181a"
     property bool customAccent2Active: false
     property color accent2: "#cccccc"
@@ -624,7 +630,7 @@ Singleton {
     function _commitPalette(target, animate) {
         root._targetPalette = target;
         root.targetGradientAngle = target.gradientAngle;
-        if (!animate) {
+        if (!animate || root.reduceMotion) {
             _blendAnim.stop();
             root._fromLab = null;
             root._toLab = null;

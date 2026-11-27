@@ -139,15 +139,15 @@ QtObject {
             icon: "music"
         },
 
-        // Power & Battery
+        // Performance
         {
-            id: "power-profile",
-            page: "power",
-            pageLabel: "Power & Battery",
-            title: "Power profile",
-            subtitle: "Battery status, performance, balanced and power saver",
-            keywords: "battery charge ac thermal tlp power-profiles-daemon",
-            icon: "bolt"
+            id: "perf-reduce-motion",
+            page: "performance",
+            pageLabel: "Performance",
+            title: "Reduce motion~",
+            subtitle: "hacky way to increase performance",
+            keywords: "performance reduce motion fps smooth blur shadow gooey animations potato pc",
+            icon: "gauge"
         },
 
         // Updates
