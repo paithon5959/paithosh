@@ -966,7 +966,7 @@ Item {
                             showDivider: false
                             iconName: "volume"
                             title: "Enable Audio Engine (EQ & DSP)"
-                            subtitle: "Apply live FFmpeg lavfi tone shaping inside mpv"
+                            subtitle: "Apply live real-time tone shaping during playback"
                             MCtrlSwitch {
                                 checked: MixcloudService.audioDspEnabled
                                 onToggled: (v) => {
@@ -1446,7 +1446,7 @@ Item {
                                             if (MixcloudService.mixNote !== "") return MixcloudService.mixNote;
                                             return MixcloudService.hasFfmpeg
                                                 ? "Cues Deck B silently at vol 0, matches loudness, key, EQ & beat phase"
-                                                : "ffmpeg missing — falls back to smooth gain crossfade";
+                                                : "Using smooth gain crossfade (advanced beat analysis unavailable)";
                                         }
                                         color: Theme.textSub
                                         font.family: Theme.fontMono
@@ -2404,7 +2404,7 @@ Item {
                         MSettingRow {
                             iconName: "hard-drive"
                             title: "Stream Buffer Cache"
-                            subtitle: "mpv demuxer readahead budget (applies on next stream)"
+                            subtitle: "Stream readahead buffer budget (applies on next track)"
                             MCtrlSelect {
                                 options: ["Low (16 MiB / 10s)", "Balanced (32 MiB / 20s)", "High (64 MiB / 45s)"]
                                 currentText: root.bufferLabel(MixcloudService.bufferPreset)
@@ -2555,46 +2555,73 @@ Item {
                                 }
                             }
 
-                            // Tool Health Badges
-                            Flow {
+                            // Audio Engine Readiness Summary (monochrome at rest, fault-only semantic tint)
+                            Rectangle {
+                                id: engineSummaryBar
+                                readonly property int readyCount: (MixcloudService.hasMpv ? 1 : 0)
+                                    + (MixcloudService.hasYtDlp ? 1 : 0)
+                                    + (MixcloudService.hasFfmpeg ? 1 : 0)
+                                    + (MixcloudService.hasPactl ? 1 : 0)
+                                    + (MixcloudService.hasParec ? 1 : 0)
+                                readonly property bool allReady: readyCount === 5
+                                readonly property bool degraded: MixcloudService.depsChecked && !allReady
+
                                 Layout.fillWidth: true
-                                spacing: 6
+                                height: 32
+                                radius: 9
+                                clip: true
+                                color: degraded
+                                    ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.10)
+                                    : Theme.cardBg
+                                border.width: 1
+                                border.color: degraded
+                                    ? Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.35)
+                                    : Theme.borderSubtle
+                                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                Behavior on border.color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
-                                Repeater {
-                                    model: [
-                                        { name: "mpv", ok: MixcloudService.hasMpv },
-                                        { name: "yt-dlp", ok: MixcloudService.hasYtDlp },
-                                        { name: "ffmpeg", ok: MixcloudService.hasFfmpeg },
-                                        { name: "pactl", ok: MixcloudService.hasPactl },
-                                        { name: "parec", ok: MixcloudService.hasParec }
-                                    ]
-                                    delegate: Rectangle {
-                                        required property var modelData
-                                        height: 22
-                                        width: toolRow.implicitWidth + 14
-                                        radius: 11
-                                        color: Theme.cardBg
-                                        border.width: 1
-                                        border.color: modelData.ok ? Qt.rgba(Theme.ok.r, Theme.ok.g, Theme.ok.b, 0.35) : Qt.rgba(Theme.warn.r, Theme.warn.g, Theme.warn.b, 0.40)
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 10
+                                    spacing: 8
 
-                                        RowLayout {
-                                            id: toolRow
-                                            anchors.centerIn: parent
-                                            spacing: 5
-                                            Rectangle {
-                                                width: 6
-                                                height: 6
-                                                radius: 3
-                                                color: modelData.ok ? Theme.ok : Theme.warn
-                                            }
-                                            Text {
-                                                text: modelData.name
-                                                color: modelData.ok ? Theme.textSub : Theme.warn
-                                                font.family: Theme.fontMono
-                                                font.pixelSize: 10
-                                                font.weight: Font.DemiBold
-                                            }
-                                        }
+                                    SvgIcon {
+                                        sourceName: !MixcloudService.depsChecked
+                                            ? "activity"
+                                            : (engineSummaryBar.allReady ? "check" : "alert-triangle")
+                                        iconSize: 13
+                                        color: !MixcloudService.depsChecked
+                                            ? Theme.textMuted
+                                            : (engineSummaryBar.allReady ? Theme.textSub : Theme.warn)
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        text: !MixcloudService.depsChecked
+                                            ? "Checking audio components..."
+                                            : (engineSummaryBar.allReady
+                                                ? "All audio components ready"
+                                                : (MixcloudService.depsReady
+                                                    ? "Core playback ready — some mixing or ducking features limited"
+                                                    : "Audio playback unavailable — required components missing"))
+                                        color: engineSummaryBar.degraded ? Theme.warn : Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    Text {
+                                        visible: MixcloudService.depsChecked
+                                        text: engineSummaryBar.readyCount + "/5"
+                                        color: engineSummaryBar.degraded ? Theme.warn : Theme.textMuted
+                                        font.family: Theme.fontMono
+                                        font.pixelSize: 11
+                                        font.weight: Font.DemiBold
+                                        Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                                     }
                                 }
                             }
@@ -2702,8 +2729,8 @@ Item {
 
                         MSettingRow {
                             iconName: "refresh"
-                            title: "Recheck Audio Dependencies"
-                            subtitle: "Verify mpv, yt-dlp, ffmpeg, pactl & parec binaries"
+                            title: "Recheck Audio Engine"
+                            subtitle: "Verify playback, streaming, mixing & ducking components"
                             PillButton {
                                 text: "Recheck"
                                 iconName: "refresh"

@@ -958,26 +958,28 @@ FocusScope {
                             Layout.fillWidth: true
                             spacing: 6
 
-                            Rectangle {
-                                width: 7
-                                height: 7
-                                radius: 3.5
+                            SvgIcon {
+                                sourceName: !MixcloudService.depsChecked
+                                    ? "activity"
+                                    : (MixcloudService.depsReady ? "check" : "alert-triangle")
+                                iconSize: 12
                                 color: !MixcloudService.depsChecked
                                     ? Theme.textMuted
-                                    : (MixcloudService.depsReady ? Theme.ok : Theme.warn)
-                                Behavior on color { ColorAnimation { duration: 180 } }
+                                    : (MixcloudService.depsReady ? Theme.textSub : Theme.warn)
+                                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             }
 
                             Text {
                                 Layout.fillWidth: true
                                 Layout.minimumWidth: 0
                                 text: !MixcloudService.depsChecked
-                                    ? "Checking audio..."
-                                    : (MixcloudService.depsReady ? "mpv • yt-dlp ready" : "Missing audio tools")
-                                color: Theme.textSub
-                                font.family: Theme.fontMono
-                                font.pixelSize: 10
+                                    ? "Checking audio engine..."
+                                    : (MixcloudService.depsReady ? "Audio engine ready" : "Audio tools unavailable")
+                                color: (!MixcloudService.depsChecked || MixcloudService.depsReady) ? Theme.textSub : Theme.warn
+                                font.family: Theme.fontSans
+                                font.pixelSize: 11
                                 elide: Text.ElideRight
+                                Behavior on color { ColorAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             }
                         }
                     }
