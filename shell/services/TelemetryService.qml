@@ -127,7 +127,9 @@ Singleton {
         const normCpu = Math.min(100.0, totalCpu / Math.max(1, root.cpuThreadCount));
         return {
             cpu: normCpu.toFixed(1),
-            memText: formatMemKb(totalRssKb)
+            cpuVal: normCpu,
+            memText: formatMemKb(totalRssKb),
+            rssKb: totalRssKb
         };
     }
     property bool monitorActive: false
@@ -366,9 +368,7 @@ Singleton {
                     pmap[pid] = { cpuVal: rawCpu, rssKb: rssKb, memText: memStr };
                     if (!cmap[ppid]) cmap[ppid] = [];
                     cmap[ppid].push(pid);
-                    if (out.length < 25) {
-                        out.push({ pid: pid, name: name, cpu: cpu, memText: memStr });
-                    }
+                    out.push({ pid: pid, name: name, cpu: cpu, cpuVal: normCpu, memText: memStr, rssKb: rssKb });
                 }
                 root.pidStatsMap = pmap;
                 root.pidChildrenMap = cmap;
@@ -385,7 +385,9 @@ Singleton {
                             address: a.address,
                             workspace: a.workspace,
                             cpu: st ? st.cpu : a.cpu,
-                            memText: st ? st.memText : a.memText
+                            cpuVal: st ? st.cpuVal : (a.cpuVal || 0),
+                            memText: st ? st.memText : a.memText,
+                            rssKb: st ? st.rssKb : (a.rssKb || 0)
                         });
                     }
                     root.appList = updatedApps;
@@ -423,7 +425,9 @@ Singleton {
                             address: c.address || "",
                             workspace: c.workspace ? c.workspace.id : 0,
                             cpu: st ? st.cpu : "0.0",
-                            memText: st ? st.memText : "--"
+                            cpuVal: st ? st.cpuVal : 0,
+                            memText: st ? st.memText : "--",
+                            rssKb: st ? st.rssKb : 0
                         });
                     }
                     root.appList = out;

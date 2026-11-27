@@ -10,29 +10,37 @@ Item {
 
     property string procFilter: ""
     property string activeSection: "apps" // "apps" | "procs"
+    property string sortBy: "cpu" // "cpu" | "ram"
+
+    function sortItems(src) {
+        const byRam = root.sortBy === "ram";
+        return src.slice().sort((a, b) => byRam
+            ? ((b.rssKb || 0) - (a.rssKb || 0)) || ((b.cpuVal || 0) - (a.cpuVal || 0))
+            : ((b.cpuVal || 0) - (a.cpuVal || 0)) || ((b.rssKb || 0) - (a.rssKb || 0)));
+    }
 
     readonly property var filteredApps: {
         const q = procFilter.trim().toLowerCase();
         const src = TelemetryService.appList || [];
-        if (q === "") return src;
+        if (q === "") return sortItems(src);
         const out = [];
         for (let i = 0; i < src.length; ++i) {
             const nameMatch = (src[i].name || "").toLowerCase().indexOf(q) !== -1;
             const titleMatch = (src[i].title || "").toLowerCase().indexOf(q) !== -1;
             if (nameMatch || titleMatch) out.push(src[i]);
         }
-        return out;
+        return sortItems(out);
     }
 
     readonly property var filteredProcs: {
         const q = procFilter.trim().toLowerCase();
         const src = TelemetryService.processList || [];
-        if (q === "") return src;
+        if (q === "") return sortItems(src);
         const out = [];
         for (let i = 0; i < src.length; ++i) {
             if (src[i].name.toLowerCase().indexOf(q) !== -1) out.push(src[i]);
         }
-        return out;
+        return sortItems(out);
     }
 
     implicitWidth: 468
@@ -46,6 +54,7 @@ Item {
     }
 
     onActiveSectionChanged: listSwitchAnim.restart()
+    onSortByChanged: listSwitchAnim.restart()
 
     SequentialAnimation {
         id: listSwitchAnim
@@ -563,96 +572,161 @@ Item {
             }
         }
 
-        // Process / Application Search Input
-        Rectangle {
+        // Process / Application Search Input + Sort Toggle
+        RowLayout {
             Layout.fillWidth: true
-            height: 36
-            radius: 12
-            color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, procInput.activeFocus ? 0.11 : 0.07)
-            border.width: 1
-            border.color: procInput.activeFocus
-                ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.40)
-                : Theme.borderSubtle
-            clip: true
+            spacing: 8
 
-            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-            Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.minimumWidth: 0
+                height: 36
+                radius: 12
+                color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, procInput.activeFocus ? 0.11 : 0.07)
+                border.width: 1
+                border.color: procInput.activeFocus
+                    ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.40)
+                    : Theme.borderSubtle
+                clip: true
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 10
-                spacing: 8
+                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                SvgIcon {
-                    sourceName: "search"
-                    iconSize: 15
-                    color: procInput.activeFocus ? Theme.text : Theme.textSub
-                    Layout.alignment: Qt.AlignVCenter
-                    Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                }
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 10
+                    spacing: 8
 
-                AnimatedTextInput {
-                    id: procInput
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    Layout.minimumWidth: 0
-                    verticalAlignment: TextInput.AlignVCenter
-                    textColor: Theme.text
-                    font.family: Theme.fontSans
-                    font.pixelSize: 12
-                    clip: true
-                    selectByMouse: true
-                    onTextChanged: root.procFilter = text
-                    Keys.onEscapePressed: {
-                        if (text.length > 0) {
-                            text = "";
-                        } else {
-                            focus = false;
+                    SvgIcon {
+                        sourceName: "search"
+                        iconSize: 15
+                        color: procInput.activeFocus ? Theme.text : Theme.textSub
+                        Layout.alignment: Qt.AlignVCenter
+                        Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                    }
+
+                    AnimatedTextInput {
+                        id: procInput
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        Layout.minimumWidth: 0
+                        verticalAlignment: TextInput.AlignVCenter
+                        textColor: Theme.text
+                        font.family: Theme.fontSans
+                        font.pixelSize: 12
+                        clip: true
+                        selectByMouse: true
+                        onTextChanged: root.procFilter = text
+                        Keys.onEscapePressed: {
+                            if (text.length > 0) {
+                                text = "";
+                            } else {
+                                focus = false;
+                            }
+                        }
+
+                        Text {
+                            anchors.fill: parent
+                            verticalAlignment: Text.AlignVCenter
+                            text: root.activeSection === "apps"
+                                ? "Filter applications (firefox, kitty, code...)"
+                                : "Filter processes (kitty, firefox, code, pipewire...)"
+                            color: Theme.textMuted
+                            font.family: Theme.fontSans
+                            font.pixelSize: 12
+                            visible: procInput.text === ""
+                            elide: Text.ElideRight
                         }
                     }
 
-                    Text {
-                        anchors.fill: parent
-                        verticalAlignment: Text.AlignVCenter
-                        text: root.activeSection === "apps"
-                            ? "Filter applications (firefox, kitty, code...)"
-                            : "Filter processes (kitty, firefox, code, pipewire...)"
-                        color: Theme.textMuted
-                        font.family: Theme.fontSans
-                        font.pixelSize: 12
-                        visible: procInput.text === ""
-                        elide: Text.ElideRight
+                    Rectangle {
+                        width: 22
+                        height: 22
+                        radius: 7
+                        color: clearMouse.containsMouse ? Theme.cardHover : "transparent"
+                        opacity: procInput.text.length > 0 ? 1.0 : 0.0
+                        visible: opacity > 0.01
+                        scale: clearMouse.pressed ? 0.90 : 1.0
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            sourceName: "close"
+                            iconSize: 12
+                            color: Theme.textSub
+                        }
+
+                        MouseArea {
+                            id: clearMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: procInput.text = ""
+                        }
                     }
                 }
+            }
 
-                Rectangle {
-                    width: 22
-                    height: 22
-                    radius: 7
-                    color: clearMouse.containsMouse ? Theme.cardHover : "transparent"
-                    opacity: procInput.text.length > 0 ? 1.0 : 0.0
-                    visible: opacity > 0.01
-                    scale: clearMouse.pressed ? 0.90 : 1.0
-                    Layout.alignment: Qt.AlignVCenter
+            // Sort Switcher: CPU | RAM (high -> low)
+            Rectangle {
+                height: 36
+                width: sortRow.implicitWidth + 6
+                radius: 12
+                color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.05)
+                border.width: 1
+                border.color: Theme.borderSubtle
+                clip: true
 
-                    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                    Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+                Row {
+                    id: sortRow
+                    anchors.centerIn: parent
+                    spacing: 3
 
-                    SvgIcon {
-                        anchors.centerIn: parent
-                        sourceName: "close"
-                        iconSize: 12
-                        color: Theme.textSub
-                    }
+                    Repeater {
+                        model: [
+                            { key: "cpu", label: "CPU" },
+                            { key: "ram", label: "RAM" }
+                        ]
 
-                    MouseArea {
-                        id: clearMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: procInput.text = ""
+                        delegate: Rectangle {
+                            required property var modelData
+                            readonly property bool selected: root.sortBy === modelData.key
+
+                            width: 44
+                            height: 30
+                            radius: 9
+                            clip: true
+                            color: selected
+                                ? Theme.accent
+                                : (sortMouse.containsMouse ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.08) : "transparent")
+                            scale: sortMouse.pressed ? 0.94 : 1.0
+
+                            Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.label
+                                color: parent.selected ? Theme.accentFg : (sortMouse.containsMouse ? Theme.text : Theme.textSub)
+                                font.family: Theme.fontSans
+                                font.pixelSize: 11
+                                font.weight: Font.DemiBold
+                                Behavior on color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            }
+
+                            MouseArea {
+                                id: sortMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.sortBy = modelData.key
+                            }
+                        }
                     }
                 }
             }
