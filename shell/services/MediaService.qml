@@ -20,7 +20,7 @@ Singleton {
 
     readonly property var player: mprisPlayer
 
-    readonly property bool useMixcloud: MixcloudService.hasTrack && !(mprisPlayer && mprisPlayer.isPlaying && !MixcloudService.isPlaying)
+    readonly property bool useMixcloud: MixcloudService.hasActiveSession && !(mprisPlayer && mprisPlayer.isPlaying && !MixcloudService.isPlaying)
 
     readonly property bool active: previewMediaActive || useMixcloud || (mprisPlayer !== null && ((mprisPlayer.trackTitle || "") !== "" || mprisPlayer.isPlaying))
     readonly property bool isPlaying: useMixcloud ? MixcloudService.isPlaying : (mprisPlayer ? mprisPlayer.isPlaying : (previewMediaActive ? previewPlaying : false))

@@ -38,6 +38,7 @@ Singleton {
     property string playbackState: "idle" // "idle" | "resolving" | "buffering" | "playing" | "paused" | "error"
     property var currentTrack: null
     readonly property bool hasTrack: currentTrack !== null
+    readonly property bool hasActiveSession: currentTrack !== null && !_needsResumeReload
     readonly property bool isPlaying: playbackState === "playing"
     readonly property bool isBusy: playbackState === "resolving" || playbackState === "buffering"
     property real position: 0
