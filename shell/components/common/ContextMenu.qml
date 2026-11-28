@@ -143,7 +143,7 @@ Item {
         ThemeGradientFill {
             anchors.fill: parent
             anchors.margins: 1
-            enabled: Theme.shellGradientEnabled
+            enabled: Theme.effectiveShellGradient
             color1: Theme.pillBg
             colorMid: Theme.pillBgMid
             color2: Theme.pillBg2

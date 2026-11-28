@@ -21,6 +21,7 @@ Singleton {
     property string prefSortBy: "name" // "name" | "mtime" | "size" | "type"
     property bool prefSortAsc: true
     property bool _stateLoaded: false
+    signal stateLoaded()
 
     property var resolvedPlaces: [
         { key: "Home", label: "Home", icon: "home", path: homeDir },
@@ -74,23 +75,35 @@ Singleton {
     }
 
     property var videoThumbs: ({})
+    property var _videoThumbPending: ({})
+
+    function fileUrl(path) {
+        if (!path) return "";
+        return "file://" + String(path).split("/").map(seg => encodeURIComponent(seg)).join("/");
+    }
 
     // ponytail: /tmp cache per session, no disk eviction
     function requestVideoThumb(path, cb) {
         if (!path) return;
         const cached = videoThumbs[path];
-        if (cached !== undefined) {
-            if (cached !== "" && cb) cb(cached);
+        if (cached) {
+            if (cb) cb(cached);
             return;
         }
-        videoThumbs[path] = "";
+        if (_videoThumbPending[path]) {
+            if (cb) _videoThumbPending[path].push(cb);
+            return;
+        }
+        _videoThumbPending[path] = cb ? [cb] : [];
         const thumbDir = (Quickshell.env("XDG_RUNTIME_DIR") || ("/tmp/paithosh-" + (Quickshell.env("USER") || "user"))) + "/paithosh-thumbs";
         const thumb = thumbDir + "/" + Qt.md5(path) + ".jpg";
         runCmd(["sh", "-c", "mkdir -p \"$3\" && [ -s \"$2\" ] || ffmpeg -y -loglevel error -i \"$1\" -frames:v 1 -vf \"scale=320:-1\" -q:v 5 \"$2\"", "sh", path, thumb, thumbDir], (ok) => {
+            const waiters = _videoThumbPending[path] || [];
+            delete _videoThumbPending[path];
             if (ok) {
-                const url = "file://" + thumb;
+                const url = fileUrl(thumb);
                 videoThumbs[path] = url;
-                if (cb) cb(url);
+                for (let i = 0; i < waiters.length; ++i) waiters[i](url);
             }
         });
     }
@@ -117,6 +130,7 @@ Singleton {
                 }
             } catch (e) {}
             _stateLoaded = true;
+            stateLoaded();
         });
     }
 

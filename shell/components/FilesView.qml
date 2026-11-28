@@ -26,25 +26,65 @@ FocusScope {
     property int activePortalFilterIdx: -1
     property var selectedPaths: []
     property bool previewDismissed: false
-    property string previewText: ""
-    property string previewThumbUrl: ""
+    property int _previewSeq: 0
+    property var _previewDisplayItem: null
+    property string _previewDisplayLabel: ""
+    property string _previewDisplayMode: ""
+    property string _previewMediaSource: ""
+    property string _previewText: ""
+    property bool filterMenuOpen: false
+
+    // Extendable preview handler registry: add a FileService.classifyType() key
+    // with { label, mode, load(item, done) } to support more file types later.
+    readonly property var previewHandlers: ({
+        image: {
+            label: "Image",
+            mode: "image",
+            load: (item, done) => done({ source: FileService.fileUrl(item.path) })
+        },
+        video: {
+            label: "Video",
+            mode: "video",
+            load: (item, done) => FileService.requestVideoThumb(item.path, (url) => done({ source: url }))
+        }
+    })
+
+    function previewHandlerFor(item) {
+        return (item && item.type && previewHandlers[item.type]) ? previewHandlers[item.type] : null;
+    }
+
     readonly property var previewItem: selectedPaths.length === 1 ? getPrimarySelectedItem() : null
-    readonly property bool showPreviewPanel: previewItem !== null && previewItem.type !== "folder" && !previewDismissed
+    readonly property var activePreviewHandler: previewHandlerFor(previewItem)
+    readonly property bool showPreviewPanel: activePreviewHandler !== null && !previewDismissed
 
     onSelectedPathsChanged: {
         previewDismissed = false;
-        previewText = "";
-        previewThumbUrl = "";
+    }
+
+    onPreviewItemChanged: {
         const item = previewItem;
-        if (!item || item.type === "folder") return;
-        const p = item.path;
-        if (item.type === "video") {
-            FileService.requestVideoThumb(p, (url) => {
-                if (root.previewItem && root.previewItem.path === p) root.previewThumbUrl = url;
-            });
-        } else if (item.type !== "image" && item.type !== "archive" && item.type !== "music") {
-            FileService.readTextPreview(p, (txt) => {
-                if (root.previewItem && root.previewItem.path === p) root.previewText = txt;
+        const handler = previewHandlerFor(item);
+        const seq = ++_previewSeq;
+        if (!handler) return;
+        _previewDisplayItem = item;
+        _previewDisplayLabel = handler.label || item.type;
+        _previewDisplayMode = handler.mode || "image";
+        _previewMediaSource = "";
+        _previewText = "";
+        handler.load(item, (res) => {
+            if (!root || seq !== root._previewSeq) return;
+            if (res && res.source !== undefined) root._previewMediaSource = String(res.source || "");
+            if (res && res.text !== undefined) root._previewText = String(res.text || "");
+        });
+    }
+
+    onShowPreviewPanelChanged: {
+        if (showPreviewPanel && !isListView && lastSelectedIdx >= 0) {
+            Qt.callLater(() => {
+                if (root && root.showPreviewPanel && !root.isListView && root.lastSelectedIdx >= 0 && root.lastSelectedIdx < viewModel.count) {
+                    filesGrid.forceLayout();
+                    filesGrid.positionViewAtIndex(root.lastSelectedIdx, GridView.Contain);
+                }
             });
         }
     }
@@ -68,8 +108,13 @@ FocusScope {
     property string statusMessage: ""
     property string loadError: ""
     property string diskInfo: ""
-    property bool isLoading: false
+    property bool isLoading: true
+    property bool _hasLoadedOnce: false
     property int _navSeq: 0
+
+    readonly property bool _isDetachedWindow: Boolean(root.shellState && (root.shellState.detachedApp === "files" || root.shellState.detachedApp === "picker"))
+    readonly property int _appBottomRadius: _isDetachedWindow ? 13 : ((!root.shellState || root.shellState.barPosition !== "bottom") ? 17 : 0)
+    readonly property int _appTopRadius: (!_isDetachedWindow && root.shellState && root.shellState.barPosition === "bottom") ? 17 : 0
 
     // Collapsible sidebar groups
     property bool placesOpen: true
@@ -199,7 +244,7 @@ FocusScope {
 
     Timer {
         id: animEnableTimer
-        interval: 480
+        interval: 60
         repeat: false
         onTriggered: if (root) root._transitionsEnabled = true
     }
@@ -220,15 +265,20 @@ FocusScope {
 
     function syncViewModel() {
         const nextList = visibleItems || [];
-        const ctx = virtualMode + "::" + currentPath + "::" + (isListView ? "list" : "grid");
+        const ctx = virtualMode + "::" + currentPath + "::" + (isDeepSearch ? "deep" : "dir") + "::" + (isListView ? "list" : "grid");
         if (_lastModelContext !== ctx || (viewModel.count === 0 && nextList.length > 0)) {
+            const contextChanged = _lastModelContext !== ctx;
             _lastModelContext = ctx;
             _transitionsEnabled = false;
             viewModel.clear();
             for (let i = 0; i < nextList.length; ++i) {
                 viewModel.append(_toRowObj(nextList[i]));
             }
-            animEnableTimer.interval = 480;
+            if (contextChanged) {
+                if (filesGrid) filesGrid.contentY = 0;
+                if (filesList) filesList.contentY = 0;
+            }
+            animEnableTimer.interval = 60;
             animEnableTimer.restart();
             return;
         }
@@ -407,6 +457,7 @@ FocusScope {
         FileService.listDir(target, showHidden, (ok, items, err) => {
             if (!root || seq !== root._navSeq) return;
             root.isLoading = false;
+            root._hasLoadedOnce = true;
             if (!ok) {
                 root.currentItems = [];
                 root.loadError = err || "Cannot open directory";
@@ -443,10 +494,12 @@ FocusScope {
         isLoading = true;
         selectedPaths = [];
         lastSelectedIdx = -1;
+        currentItems = [];
         if (isPicker && pickerDirectory) nameField.text = "";
         FileService.listRecent((ok, items) => {
             if (!root || seq !== root._navSeq) return;
             isLoading = false;
+            _hasLoadedOnce = true;
             currentItems = items || [];
             statusMessage = currentItems.length + " recent files";
         });
@@ -458,6 +511,7 @@ FocusScope {
         isDeepSearch = false;
         loadError = "";
         isLoading = false;
+        _hasLoadedOnce = true;
         selectedPaths = [];
         lastSelectedIdx = -1;
         if (isPicker && pickerDirectory) nameField.text = "";
@@ -494,6 +548,7 @@ FocusScope {
         FileService.searchFiles(currentPath, q, showHidden, (ok, items, err) => {
             if (!root || seq !== root._navSeq) return;
             isLoading = false;
+            _hasLoadedOnce = true;
             if (!ok) {
                 loadError = err || "Search failed";
                 currentItems = [];
@@ -521,6 +576,7 @@ FocusScope {
             historyIdx = next.length - 1;
         }
         currentPath = target;
+        currentItems = [];
         if (!isPicker) FileService.lastPath = target;
         refreshCurrent();
     }
@@ -540,6 +596,7 @@ FocusScope {
         history = [target];
         historyIdx = 0;
         currentPath = target;
+        currentItems = [];
         refreshCurrent();
     }
 
@@ -579,11 +636,11 @@ FocusScope {
             const idx = next.indexOf(item.path);
             if (idx === -1) next.push(item.path);
             else next.splice(idx, 1);
+            lastSelectedIdx = index;
             selectedPaths = next;
-            lastSelectedIdx = index;
         } else {
-            selectedPaths = [item.path];
             lastSelectedIdx = index;
+            selectedPaths = [item.path];
         }
 
         if (isPicker) {
@@ -602,8 +659,8 @@ FocusScope {
     function handleItemRightClick(srcItem, mouse, item, index) {
         if (!item) return;
         if (!isPathSelected(item.path)) {
-            selectedPaths = [item.path];
             lastSelectedIdx = index;
+            selectedPaths = [item.path];
             if (isPicker && (pickerDirectory || item.type !== "folder")) {
                 nameField.text = item.name;
             }
@@ -679,6 +736,7 @@ FocusScope {
             selectedPaths = [];
             lastSelectedIdx = -1;
             currentPath = history[historyIdx];
+            currentItems = [];
             if (!isPicker) FileService.lastPath = currentPath;
             refreshCurrent();
         }
@@ -693,6 +751,7 @@ FocusScope {
             selectedPaths = [];
             lastSelectedIdx = -1;
             currentPath = history[historyIdx];
+            currentItems = [];
             if (!isPicker) FileService.lastPath = currentPath;
             refreshCurrent();
         }
@@ -718,6 +777,7 @@ FocusScope {
         transferActive = true;
         if (destDir && totalBytes > 0) {
             FileService.dirSize(destDir, (baseBytes) => {
+                if (!root) return;
                 transferBaselineBytes = baseBytes;
                 transferPollTimer.restart();
             });
@@ -740,6 +800,7 @@ FocusScope {
         onTriggered: {
             if (root.transferTotalBytes > 0 && root.transferDestDir !== "") {
                 FileService.dirSize(root.transferDestDir, (cur) => {
+                    if (!root) return;
                     const delta = Math.max(0, cur - root.transferBaselineBytes);
                     const pct = Math.min(96, Math.max(15, Math.round((delta / root.transferTotalBytes) * 100)));
                     root.transferPct = pct;
@@ -774,6 +835,7 @@ FocusScope {
         archiverEntries = [];
         archiverActive = true;
         FileService.inspectArchive(item.path, (ok, entries, err) => {
+            if (!root) return;
             if (!ok) {
                 archiverStatus = err || "Unable to list archive (may be encrypted)";
                 return;
@@ -786,6 +848,7 @@ FocusScope {
     function beginExtract(archivePath, archiveName, password) {
         startTransfer("Extracting " + archiveName, "To " + displayPath(currentPath), "", 0);
         FileService.extractArchive(archivePath, currentPath, password || "", (ok, outDir, errText, needsPwd) => {
+            if (!root) return;
             if (!ok && needsPwd) {
                 transferPollTimer.stop();
                 transferActive = false;
@@ -826,8 +889,10 @@ FocusScope {
         const isCut = FileService.clipboardMode === "cut";
         const dest = destOverride || currentPath;
         FileService.measureSize(paths, (totalBytes) => {
+            if (!root) return;
             startTransfer((isCut ? "Moving " : "Copying ") + paths.length + " item(s)", "To " + displayPath(dest), dest, totalBytes);
             const doneCb = (ok, err) => {
+                if (!root) return;
                 if (!ok) {
                     finishTransfer("Error: " + (err || "operation failed"));
                     statusMessage = err || "Paste failed";
@@ -872,6 +937,7 @@ FocusScope {
         inputModalError = "";
         if (inputModalMode === "mkdir") {
             FileService.createFolder(currentPath, val, (ok, err) => {
+                if (!root) return;
                 if (!ok) {
                     inputModalError = err || "Failed to create folder";
                     inputShake.restart();
@@ -883,6 +949,7 @@ FocusScope {
             });
         } else if (inputModalMode === "mkfile") {
             FileService.createFile(currentPath, val, (ok, err) => {
+                if (!root) return;
                 if (!ok) {
                     inputModalError = err || "Failed to create file";
                     inputShake.restart();
@@ -894,6 +961,7 @@ FocusScope {
             });
         } else if (inputModalMode === "rename") {
             FileService.renameItem(inputModalTargetPath, val, (ok, err) => {
+                if (!root) return;
                 if (!ok) {
                     inputModalError = err || "Rename failed";
                     inputShake.restart();
@@ -945,6 +1013,7 @@ FocusScope {
         }
         if (mode === "empty_trash") {
             FileService.emptyTrash((ok, err) => {
+                if (!root) return;
                 if (!ok) statusMessage = err || "Failed to empty Trash";
                 else statusMessage = "Trash emptied";
                 refreshCurrent();
@@ -953,6 +1022,7 @@ FocusScope {
         }
         const permanent = (mode === "permanent");
         FileService.deleteItems(paths, permanent, (ok, err) => {
+            if (!root) return;
             if (!ok) statusMessage = err || "Delete failed";
             selectedPaths = [];
             lastSelectedIdx = -1;
@@ -964,6 +1034,7 @@ FocusScope {
         const list = (paths || []).filter(Boolean);
         if (list.length === 0) return;
         FileService.restoreFromTrash(list, (ok, err) => {
+            if (!root) return;
             if (!ok) statusMessage = err || "Restore failed";
             else statusMessage = "Restored " + list.length + (list.length === 1 ? " item" : " items");
             selectedPaths = [];
@@ -979,6 +1050,7 @@ FocusScope {
         const zipName = list.length === 1 ? (list[0].name + ".zip") : "Archive.zip";
         startTransfer("Compressing " + list.length + (list.length === 1 ? " item" : " items"), "Creating " + zipName, "", 0);
         FileService.createArchive(paths, currentPath, zipName, (ok, err) => {
+            if (!root) return;
             if (!ok) {
                 finishTransfer("Failed: " + (err || "zip error"));
                 statusMessage = err || "Compress failed";
@@ -1052,6 +1124,7 @@ FocusScope {
             });
         }
         ctxMenu.menuWidth = Math.max(220, btnItem.width);
+        root.filterMenuOpen = true;
         ctxMenu.openAt(pt.x, pt.y, opts);
     }
 
@@ -1181,12 +1254,28 @@ FocusScope {
         ctxMenu.openAt(pt.x, pt.y, emptyMenu);
     }
 
-    Component.onCompleted: {
-        libraryOpen = !isPicker;
+    function applyServicePrefs(refetchIfHiddenChanged) {
+        const prevHidden = showHidden;
         isListView = FileService.prefListView;
         showHidden = FileService.prefShowHidden;
         sortBy = FileService.prefSortBy;
         sortAsc = FileService.prefSortAsc;
+        if (refetchIfHiddenChanged && prevHidden !== showHidden) {
+            refreshCurrent();
+        }
+    }
+
+    Connections {
+        target: FileService
+        function onStateLoaded() {
+            root.applyServicePrefs(!root.isPicker || root.virtualMode === "");
+            if (root.virtualMode === "starred") root.loadStarred();
+        }
+    }
+
+    Component.onCompleted: {
+        libraryOpen = !isPicker;
+        applyServicePrefs(false);
         if (!isPicker) {
             const start = FileService.lastPath || FileService.homeDir;
             currentPath = start;
@@ -1340,12 +1429,12 @@ FocusScope {
             Layout.preferredWidth: 224
             Layout.fillHeight: true
             color: Theme.pillBg
-            bottomLeftRadius: (root.shellState && root.shellState.detachedApp === "files") ? 13 : ((root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition !== "bottom") ? 17 : 0)
-            topLeftRadius: (root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition === "bottom") ? 17 : 0
+            bottomLeftRadius: root._appBottomRadius
+            topLeftRadius: root._appTopRadius
 
             ThemeGradientFill {
                 anchors.fill: parent
-                enabled: Theme.shellGradientEnabled
+                enabled: Theme.effectiveShellGradient
                 color1: Theme.pillBg
                 colorMid: Theme.pillBgMid
                 color2: Theme.pillBg2
@@ -1383,8 +1472,8 @@ FocusScope {
                     ColumnLayout {
                         Layout.fillWidth: true
                         spacing: 1
-                        Text { Layout.fillWidth: true; text: root.isPicker ? root.pickerTitle : "Files"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                        Text { Layout.fillWidth: true; text: root.isPicker ? root.pickerSubtitle : "Linux • Coreutils"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.isPicker ? root.pickerTitle : "Files"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.isPicker ? root.pickerSubtitle : "File Manager"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
                     }
                 }
 
@@ -1406,11 +1495,13 @@ FocusScope {
                             sourceName: "search"
                             iconSize: 13
                             color: searchField.activeFocus ? Theme.accent : Theme.textMuted
+                            Behavior on color { ColorAnimation { duration: 150; easing.type: Easing.OutCubic } }
                         }
 
                         AnimatedTextInput {
                             id: searchField
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             textColor: Theme.text
                             font.family: Theme.fontSans
                             font.pixelSize: 12
@@ -1438,16 +1529,21 @@ FocusScope {
                                 color: Theme.textMuted
                                 font.family: Theme.fontSans
                                 font.pixelSize: 11
-                                visible: searchField.text === ""
+                                opacity: (searchField.text === "" && searchField.preeditText === "") ? 1.0 : 0.0
+                                visible: opacity > 0.01
                                 elide: Text.ElideRight
+                                Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                             }
                         }
 
                         Rectangle {
-                            visible: root.isDeepSearch
-                            width: deepLbl.implicitWidth + 8
+                            opacity: root.isDeepSearch ? 1.0 : 0.0
+                            visible: opacity > 0.01
+                            width: root.isDeepSearch ? (deepLbl.implicitWidth + 8) : 0
                             height: 17; radius: 5
                             color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
+                            clip: true
+                            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                             Text {
                                 id: deepLbl
                                 anchors.centerIn: parent
@@ -1460,15 +1556,20 @@ FocusScope {
                         }
 
                         Rectangle {
-                            visible: searchField.text !== ""
-                            width: 18; height: 18; radius: 6
+                            opacity: searchField.text !== "" ? 1.0 : 0.0
+                            visible: opacity > 0.01
+                            width: searchField.text !== "" ? 18 : 0
+                            height: 18; radius: 6
                             color: clrSearchMouse.containsMouse ? Theme.cardHover : "transparent"
                             scale: clrSearchMouse.pressed ? 0.9 : 1.0
+                            Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                            Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                             Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
                             SvgIcon { anchors.centerIn: parent; sourceName: "close"; iconSize: 10; color: Theme.textSub }
                             MouseArea {
                                 id: clrSearchMouse
                                 anchors.fill: parent
+                                enabled: searchField.text !== ""
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
@@ -1491,6 +1592,7 @@ FocusScope {
                     Layout.fillHeight: true
                     contentWidth: width
                     contentHeight: treeCol.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
                     clip: true
 
                     ScrollBar.vertical: ScrollBar {
@@ -1519,7 +1621,7 @@ FocusScope {
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8; spacing: 8
                                 SvgIcon { sourceName: "folder"; iconSize: 14; color: Theme.textSub }
-                                Text { Layout.fillWidth: true; text: "Places"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Places"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight }
                                 SvgIcon {
                                     sourceName: "chevron-right"
                                     iconSize: 13
@@ -1539,6 +1641,7 @@ FocusScope {
                             Layout.fillWidth: true
                             Layout.preferredHeight: root.placesOpen ? placesSubCol.implicitHeight : 0
                             opacity: root.placesOpen ? 1.0 : 0.0
+                            visible: Layout.preferredHeight > 1 || opacity > 0.01
                             clip: true
                             Behavior on Layout.preferredHeight { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
                             Behavior on opacity { NumberAnimation { duration: 160 } }
@@ -1580,20 +1683,23 @@ FocusScope {
                                                 sourceName: modelData.icon || "folder"
                                                 iconSize: 13
                                                 color: isActive ? Theme.accent : Theme.textMuted
+                                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                             }
                                             Text {
                                                 Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
                                                 text: modelData.label
                                                 color: isActive ? Theme.text : Theme.textSub
                                                 font.family: Theme.fontSans; font.pixelSize: 12
                                                 font.weight: isActive ? Font.DemiBold : Font.Normal
                                                 elide: Text.ElideRight
+                                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                             }
                                         }
 
                                         MouseArea {
                                             id: pMouse
-                                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            anchors.fill: parent; enabled: root.placesOpen; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                             onClicked: root.navigateTo(modelData.path)
                                         }
                                     }
@@ -1612,7 +1718,7 @@ FocusScope {
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 8; spacing: 8
                                 SvgIcon { sourceName: "clock"; iconSize: 14; color: Theme.textSub }
-                                Text { Layout.fillWidth: true; text: "Library"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold }
+                                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Library"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold; elide: Text.ElideRight }
                                 SvgIcon {
                                     sourceName: "chevron-right"
                                     iconSize: 13
@@ -1632,6 +1738,7 @@ FocusScope {
                             Layout.fillWidth: true
                             Layout.preferredHeight: root.libraryOpen ? libSubCol.implicitHeight : 0
                             opacity: root.libraryOpen ? 1.0 : 0.0
+                            visible: Layout.preferredHeight > 1 || opacity > 0.01
                             clip: true
                             Behavior on Layout.preferredHeight { NumberAnimation { duration: 190; easing.type: Easing.OutCubic } }
                             Behavior on opacity { NumberAnimation { duration: 160 } }
@@ -1672,14 +1779,17 @@ FocusScope {
                                                 sourceName: modelData.icon
                                                 iconSize: 13
                                                 color: isActive ? Theme.accent : Theme.textMuted
+                                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                             }
                                             Text {
                                                 Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
                                                 text: modelData.label
                                                 color: isActive ? Theme.text : Theme.textSub
                                                 font.family: Theme.fontSans; font.pixelSize: 12
                                                 font.weight: isActive ? Font.DemiBold : Font.Normal
                                                 elide: Text.ElideRight
+                                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                             }
                                             Text {
                                                 visible: modelData.key === "starred" && FileService.starredPaths.length > 0
@@ -1692,7 +1802,7 @@ FocusScope {
 
                                         MouseArea {
                                             id: lMouse
-                                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
+                                            anchors.fill: parent; enabled: root.libraryOpen; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
                                             onClicked: {
                                                 if (modelData.key === "recent") root.loadRecent();
                                                 else root.loadStarred();
@@ -1724,13 +1834,20 @@ FocusScope {
 
                             RowLayout {
                                 anchors.fill: parent; anchors.leftMargin: 11; anchors.rightMargin: 8; spacing: 8
-                                SvgIcon { sourceName: "hard-drive"; iconSize: 14; color: rootNavItem.isActive ? Theme.accent : Theme.textSub }
+                                SvgIcon {
+                                    sourceName: "hard-drive"; iconSize: 14
+                                    color: rootNavItem.isActive ? Theme.accent : Theme.textSub
+                                    Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                }
                                 Text {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     text: "/ (Root)"
                                     color: rootNavItem.isActive ? Theme.text : Theme.textSub
                                     font.family: Theme.fontSans; font.pixelSize: 13
                                     font.weight: rootNavItem.isActive ? Font.DemiBold : Font.Normal
+                                    elide: Text.ElideRight
+                                    Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                 }
                             }
                             MouseArea {
@@ -1745,7 +1862,7 @@ FocusScope {
                 // Transfer Progress Card
                 Rectangle {
                     id: transferBox
-                    visible: !root.isPicker && (root.transferActive || opacity > 0.01)
+                    visible: !root.isPicker && (Layout.preferredHeight > 1 || opacity > 0.01)
                     Layout.fillWidth: true
                     Layout.preferredHeight: root.transferActive ? 74 : 0
                     opacity: root.transferActive ? 1.0 : 0.0
@@ -1759,13 +1876,16 @@ FocusScope {
                     Behavior on opacity { NumberAnimation { duration: 180 } }
 
                     ColumnLayout {
-                        anchors.fill: parent
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
                         anchors.margins: 10
+                        height: 54
                         spacing: 5
 
                         RowLayout {
                             Layout.fillWidth: true
-                            Text { Layout.fillWidth: true; text: root.transferLabel; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.transferLabel; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold; elide: Text.ElideRight }
                             Text { text: root.transferPct >= 100 ? "Done" : (root.transferPct + "%"); color: Theme.accent; font.family: Theme.fontMono; font.pixelSize: 10; font.weight: Font.DemiBold }
                         }
 
@@ -1780,7 +1900,7 @@ FocusScope {
                             }
                         }
 
-                        Text { Layout.fillWidth: true; text: root.transferSub; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.transferSub; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; elide: Text.ElideRight }
                     }
                 }
 
@@ -1799,11 +1919,12 @@ FocusScope {
                         anchors.fill: parent; anchors.margins: 9; spacing: 2
                         RowLayout {
                             Layout.fillWidth: true; spacing: 6
-                            Rectangle { width: 6; height: 6; radius: 3; color: Theme.accent }
+                            SvgIcon { sourceName: "external-link"; iconSize: 12; color: Theme.textSub }
                             Text { text: "PORTAL MODE"; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 10; font.weight: Font.Bold; font.letterSpacing: 0.5 }
                         }
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             text: root.pickerBadgeText
                             color: Theme.text
                             font.family: Theme.fontSans
@@ -1860,6 +1981,7 @@ FocusScope {
                     // Interactive Breadcrumb / Path Input Bar
                     Rectangle {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 48
                         height: 30; radius: 9
                         color: root.pathEditing ? Theme.surfaceRaised : Theme.cardBg
                         border.width: 1
@@ -1880,23 +2002,28 @@ FocusScope {
                             }
                         }
 
-                        Row {
-                            visible: !root.pathEditing
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.left: parent.left
+                        RowLayout {
+                            anchors.fill: parent
                             anchors.leftMargin: 6
+                            anchors.rightMargin: 6
                             spacing: 2
+                            opacity: root.pathEditing ? 0.0 : 1.0
+                            visible: opacity > 0.01
+                            Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
                             Repeater {
                                 model: root.breadcrumbSegments
-                                delegate: Row {
+                                delegate: RowLayout {
                                     required property var modelData
                                     required property int index
                                     spacing: 2
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: index === root.breadcrumbSegments.length - 1 ? 42 : 24
+                                    Layout.preferredWidth: (index > 0 ? 12 : 0) + segText.implicitWidth + 12
+                                    Layout.maximumWidth: (index > 0 ? 12 : 0) + Math.min(160, segText.implicitWidth + 12)
 
                                     Text {
                                         visible: index > 0
-                                        anchors.verticalCenter: parent.verticalCenter
                                         text: "›"
                                         color: Theme.textMuted
                                         font.family: Theme.fontSans
@@ -1905,9 +2032,11 @@ FocusScope {
 
                                     Rectangle {
                                         height: 22
-                                        width: Math.min(160, segText.implicitWidth + 12)
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: index === root.breadcrumbSegments.length - 1 ? 36 : 20
+                                        Layout.preferredWidth: segText.implicitWidth + 12
+                                        Layout.maximumWidth: Math.min(160, segText.implicitWidth + 12)
                                         radius: 6
-                                        anchors.verticalCenter: parent.verticalCenter
                                         color: (modelData.clickable && segMouse.containsMouse) ? Theme.cardHover : "transparent"
                                         scale: (modelData.clickable && segMouse.pressed) ? 0.95 : 1.0
                                         Behavior on color { ColorAnimation { duration: 110 } }
@@ -1915,8 +2044,11 @@ FocusScope {
 
                                         Text {
                                             id: segText
-                                            anchors.centerIn: parent
-                                            width: Math.min(implicitWidth, parent.width - 10)
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 6
+                                            anchors.rightMargin: 6
+                                            verticalAlignment: Text.AlignVCenter
+                                            horizontalAlignment: Text.AlignHCenter
                                             text: modelData.label
                                             color: index === root.breadcrumbSegments.length - 1 ? Theme.text : Theme.textSub
                                             font.family: Theme.fontSans
@@ -1945,17 +2077,24 @@ FocusScope {
                                     }
                                 }
                             }
+
+                            Item {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                            }
                         }
 
                         AnimatedTextInput {
                             id: pathField
-                            visible: root.pathEditing
+                            opacity: root.pathEditing ? 1.0 : 0.0
+                            visible: root.pathEditing || opacity > 0.01
                             anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
                             verticalAlignment: TextInput.AlignVCenter
                             textColor: Theme.text
                             font.family: Theme.fontMono
                             font.pixelSize: 12
                             clip: true
+                            Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                             Keys.onReturnPressed: {
                                 root.pathEditing = false;
                                 root.navigateTo(text);
@@ -2042,7 +2181,8 @@ FocusScope {
                                 SvgIcon {
                                     anchors.centerIn: parent
                                     sourceName: "grid"; iconSize: 14
-                                    color: !root.isListView ? Theme.accent : Theme.textMuted
+                                    color: !root.isListView ? Theme.accent : (gridSegMouse.containsMouse ? Theme.text : Theme.textMuted)
+                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                 }
                                 MouseArea {
                                     id: gridSegMouse
@@ -2061,7 +2201,8 @@ FocusScope {
                                 SvgIcon {
                                     anchors.centerIn: parent
                                     sourceName: "list"; iconSize: 14
-                                    color: root.isListView ? Theme.accent : Theme.textMuted
+                                    color: root.isListView ? Theme.accent : (listSegMouse.containsMouse ? Theme.text : Theme.textMuted)
+                                    Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                                 }
                                 MouseArea {
                                     id: listSegMouse
@@ -2093,13 +2234,15 @@ FocusScope {
                     Behavior on opacity { NumberAnimation { duration: 150 } }
 
                     RowLayout {
-                        anchors.fill: parent; anchors.leftMargin: 12; anchors.rightMargin: 8; spacing: 8
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                        anchors.leftMargin: 12; anchors.rightMargin: 8; height: 36; spacing: 8
                         SvgIcon {
                             sourceName: FileService.clipboardMode === "cut" ? "scissors" : "copy"
                             iconSize: 14; color: Theme.accent
                         }
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             text: FileService.clipboardPaths.length + (FileService.clipboardPaths.length === 1 ? " item" : " items") + (FileService.clipboardMode === "cut" ? " ready to move" : " ready to copy")
                             color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; elide: Text.ElideRight
                         }
@@ -2134,12 +2277,13 @@ FocusScope {
                     Behavior on opacity { NumberAnimation { duration: 170 } }
 
                     ColumnLayout {
-                        anchors.fill: parent; anchors.margins: 12; spacing: 8
+                        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+                        anchors.margins: 12; height: 140; spacing: 8
 
                         RowLayout {
                             Layout.fillWidth: true; spacing: 8
                             SvgIcon { sourceName: "archive"; iconSize: 16; color: Theme.accent }
-                            Text { Layout.fillWidth: true; text: root.archiverArchiveName + " — " + root.archiverStatus; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
+                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.archiverArchiveName + " — " + root.archiverStatus; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
                             PillButton {
                                 text: "Extract Here"
                                 iconName: "extract"; iconSize: 12
@@ -2155,17 +2299,34 @@ FocusScope {
                         }
 
                         ListView {
+                            id: archiverList
                             Layout.fillWidth: true; Layout.fillHeight: true
                             clip: true; spacing: 4
+                            boundsBehavior: Flickable.StopAtBounds
                             model: root.archiverEntries
+                            ScrollBar.vertical: ScrollBar {
+                                policy: archiverList.contentHeight > archiverList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                                width: 4
+                                contentItem: Rectangle {
+                                    implicitWidth: 4; radius: 2
+                                    color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24)
+                                }
+                            }
                             delegate: Rectangle {
                                 required property var modelData
-                                width: ListView.view.width; height: 26; radius: 6
-                                color: Theme.cardBg
+                                width: Math.max(0, ListView.view.width - (archiverList.contentHeight > archiverList.height ? 8 : 0))
+                                height: 26; radius: 6
+                                color: archRowMouse.containsMouse ? Theme.cardHover : Theme.cardBg
+                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                MouseArea {
+                                    id: archRowMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                }
                                 RowLayout {
                                     anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
                                     SvgIcon { sourceName: root.iconFor(modelData.type); iconSize: 13; color: root.iconColorFor(modelData.type) }
-                                    Text { Layout.fillWidth: true; text: modelData.name; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: modelData.name; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
                                     Text { text: modelData.meta; color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10 }
                                 }
                             }
@@ -2173,10 +2334,17 @@ FocusScope {
                     }
                 }
 
-                // Virtualized Grid / List File Viewport
+                // Virtualized Grid / List File Viewport + Right Preview Sidebar
+                RowLayout {
+                    id: filesViewportRow
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    spacing: 0
+
                 Item {
                     id: filesViewport
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     Layout.fillHeight: true
                     clip: true
 
@@ -2230,7 +2398,7 @@ FocusScope {
                                 const col = i % cols;
                                 const row = Math.floor(i / cols);
                                 const ix = col * cw + 4;
-                                const iy = row * ch - cy;
+                                const iy = row * ch - cy + 2;
                                 const iw = cw - 10;
                                 const ih = ch - 10;
                                 if (!(ix + iw < rx || ix > rx + rw || iy + ih < ry || iy > ry + rh)) {
@@ -2242,7 +2410,7 @@ FocusScope {
                             const cy = filesList.contentY;
                             const rowStep = 39; // 36 + 3 spacing
                             const headerOffset = 28; // 24 + 4 spacing
-                            const iw = filesList.width - 6;
+                            const iw = Math.max(0, filesList.width - 10);
                             for (let i = 0; i < count; ++i) {
                                 const iy = headerOffset + i * rowStep - cy;
                                 const ih = 36;
@@ -2301,7 +2469,7 @@ FocusScope {
                         anchors.centerIn: parent
                         width: Math.min(320, parent.width - 40)
                         spacing: 10
-                        opacity: (!root.isLoading && root.visibleItems.length === 0) ? 1.0 : 0.0
+                        opacity: (!root.isLoading && root._hasLoadedOnce && root.visibleItems.length === 0) ? 1.0 : 0.0
                         visible: opacity > 0.01
                         z: 2
                         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -2321,6 +2489,7 @@ FocusScope {
 
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             horizontalAlignment: Text.AlignHCenter
                             text: root.loadError !== ""
                                 ? root.loadError
@@ -2336,6 +2505,7 @@ FocusScope {
 
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             horizontalAlignment: Text.AlignHCenter
                             wrapMode: Text.WordWrap
                             text: root.loadError !== ""
@@ -2378,22 +2548,25 @@ FocusScope {
                         }
                     }
 
-                    // Virtualized Grid View (Balanced 4-col math + ScrollBar space)
+                    // Virtualized Grid View (Balanced col math from target width + ScrollBar gutter)
                     GridView {
                         id: filesGrid
-                        visible: !root.isListView
+                        opacity: !root.isListView ? 1.0 : 0.0
+                        visible: opacity > 0.01
                         anchors.fill: parent
                         clip: true
                         interactive: false
-                        reuseItems: true
+                        reuseItems: false
                         cacheBuffer: 240
-                        readonly property int cols: Math.max(2, Math.floor((width - 6) / 154))
-                        cellWidth: Math.floor((width - 6) / cols)
+                        readonly property real targetViewportWidth: Math.max(200, filesViewportRow.width - (root.showPreviewPanel ? previewPanelHost.targetWidth : 0))
+                        readonly property int cols: Math.max(2, Math.floor((targetViewportWidth - 10) / 154))
+                        cellWidth: Math.floor((width - 10) / cols)
                         cellHeight: 118
                         model: !root.isListView ? viewModel : emptyModel
+                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                         onColsChanged: {
                             root._transitionsEnabled = false;
-                            animEnableTimer.interval = 140;
+                            animEnableTimer.interval = 60;
                             animEnableTimer.restart();
                         }
 
@@ -2425,10 +2598,10 @@ FocusScope {
                             NumberAnimation { properties: "x,y"; duration: 250; easing.type: Easing.OutCubic }
                         }
 
-                        add: root._transitionsEnabled ? gridAddTrans : null
-                        remove: root._transitionsEnabled ? gridRemoveTrans : null
-                        displaced: root._transitionsEnabled ? gridMoveTrans : null
-                        move: root._transitionsEnabled ? gridMoveTrans : null
+                        add: (root._transitionsEnabled && !Theme.reduceMotion) ? gridAddTrans : null
+                        remove: (root._transitionsEnabled && !Theme.reduceMotion) ? gridRemoveTrans : null
+                        displaced: (root._transitionsEnabled && !Theme.reduceMotion) ? gridMoveTrans : null
+                        move: (root._transitionsEnabled && !Theme.reduceMotion) ? gridMoveTrans : null
 
                         ScrollBar.vertical: ScrollBar {
                             policy: filesGrid.contentHeight > filesGrid.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
@@ -2466,17 +2639,16 @@ FocusScope {
                             readonly property bool isStar: FileService.isStarred(path)
                             readonly property color itemColor: root.iconColorFor(type)
 
-                            GridView.onReused: {
-                                gridDelegate.opacity = 1.0;
-                                gridDelegate.scale = 1.0;
-                            }
+                            onPathChanged: gridThumbBox.loadThumb()
+                            onTypeChanged: gridThumbBox.loadThumb()
 
                             Rectangle {
                                 id: gridCard
                                 anchors.fill: parent
+                                anchors.topMargin: 2
                                 anchors.leftMargin: 4
                                 anchors.rightMargin: 6
-                                anchors.bottomMargin: 10
+                                anchors.bottomMargin: 8
                                 radius: 12
                                 opacity: isCut ? 0.46 : 1.0
                                 color: isSel
@@ -2500,7 +2672,6 @@ FocusScope {
                                     target: null
                                     acceptedButtons: Qt.LeftButton
                                     onActiveChanged: {
-                                        if (root.shellState) root.shellState.externalFileDragging = active;
                                         if (active && !root.isPathSelected(gridDelegate.path)) {
                                             root.selectedPaths = [gridDelegate.path];
                                             root.lastSelectedIdx = index;
@@ -2524,37 +2695,57 @@ FocusScope {
                                     anchors.fill: parent; anchors.margins: 10; spacing: 6
 
                                     Rectangle {
+                                        id: gridThumbBox
                                         Layout.alignment: Qt.AlignHCenter
-                                        width: 42; height: 42; radius: 11; clip: true
+                                        Layout.preferredWidth: 42
+                                        Layout.preferredHeight: 42
+                                        radius: 11
                                         color: Qt.rgba(itemColor.r, itemColor.g, itemColor.b, 0.13)
-                                        property string thumbUrl: gridDelegate.type === "image" ? ("file://" + gridDelegate.path) : ""
-                                        Component.onCompleted: {
+                                        property string videoThumbUrl: ""
+                                        readonly property string thumbUrl: gridDelegate.type === "image"
+                                            ? FileService.fileUrl(gridDelegate.path)
+                                            : (gridDelegate.type === "video" ? videoThumbUrl : "")
+                                        function loadThumb() {
+                                            videoThumbUrl = "";
                                             if (gridDelegate.type === "video") {
-                                                FileService.requestVideoThumb(gridDelegate.path, (url) => { thumbUrl = url; });
+                                                const reqPath = gridDelegate.path;
+                                                FileService.requestVideoThumb(reqPath, (url) => {
+                                                    if (gridDelegate && gridDelegate.path === reqPath) gridThumbBox.videoThumbUrl = url;
+                                                });
                                             }
                                         }
-                                        Image {
-                                            id: gridPreviewImg
+                                        Component.onCompleted: loadThumb()
+                                        AdaptiveClipRect {
                                             anchors.fill: parent
-                                            source: parent.thumbUrl
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            sourceSize: Qt.size(84, 84)
-                                            opacity: status === Image.Ready ? 1 : 0
-                                            visible: opacity > 0.01
-                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            radius: gridPreviewImg.opacity > 0.01 ? 11 : 0
+                                            color: "transparent"
+                                            visible: gridPreviewImg.opacity > 0.01
+                                            Image {
+                                                id: gridPreviewImg
+                                                anchors.fill: parent
+                                                source: gridThumbBox.thumbUrl
+                                                fillMode: Image.PreserveAspectCrop
+                                                asynchronous: true
+                                                sourceSize: Qt.size(84, 84)
+                                                opacity: status === Image.Ready ? 1 : 0
+                                                visible: opacity > 0.01
+                                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            }
                                         }
                                         SvgIcon {
                                             anchors.centerIn: parent
                                             sourceName: root.iconFor(gridDelegate.type)
                                             iconSize: 22
                                             color: itemColor
-                                            visible: !gridPreviewImg.visible
+                                            opacity: gridPreviewImg.status === Image.Ready ? 0.0 : 1.0
+                                            visible: opacity > 0.01
+                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                                         }
                                     }
 
                                     Text {
                                         Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
                                         horizontalAlignment: Text.AlignHCenter
                                         text: gridDelegate.name
                                         color: Theme.text
@@ -2564,10 +2755,12 @@ FocusScope {
 
                                     Text {
                                         Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
                                         horizontalAlignment: Text.AlignHCenter
                                         text: gridDelegate.meta
                                         color: Theme.textSub
-                                        font.family: Theme.fontSans; font.pixelSize: 10
+                                        font.family: gridDelegate.type === "folder" ? Theme.fontSans : Theme.fontMono
+                                        font.pixelSize: 10
                                         elide: Text.ElideRight
                                     }
                                 }
@@ -2595,9 +2788,11 @@ FocusScope {
 
                     // Virtualized List View with Sortable Column Header
                     ColumnLayout {
-                        visible: root.isListView
+                        opacity: root.isListView ? 1.0 : 0.0
+                        visible: opacity > 0.01
                         anchors.fill: parent
                         spacing: 4
+                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
                         // Column Header
                         Rectangle {
@@ -2607,41 +2802,86 @@ FocusScope {
                             color: "transparent"
 
                             RowLayout {
-                                anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 16; spacing: 10
+                                anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 20; spacing: 10
 
                                 MouseArea {
+                                    id: hdrNameMouse
                                     Layout.fillWidth: true; Layout.fillHeight: true
+                                    hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: root.toggleSortColumn("name")
                                     Row {
                                         anchors.verticalCenter: parent.verticalCenter
                                         spacing: 4
-                                        Text { text: "Name"; color: root.sortBy === "name" ? Theme.text : Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold }
-                                        Text { visible: root.sortBy === "name"; text: root.sortAsc ? "↑" : "↓"; color: Theme.accent; font.pixelSize: 10 }
+                                        scale: hdrNameMouse.pressed ? 0.96 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
+                                        Text {
+                                            text: "Name"
+                                            color: root.sortBy === "name" ? Theme.text : (hdrNameMouse.containsMouse ? Theme.textSub : Theme.textMuted)
+                                            font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                            Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                        }
+                                        SvgIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: root.sortBy === "name"
+                                            sourceName: "arrow-up"; iconSize: 11; color: Theme.accent
+                                            rotation: root.sortAsc ? 0 : 180
+                                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        }
                                     }
                                 }
 
                                 MouseArea {
+                                    id: hdrModMouse
                                     Layout.preferredWidth: 88; Layout.fillHeight: true
+                                    hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: root.toggleSortColumn("mtime")
                                     Row {
                                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                         spacing: 3
-                                        Text { visible: root.sortBy === "mtime"; text: root.sortAsc ? "↑" : "↓"; color: Theme.accent; font.pixelSize: 10 }
-                                        Text { text: "Modified"; color: root.sortBy === "mtime" ? Theme.text : Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                        scale: hdrModMouse.pressed ? 0.96 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
+                                        SvgIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: root.sortBy === "mtime"
+                                            sourceName: "arrow-up"; iconSize: 11; color: Theme.accent
+                                            rotation: root.sortAsc ? 0 : 180
+                                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        }
+                                        Text {
+                                            text: "Modified"
+                                            color: root.sortBy === "mtime" ? Theme.text : (hdrModMouse.containsMouse ? Theme.textSub : Theme.textMuted)
+                                            font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                            Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                        }
                                     }
                                 }
 
                                 MouseArea {
+                                    id: hdrSizeMouse
                                     Layout.preferredWidth: 72; Layout.fillHeight: true
+                                    hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: root.toggleSortColumn("size")
                                     Row {
                                         anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                         spacing: 3
-                                        Text { visible: root.sortBy === "size"; text: root.sortAsc ? "↑" : "↓"; color: Theme.accent; font.pixelSize: 10 }
-                                        Text { text: "Size"; color: root.sortBy === "size" ? Theme.text : Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold }
+                                        scale: hdrSizeMouse.pressed ? 0.96 : 1.0
+                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
+                                        SvgIcon {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            visible: root.sortBy === "size"
+                                            sourceName: "arrow-up"; iconSize: 11; color: Theme.accent
+                                            rotation: root.sortAsc ? 0 : 180
+                                            Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                        }
+                                        Text {
+                                            text: "Size"
+                                            color: root.sortBy === "size" ? Theme.text : (hdrSizeMouse.containsMouse ? Theme.textSub : Theme.textMuted)
+                                            font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                            Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                        }
                                     }
                                 }
                             }
@@ -2653,7 +2893,7 @@ FocusScope {
                             Layout.fillHeight: true
                             clip: true
                             interactive: false
-                            reuseItems: true
+                            reuseItems: false
                             cacheBuffer: 240
                             spacing: 3
                             model: root.isListView ? viewModel : emptyModel
@@ -2686,10 +2926,10 @@ FocusScope {
                                 NumberAnimation { properties: "x,y"; duration: 240; easing.type: Easing.OutCubic }
                             }
 
-                            add: root._transitionsEnabled ? listAddTrans : null
-                            remove: root._transitionsEnabled ? listRemoveTrans : null
-                            displaced: root._transitionsEnabled ? listMoveTrans : null
-                            move: root._transitionsEnabled ? listMoveTrans : null
+                            add: (root._transitionsEnabled && !Theme.reduceMotion) ? listAddTrans : null
+                            remove: (root._transitionsEnabled && !Theme.reduceMotion) ? listRemoveTrans : null
+                            displaced: (root._transitionsEnabled && !Theme.reduceMotion) ? listMoveTrans : null
+                            move: (root._transitionsEnabled && !Theme.reduceMotion) ? listMoveTrans : null
 
                             ScrollBar.vertical: ScrollBar {
                                 policy: filesList.contentHeight > filesList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
@@ -2702,7 +2942,7 @@ FocusScope {
                                 }
                             }
 
-                            delegate: Rectangle {
+                            delegate: Item {
                                 id: listDelegate
                                 required property int index
                                 required property string name
@@ -2724,180 +2964,394 @@ FocusScope {
                                 readonly property bool isStar: FileService.isStarred(path)
                                 readonly property color itemColor: root.iconColorFor(type)
 
-                                width: Math.max(0, filesList.width - 6)
-                                height: 36; radius: 8
-                                opacity: isCut ? 0.46 : 1.0
-                                color: isSel
-                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
-                                    : (rowMouse.containsMouse ? Theme.cardHover : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035))
-                                border.width: 1
-                                border.color: isSel
-                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.52)
-                                    : (rowMouse.containsMouse ? Theme.borderSubtle : "transparent")
-                                scale: rowMouse.pressed ? 0.99 : 1.0
+                                width: Math.max(0, filesList.width - 10)
+                                height: 36
 
-                                ListView.onReused: {
-                                    listDelegate.opacity = listDelegate.isCut ? 0.46 : 1.0;
-                                    listDelegate.scale = 1.0;
-                                }
+                                onPathChanged: listThumbBox.loadThumb()
+                                onTypeChanged: listThumbBox.loadThumb()
 
-                                Drag.active: listDragHandler.active
-                                Drag.dragType: Drag.Automatic
-                                Drag.supportedActions: Qt.CopyAction
-                                Drag.hotSpot: Qt.point(16, 16)
-                                Drag.imageSource: Qt.resolvedUrl("../assets/icons/" + root.iconFor(listDelegate.type) + ".svg")
-                                Drag.mimeData: root.buildDragMime(listDelegate.path)
+                                Rectangle {
+                                    id: listCard
+                                    anchors.fill: parent
+                                    radius: 8
+                                    opacity: isCut ? 0.46 : 1.0
+                                    color: isSel
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+                                        : (rowMouse.containsMouse ? Theme.cardHover : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035))
+                                    border.width: 1
+                                    border.color: isSel
+                                        ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.52)
+                                        : (rowMouse.containsMouse ? Theme.borderSubtle : "transparent")
+                                    scale: rowMouse.pressed ? 0.99 : 1.0
 
-                                Item {
-                                    id: listDragArea
-                                    x: 0; y: 0; height: parent.height
-                                    width: listDelegate.isSel ? parent.width : Math.min(parent.width - 176, 46 + listNameText.implicitWidth + 16)
-                                    DragHandler {
-                                        id: listDragHandler
-                                        target: null
-                                        acceptedButtons: Qt.LeftButton
-                                        onActiveChanged: {
-                                            if (root.shellState) root.shellState.externalFileDragging = active;
-                                            if (active && !root.isPathSelected(listDelegate.path)) {
-                                                root.selectedPaths = [listDelegate.path];
-                                                root.lastSelectedIdx = index;
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Behavior on opacity { NumberAnimation { duration: 140 } }
-                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                                Behavior on border.color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                                Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
-
-                                RowLayout {
-                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
+                                    Drag.active: listDragHandler.active
+                                    Drag.dragType: Drag.Automatic
+                                    Drag.supportedActions: Qt.CopyAction
+                                    Drag.hotSpot: Qt.point(16, 16)
+                                    Drag.imageSource: Qt.resolvedUrl("../assets/icons/" + root.iconFor(listDelegate.type) + ".svg")
+                                    Drag.mimeData: root.buildDragMime(listDelegate.path)
 
                                     Item {
-                                        width: 20; height: 20
-                                        property string thumbUrl: listDelegate.type === "image" ? ("file://" + listDelegate.path) : ""
-                                        Component.onCompleted: {
-                                            if (listDelegate.type === "video") {
-                                                FileService.requestVideoThumb(listDelegate.path, (url) => { thumbUrl = url; });
+                                        id: listDragArea
+                                        x: 0; y: 0; height: parent.height
+                                        width: listDelegate.isSel ? parent.width : Math.min(parent.width - 176, 46 + listNameText.implicitWidth + 16)
+                                        DragHandler {
+                                            id: listDragHandler
+                                            target: null
+                                            acceptedButtons: Qt.LeftButton
+                                            onActiveChanged: {
+                                                if (active && !root.isPathSelected(listDelegate.path)) {
+                                                    root.selectedPaths = [listDelegate.path];
+                                                    root.lastSelectedIdx = index;
+                                                }
                                             }
                                         }
-                                        Image {
-                                            id: listPreviewImg
-                                            anchors.fill: parent
-                                            source: parent.thumbUrl
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            sourceSize: Qt.size(40, 40)
-                                            opacity: status === Image.Ready ? 1 : 0
-                                            visible: opacity > 0.01
-                                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    Behavior on opacity { NumberAnimation { duration: 140 } }
+                                    Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                    Behavior on border.color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                    Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
+
+                                    RowLayout {
+                                        anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 10
+
+                                        Item {
+                                            id: listThumbBox
+                                            Layout.preferredWidth: 20
+                                            Layout.preferredHeight: 20
+                                            property string videoThumbUrl: ""
+                                            readonly property string thumbUrl: listDelegate.type === "image"
+                                                ? FileService.fileUrl(listDelegate.path)
+                                                : (listDelegate.type === "video" ? videoThumbUrl : "")
+                                            function loadThumb() {
+                                                videoThumbUrl = "";
+                                                if (listDelegate.type === "video") {
+                                                    const reqPath = listDelegate.path;
+                                                    FileService.requestVideoThumb(reqPath, (url) => {
+                                                        if (listDelegate && listDelegate.path === reqPath) listThumbBox.videoThumbUrl = url;
+                                                    });
+                                                }
+                                            }
+                                            Component.onCompleted: loadThumb()
+                                            AdaptiveClipRect {
+                                                anchors.fill: parent
+                                                radius: listPreviewImg.opacity > 0.01 ? 5 : 0
+                                                color: "transparent"
+                                                visible: listPreviewImg.opacity > 0.01
+                                                Image {
+                                                    id: listPreviewImg
+                                                    anchors.fill: parent
+                                                    source: listThumbBox.thumbUrl
+                                                    fillMode: Image.PreserveAspectCrop
+                                                    asynchronous: true
+                                                    sourceSize: Qt.size(40, 40)
+                                                    opacity: status === Image.Ready ? 1 : 0
+                                                    visible: opacity > 0.01
+                                                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                                }
+                                            }
+                                            SvgIcon {
+                                                anchors.centerIn: parent
+                                                sourceName: root.iconFor(listDelegate.type)
+                                                iconSize: 16
+                                                color: itemColor
+                                                opacity: listPreviewImg.status === Image.Ready ? 0.0 : 1.0
+                                                visible: opacity > 0.01
+                                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                            }
                                         }
+
+                                        Text {
+                                            id: listNameText
+                                            Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
+                                            text: listDelegate.name
+                                            color: Theme.text
+                                            font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            visible: Boolean(listDelegate.relPath)
+                                            text: listDelegate.relPath || ""
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontSans; font.pixelSize: 11
+                                            elide: Text.ElideMiddle
+                                            Layout.maximumWidth: 140
+                                        }
+
                                         SvgIcon {
-                                            anchors.centerIn: parent
-                                            sourceName: root.iconFor(listDelegate.type)
-                                            iconSize: 16
-                                            color: itemColor
-                                            visible: !listPreviewImg.visible
+                                            visible: isStar
+                                            sourceName: "star"; iconSize: 11; color: Theme.accent
+                                        }
+
+                                        Text {
+                                            Layout.preferredWidth: 88
+                                            horizontalAlignment: Text.AlignRight
+                                            text: listDelegate.modifiedText || ""
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontMono; font.pixelSize: 11
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            Layout.preferredWidth: 72
+                                            horizontalAlignment: Text.AlignRight
+                                            text: listDelegate.type === "folder" ? "Folder" : FileService.formatSize(listDelegate.size)
+                                            color: Theme.textSub
+                                            font.family: Theme.fontMono; font.pixelSize: 11
+                                            elide: Text.ElideRight
                                         }
                                     }
 
-                                    Text {
-                                        id: listNameText
-                                        Layout.fillWidth: true
-                                        Layout.minimumWidth: 0
-                                        text: listDelegate.name
-                                        color: Theme.text
-                                        font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        visible: Boolean(listDelegate.relPath)
-                                        text: listDelegate.relPath || ""
-                                        color: Theme.textMuted
-                                        font.family: Theme.fontSans; font.pixelSize: 11
-                                        elide: Text.ElideMiddle
-                                        Layout.maximumWidth: 140
-                                    }
-
-                                    SvgIcon {
-                                        visible: isStar
-                                        sourceName: "star"; iconSize: 11; color: Theme.accent
-                                    }
-
-                                    Text {
-                                        Layout.preferredWidth: 88
-                                        horizontalAlignment: Text.AlignRight
-                                        text: listDelegate.modifiedText || ""
-                                        color: Theme.textMuted
-                                        font.family: Theme.fontSans; font.pixelSize: 11
-                                        elide: Text.ElideRight
-                                    }
-
-                                    Text {
-                                        Layout.preferredWidth: 72
-                                        horizontalAlignment: Text.AlignRight
-                                        text: listDelegate.type === "folder" ? "Folder" : FileService.formatSize(listDelegate.size)
-                                        color: Theme.textSub
-                                        font.family: Theme.fontMono; font.pixelSize: 11
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                MouseArea {
-                                    id: rowMouse
-                                    anchors.fill: parent; hoverEnabled: true
-                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                    property bool _marqueeActive: false
-                                    onPressed: (mouse) => {
-                                        _marqueeActive = false;
-                                        filesViewport._selMoved = false;
-                                        if (mouse.button === Qt.LeftButton && (!root.isPicker || root.pickerMultiple)) {
-                                            if (mouse.x > listDragArea.width && !listDelegate.isSel) {
-                                                _marqueeActive = true;
-                                                const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
-                                                filesViewport.beginMarquee(pt.x, pt.y, mouse.modifiers);
+                                    MouseArea {
+                                        id: rowMouse
+                                        anchors.fill: parent; hoverEnabled: true
+                                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                        property bool _marqueeActive: false
+                                        onPressed: (mouse) => {
+                                            _marqueeActive = false;
+                                            filesViewport._selMoved = false;
+                                            if (mouse.button === Qt.LeftButton && (!root.isPicker || root.pickerMultiple)) {
+                                                if (mouse.x > listDragArea.width && !listDelegate.isSel) {
+                                                    _marqueeActive = true;
+                                                    const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
+                                                    filesViewport.beginMarquee(pt.x, pt.y, mouse.modifiers);
+                                                }
                                             }
                                         }
-                                    }
-                                    onPositionChanged: (mouse) => {
-                                        if (!_marqueeActive || !pressed || (mouse.buttons & Qt.LeftButton) === 0) return;
-                                        const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
-                                        filesViewport.moveMarquee(pt.x, pt.y);
-                                    }
-                                    onReleased: (mouse) => {
-                                        if (_marqueeActive) {
-                                            _marqueeActive = false;
-                                            filesViewport.endMarquee();
+                                        onPositionChanged: (mouse) => {
+                                            if (!_marqueeActive || !pressed || (mouse.buttons & Qt.LeftButton) === 0) return;
+                                            const pt = rowMouse.mapToItem(filesViewport, mouse.x, mouse.y);
+                                            filesViewport.moveMarquee(pt.x, pt.y);
                                         }
-                                    }
-                                    onCanceled: {
-                                        if (_marqueeActive) {
-                                            _marqueeActive = false;
-                                            filesViewport.endMarquee();
+                                        onReleased: (mouse) => {
+                                            if (_marqueeActive) {
+                                                _marqueeActive = false;
+                                                filesViewport.endMarquee();
+                                            }
                                         }
-                                    }
-                                    onClicked: (mouse) => {
-                                        if (mouse.button === Qt.LeftButton && filesViewport._selMoved) {
-                                            filesViewport._selMoved = false;
-                                            return;
+                                        onCanceled: {
+                                            if (_marqueeActive) {
+                                                _marqueeActive = false;
+                                                filesViewport.endMarquee();
+                                            }
                                         }
-                                        if (mouse.button === Qt.RightButton) {
-                                            root.handleItemRightClick(this, mouse, listDelegate.itemObj, index);
-                                        } else {
-                                            root.handleItemClick(listDelegate.itemObj, index, mouse);
+                                        onClicked: (mouse) => {
+                                            if (mouse.button === Qt.LeftButton && filesViewport._selMoved) {
+                                                filesViewport._selMoved = false;
+                                                return;
+                                            }
+                                            if (mouse.button === Qt.RightButton) {
+                                                root.handleItemRightClick(this, mouse, listDelegate.itemObj, index);
+                                            } else {
+                                                root.handleItemClick(listDelegate.itemObj, index, mouse);
+                                            }
                                         }
-                                    }
-                                    onDoubleClicked: (mouse) => {
-                                        if (mouse.button === Qt.LeftButton) {
-                                            root.handleItemDoubleClick(listDelegate.itemObj);
+                                        onDoubleClicked: (mouse) => {
+                                            if (mouse.button === Qt.LeftButton) {
+                                                root.handleItemDoubleClick(listDelegate.itemObj);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
                     }
+                }
+
+                // Right Preview Sidebar (beside viewport, opens only for registered previewable types)
+                Item {
+                    id: previewPanelHost
+                    readonly property int targetWidth: Math.min(244, Math.max(180, Math.floor(filesViewportRow.width * 0.36)))
+                    Layout.preferredWidth: root.showPreviewPanel ? targetWidth : 0
+                    Layout.fillHeight: true
+                    clip: true
+                    visible: width > 1 || root.showPreviewPanel
+
+                    Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                    onWidthChanged: {
+                        if (!root.showPreviewPanel && width <= 1) {
+                            root._previewDisplayItem = null;
+                            root._previewDisplayLabel = "";
+                            root._previewDisplayMode = "";
+                            root._previewMediaSource = "";
+                            root._previewText = "";
+                        }
+                    }
+
+                    Rectangle {
+                        id: previewPanel
+                        anchors.left: parent.left
+                        anchors.leftMargin: 10
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: Math.max(0, previewPanelHost.targetWidth - 10)
+                        radius: 12
+                        color: Theme.pillBg
+                        border.width: 1
+                        border.color: Theme.borderSubtle
+                        clip: true
+
+                        ThemeGradientFill {
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            enabled: Theme.effectiveShellGradient
+                            color1: Theme.pillBg
+                            colorMid: Theme.pillBgMid
+                            color2: Theme.pillBg2
+                            cornerRadius: 11
+                        }
+
+                        ColumnLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 10
+                            opacity: root.showPreviewPanel ? 1.0 : 0.0
+                            transform: Translate {
+                                x: root.showPreviewPanel ? 0 : 10
+                                Behavior on x { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
+                            }
+                            Behavior on opacity { NumberAnimation { duration: root.showPreviewPanel ? 150 : 90; easing.type: Easing.OutCubic } }
+
+                            // Header
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
+                                    text: "Preview"
+                                    color: Theme.textSub
+                                    font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                }
+                                PillButton {
+                                    iconName: "close"; iconSize: 12
+                                    fixedWidth: 24; fixedHeight: 24; radius: 7; subtle: true
+                                    onClicked: root.previewDismissed = true
+                                }
+                            }
+
+                            // Preview Canvas
+                            Rectangle {
+                                id: previewCanvas
+                                Layout.fillWidth: true
+                                Layout.fillHeight: root._previewDisplayMode === "text" && root._previewText !== ""
+                                Layout.preferredHeight: 176
+                                radius: 12
+                                color: Theme.surfaceRaised
+                                border.width: 1; border.color: Theme.borderSubtle
+                                clip: true
+
+                                AdaptiveClipRect {
+                                    readonly property real maxW: Math.max(1, previewCanvas.width - 8)
+                                    readonly property real maxH: Math.max(1, previewCanvas.height - 8)
+                                    readonly property bool hasImg: (root._previewDisplayMode === "image" || root._previewDisplayMode === "video")
+                                        && panelPreviewImg.status === Image.Ready
+                                        && panelPreviewImg.implicitWidth > 0 && panelPreviewImg.implicitHeight > 0
+                                    readonly property real fitScale: hasImg ? Math.min(maxW / panelPreviewImg.implicitWidth, maxH / panelPreviewImg.implicitHeight) : 1
+                                    anchors.centerIn: parent
+                                    width: hasImg ? Math.max(1, Math.round(panelPreviewImg.implicitWidth * fitScale)) : maxW
+                                    height: hasImg ? Math.max(1, Math.round(panelPreviewImg.implicitHeight * fitScale)) : maxH
+                                    radius: panelPreviewImg.opacity > 0.01 ? 8 : 0
+                                    color: "transparent"
+                                    visible: panelPreviewImg.opacity > 0.01
+
+                                    Image {
+                                        id: panelPreviewImg
+                                        anchors.fill: parent
+                                        source: (root._previewDisplayMode === "image" || root._previewDisplayMode === "video") ? root._previewMediaSource : ""
+                                        fillMode: Image.PreserveAspectFit
+                                        asynchronous: true
+                                        sourceSize: Qt.size(512, 512)
+                                        opacity: status === Image.Ready ? 1 : 0
+                                        visible: opacity > 0.01
+                                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                    }
+                                }
+
+                                Flickable {
+                                    id: panelTextFlick
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    visible: root._previewDisplayMode === "text" && root._previewText !== ""
+                                    contentWidth: width
+                                    contentHeight: panelPreviewText.implicitHeight
+                                    boundsBehavior: Flickable.StopAtBounds
+                                    clip: true
+
+                                    Text {
+                                        id: panelPreviewText
+                                        width: panelTextFlick.width
+                                        text: root._previewText
+                                        color: Theme.text
+                                        font.family: Theme.fontMono; font.pixelSize: 11
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+                                }
+
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    opacity: (panelPreviewImg.status === Image.Ready || (root._previewDisplayMode === "text" && root._previewText !== "")) ? 0.0 : 1.0
+                                    visible: opacity > 0.01
+                                    sourceName: root._previewDisplayItem ? root.iconFor(root._previewDisplayItem.type) : "file"
+                                    iconSize: 44
+                                    color: root._previewDisplayItem ? root.iconColorFor(root._previewDisplayItem.type) : Theme.textSub
+                                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                }
+                            }
+
+                            // File Name & Meta
+                            Text {
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                text: root._previewDisplayItem ? root._previewDisplayItem.name : ""
+                                color: Theme.text
+                                font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
+                                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                maximumLineCount: 2
+                                elide: Text.ElideRight
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Text { text: "Type"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Text {
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                                        text: root._previewDisplayLabel
+                                        color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Text { text: "Size"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Text {
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                                        text: root._previewDisplayItem ? FileService.formatSize(root._previewDisplayItem.size) : ""
+                                        color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true; spacing: 8
+                                    Text { text: "Modified"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
+                                    Text {
+                                        Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
+                                        text: root._previewDisplayItem ? FileService.formatDate(root._previewDisplayItem.mtime) : ""
+                                        color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
+                                    }
+                                }
+                            }
+
+                            Item { Layout.fillHeight: !(root._previewDisplayMode === "text" && root._previewText !== "") }
+                        }
+                    }
+                }
                 }
 
                 // Footer Divider
@@ -2911,6 +3365,7 @@ FocusScope {
 
                     Text {
                         Layout.fillWidth: true
+                        Layout.minimumWidth: 0
                         text: {
                             if (root.isLoading) return "Loading...";
                             if (root.selectedPaths.length > 0) {
@@ -2963,8 +3418,10 @@ FocusScope {
                                     anchors.fill: parent; verticalAlignment: Text.AlignVCenter
                                     text: root.pickerDirectory ? ("Current: " + root.displayPath(root.currentPath)) : "Select a file or type filename..."
                                     color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11
-                                    visible: nameField.text === ""
+                                    opacity: (nameField.text === "" && nameField.preeditText === "") ? 1.0 : 0.0
+                                    visible: opacity > 0.01
                                     elide: Text.ElideRight
+                                    Behavior on opacity { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
                                 }
                             }
                         }
@@ -2993,6 +3450,7 @@ FocusScope {
                                 anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
                                 Text {
                                     Layout.fillWidth: true
+                                    Layout.minimumWidth: 0
                                     text: root.activeFilterLabel
                                     color: Theme.text
                                     font.family: Theme.fontSans; font.pixelSize: 11
@@ -3001,7 +3459,8 @@ FocusScope {
                                 SvgIcon {
                                     sourceName: "chevron-right"
                                     iconSize: 12; color: Theme.textSub
-                                    rotation: 90
+                                    rotation: root.filterMenuOpen ? 270 : 90
+                                    Behavior on rotation { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                                 }
                             }
 
@@ -3018,6 +3477,7 @@ FocusScope {
                         spacing: 8
                         Text {
                             Layout.fillWidth: true
+                            Layout.minimumWidth: 0
                             text: {
                                 const prefix = root.isLoading ? "Loading..." : (root.visibleItems.length + (root.visibleItems.length === 1 ? " item" : " items"));
                                 const selTxt = root.selectedPaths.length > 1 ? (" • " + root.selectedPaths.length + " selected") : "";
@@ -3045,181 +3505,6 @@ FocusScope {
                 }
             }
         }
-
-        // Right Preview Panel (shown when a single non-folder file is selected)
-        Rectangle {
-            id: previewPanel
-            Layout.preferredWidth: root.showPreviewPanel ? 256 : 0
-            Layout.fillHeight: true
-            opacity: root.showPreviewPanel ? 1 : 0
-            visible: Layout.preferredWidth > 1 || root.showPreviewPanel
-            color: Theme.pillBg
-            clip: true
-            bottomRightRadius: (root.shellState && root.shellState.detachedApp === "files") ? 13 : ((root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition !== "bottom") ? 17 : 0)
-            topRightRadius: (root.shellState && root.shellState.islandApp === "files" && root.shellState.barPosition === "bottom") ? 17 : 0
-
-            ThemeGradientFill {
-                anchors.fill: parent
-                enabled: Theme.shellGradientEnabled
-                color1: Theme.pillBg
-                colorMid: Theme.pillBgMid
-                color2: Theme.pillBg2
-                cornerRadius: 0
-            }
-
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: Theme.smoothMs; easing.type: Easing.OutCubic } }
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-
-            Rectangle {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                width: 1
-                color: Theme.borderSubtle
-            }
-
-            ColumnLayout {
-                anchors.left: parent.left
-                anchors.top: parent.top
-                anchors.bottom: parent.bottom
-                anchors.margins: 12
-                width: 232
-                spacing: 10
-
-                // Header
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 6
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        text: "Preview"
-                        color: Theme.textSub
-                        font.family: Theme.fontSans; font.pixelSize: 11; font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                    }
-                    Rectangle {
-                        width: 24; height: 24; radius: 7
-                        color: closePreviewMouse.containsMouse ? Theme.hoverBg : "transparent"
-                        scale: closePreviewMouse.pressed ? 0.92 : 1.0
-                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                        Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
-                        SvgIcon { anchors.centerIn: parent; sourceName: "close"; iconSize: 13; color: Theme.textSub }
-                        MouseArea {
-                            id: closePreviewMouse
-                            anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                            onClicked: root.previewDismissed = true
-                        }
-                    }
-                }
-
-                // Preview Canvas
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: root.previewText !== ""
-                    Layout.preferredHeight: root.previewText !== "" ? 200 : 180
-                    radius: 12
-                    color: Theme.surfaceRaised
-                    border.width: 1; border.color: Theme.borderSubtle
-                    clip: true
-
-                    readonly property string imgSource: {
-                        if (!root.previewItem) return "";
-                        if (root.previewItem.type === "image") return "file://" + root.previewItem.path;
-                        if (root.previewItem.type === "video") return root.previewThumbUrl;
-                        return "";
-                    }
-
-                    Image {
-                        id: panelPreviewImg
-                        anchors.fill: parent
-                        anchors.margins: 6
-                        source: parent.imgSource
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        sourceSize: Qt.size(512, 512)
-                        opacity: status === Image.Ready ? 1 : 0
-                        visible: opacity > 0.01
-                        Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-                    }
-
-                    Flickable {
-                        id: panelTextFlick
-                        anchors.fill: parent
-                        anchors.margins: 10
-                        visible: !panelPreviewImg.visible && root.previewText !== ""
-                        contentWidth: width
-                        contentHeight: panelPreviewText.implicitHeight
-                        boundsBehavior: Flickable.StopAtBounds
-                        clip: true
-
-                        Text {
-                            id: panelPreviewText
-                            width: panelTextFlick.width
-                            text: root.previewText
-                            color: Theme.text
-                            font.family: Theme.fontMono; font.pixelSize: 11
-                            wrapMode: Text.WrapAnywhere
-                        }
-                    }
-
-                    SvgIcon {
-                        anchors.centerIn: parent
-                        visible: !panelPreviewImg.visible && root.previewText === ""
-                        sourceName: root.previewItem ? root.iconFor(root.previewItem.type) : "file"
-                        iconSize: 44
-                        color: root.previewItem ? root.iconColorFor(root.previewItem.type) : Theme.textSub
-                    }
-                }
-
-                // File Name & Meta
-                Text {
-                    Layout.fillWidth: true
-                    Layout.minimumWidth: 0
-                    text: root.previewItem ? root.previewItem.name : ""
-                    color: Theme.text
-                    font.family: Theme.fontSans; font.pixelSize: 13; font.weight: Font.DemiBold
-                    wrapMode: Text.WrapAnywhere
-                    maximumLineCount: 2
-                    elide: Text.ElideMiddle
-                }
-
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
-                        Text { text: "Type"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                        Text {
-                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
-                            text: root.previewItem ? root.previewItem.type : ""
-                            color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
-                        Text { text: "Size"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                        Text {
-                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
-                            text: root.previewItem ? FileService.formatSize(root.previewItem.size) : ""
-                            color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
-                        }
-                    }
-                    RowLayout {
-                        Layout.fillWidth: true; spacing: 8
-                        Text { text: "Modified"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                        Text {
-                            Layout.fillWidth: true; Layout.minimumWidth: 0; horizontalAlignment: Text.AlignRight
-                            text: root.previewItem ? FileService.formatDate(root.previewItem.mtime) : ""
-                            color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight
-                        }
-                    }
-                }
-
-                Item { Layout.fillHeight: root.previewText === "" }
-            }
-        }
     }
 
     // =========================================================================
@@ -3231,6 +3516,10 @@ FocusScope {
         id: pwdOverlay
         visible: root.passwordOpen || opacity > 0.01
         anchors.fill: parent
+        bottomLeftRadius: root._appBottomRadius
+        bottomRightRadius: root._appBottomRadius
+        topLeftRadius: root._appTopRadius
+        topRightRadius: root._appTopRadius
         color: Qt.rgba(0, 0, 0, 0.58)
         opacity: root.passwordOpen ? 1.0 : 0.0
         z: 80
@@ -3258,7 +3547,7 @@ FocusScope {
             ThemeGradientFill {
                 anchors.fill: parent
                 anchors.margins: 1
-                enabled: Theme.surfaceGradientEnabled
+                enabled: Theme.effectiveSurfaceGradient
                 color1: Theme.surfaceBg
                 colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
@@ -3278,11 +3567,12 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 16; spacing: 10
                 Text { text: "Encrypted Archive"; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.Bold }
-                Text { Layout.fillWidth: true; text: "Enter password for " + root.passwordTargetName; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: "Enter password for " + root.passwordTargetName; color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
                 Rectangle {
                     Layout.fillWidth: true; height: 34; radius: 8
                     color: Theme.cardBg; border.width: 1
                     border.color: passwordField.activeFocus ? Theme.accent : Theme.borderSubtle
+                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     AnimatedTextInput {
                         id: passwordField
                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
@@ -3298,10 +3588,15 @@ FocusScope {
                     }
                 }
                 Text {
-                    visible: root.passwordError !== ""
+                    opacity: root.passwordError !== "" ? 1.0 : 0.0
+                    visible: opacity > 0.01
+                    Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: root.passwordError
                     color: Theme.dangerText
                     font.family: Theme.fontSans; font.pixelSize: 11
+                    elide: Text.ElideRight
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
                 Item { Layout.fillHeight: true }
                 RowLayout {
@@ -3319,6 +3614,10 @@ FocusScope {
         id: inputOverlay
         visible: root.inputModalOpen || opacity > 0.01
         anchors.fill: parent
+        bottomLeftRadius: root._appBottomRadius
+        bottomRightRadius: root._appBottomRadius
+        topLeftRadius: root._appTopRadius
+        topRightRadius: root._appTopRadius
         color: Qt.rgba(0, 0, 0, 0.58)
         opacity: root.inputModalOpen ? 1.0 : 0.0
         z: 81
@@ -3349,7 +3648,7 @@ FocusScope {
             ThemeGradientFill {
                 anchors.fill: parent
                 anchors.margins: 1
-                enabled: Theme.surfaceGradientEnabled
+                enabled: Theme.effectiveSurfaceGradient
                 color1: Theme.surfaceBg
                 colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
@@ -3373,6 +3672,7 @@ FocusScope {
                     Layout.fillWidth: true; height: 34; radius: 8
                     color: Theme.cardBg; border.width: 1
                     border.color: root.inputModalError !== "" ? Theme.danger : (modalTextField.activeFocus ? Theme.accent : Theme.borderSubtle)
+                    Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
                     AnimatedTextInput {
                         id: modalTextField
                         anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10
@@ -3388,12 +3688,15 @@ FocusScope {
                     }
                 }
                 Text {
-                    visible: root.inputModalError !== ""
+                    opacity: root.inputModalError !== "" ? 1.0 : 0.0
+                    visible: opacity > 0.01
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: root.inputModalError
                     color: Theme.dangerText
                     font.family: Theme.fontSans; font.pixelSize: 11
                     elide: Text.ElideRight
+                    Behavior on opacity { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
                 }
                 Item { Layout.fillHeight: true }
                 RowLayout {
@@ -3411,6 +3714,10 @@ FocusScope {
         id: confirmOverlay
         visible: root.confirmOpen || opacity > 0.01
         anchors.fill: parent
+        bottomLeftRadius: root._appBottomRadius
+        bottomRightRadius: root._appBottomRadius
+        topLeftRadius: root._appTopRadius
+        topRightRadius: root._appTopRadius
         color: Qt.rgba(0, 0, 0, 0.58)
         opacity: root.confirmOpen ? 1.0 : 0.0
         z: 82
@@ -3449,7 +3756,7 @@ FocusScope {
             ThemeGradientFill {
                 anchors.fill: parent
                 anchors.margins: 1
-                enabled: Theme.surfaceGradientEnabled
+                enabled: Theme.effectiveSurfaceGradient
                 color1: Theme.surfaceBg
                 colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
@@ -3461,8 +3768,8 @@ FocusScope {
             ColumnLayout {
                 anchors.fill: parent; anchors.margins: 16; spacing: 8
                 Text { text: root.confirmTitle; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.Bold }
-                Text { Layout.fillWidth: true; text: root.confirmLabel; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
-                Text { Layout.fillWidth: true; text: root.confirmSub; color: (root.confirmMode === "permanent" || root.confirmMode === "empty_trash") ? Theme.dangerText : Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.confirmLabel; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight }
+                Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.confirmSub; color: (root.confirmMode === "permanent" || root.confirmMode === "empty_trash") ? Theme.dangerText : Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
                 Item { Layout.fillHeight: true }
                 RowLayout {
                     Layout.fillWidth: true; spacing: 8
@@ -3485,6 +3792,10 @@ FocusScope {
         id: propsOverlay
         visible: root.propsOpen || opacity > 0.01
         anchors.fill: parent
+        bottomLeftRadius: root._appBottomRadius
+        bottomRightRadius: root._appBottomRadius
+        topLeftRadius: root._appTopRadius
+        topRightRadius: root._appTopRadius
         color: Qt.rgba(0, 0, 0, 0.58)
         opacity: root.propsOpen ? 1.0 : 0.0
         z: 83
@@ -3520,7 +3831,7 @@ FocusScope {
             ThemeGradientFill {
                 anchors.fill: parent
                 anchors.margins: 1
-                enabled: Theme.surfaceGradientEnabled
+                enabled: Theme.effectiveSurfaceGradient
                 color1: Theme.surfaceBg
                 colorMid: Theme.surfaceBgMid
                 color2: Theme.surfaceBg2
@@ -3547,8 +3858,8 @@ FocusScope {
                     }
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 1
-                        Text { Layout.fillWidth: true; text: root.propsName; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.Bold; elide: Text.ElideRight }
-                        Text { Layout.fillWidth: true; text: root.displayPath(root.propsPath); color: Theme.textSub; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideMiddle }
+                        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsName; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.Bold; elide: Text.ElideRight }
+                        Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.displayPath(root.propsPath); color: Theme.textSub; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideMiddle }
                     }
                 }
 
@@ -3561,19 +3872,19 @@ FocusScope {
                     rowSpacing: 7
 
                     Text { text: "Type"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                    Text { Layout.fillWidth: true; text: root.propsData ? root.propsData.kind : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsData ? root.propsData.kind : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
 
                     Text { text: "Size"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                    Text { Layout.fillWidth: true; text: root.propsData ? root.propsData.size : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsData ? root.propsData.size : "..."; color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight }
 
                     Text { text: "Owner"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                    Text { Layout.fillWidth: true; text: root.propsData ? root.propsData.owner : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsData ? root.propsData.owner : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
 
                     Text { text: "Permissions"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                    Text { Layout.fillWidth: true; text: root.propsData ? root.propsData.permissions : "..."; color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsData ? root.propsData.permissions : "..."; color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight }
 
                     Text { text: "Modified"; color: Theme.textMuted; font.family: Theme.fontSans; font.pixelSize: 11 }
-                    Text { Layout.fillWidth: true; text: root.propsData ? root.propsData.modified : "..."; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
+                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.propsData ? root.propsData.modified : "..."; color: Theme.text; font.family: Theme.fontMono; font.pixelSize: 11; elide: Text.ElideRight }
                 }
 
                 Item { Layout.fillHeight: true }
@@ -3609,6 +3920,9 @@ FocusScope {
 
     ContextMenu {
         id: ctxMenu
-        onClosed: root.forceActiveFocus()
+        onClosed: {
+            root.filterMenuOpen = false;
+            root.forceActiveFocus();
+        }
     }
 }

@@ -76,7 +76,7 @@ Item {
 
         ThemeGradientFill {
             anchors.fill: parent
-            enabled: root.active && !root.danger && Theme.accentGradientEnabled
+            enabled: root.active && !root.danger && Theme.effectiveAccentGradient
             color1: Theme.accent
             colorMid: Theme.accentMid
             color2: Theme.accent2

@@ -57,7 +57,7 @@ FloatingWindow {
         ThemeGradientFill {
             anchors.fill: parent
             anchors.margins: 1
-            enabled: Theme.surfaceGradientEnabled
+            enabled: Theme.effectiveSurfaceGradient
             color1: Theme.surfaceBg
             colorMid: Theme.surfaceBgMid
             color2: Theme.surfaceBg2

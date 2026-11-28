@@ -164,6 +164,8 @@ PanelWindow {
     property bool _cachedMusic: false
     property bool _cachedPicker: false
     property bool _cachedWeather: false
+    property string _lastIslandApp: ""
+    readonly property string _renderedIslandApp: root.shellState.islandApp !== "" ? root.shellState.islandApp : (appBody.visible ? root._lastIslandApp : "")
 
     function _markAppCached(appName) {
         if (!Theme.reduceMotion) return;
@@ -191,6 +193,7 @@ PanelWindow {
 
     onIsAppExpandedOnScreenChanged: {
         if (isAppExpandedOnScreen) {
+            if (shellState.islandApp !== "") _lastIslandApp = shellState.islandApp;
             _markAppCached(shellState.islandApp);
             if (shellState.islandApp === "settings" && settingsLoader.item) {
                 settingsLoader.item.openPage(shellState.settingsPage || "home");
@@ -211,6 +214,7 @@ PanelWindow {
     Connections {
         target: root.shellState
         function onIslandAppChanged() {
+            if (root.shellState.islandApp !== "") root._lastIslandApp = root.shellState.islandApp;
             if (root.isAppExpandedOnScreen) {
                 root._markAppCached(root.shellState.islandApp);
                 if (root.shellState.islandApp === "settings" && settingsLoader.item) {
@@ -302,9 +306,9 @@ PanelWindow {
     Item {
         id: filesCardMask
         x: Math.round((parent.width - 960) / 2)
-        y: 0
+        y: root.isBottom ? Math.max(0, parent.height - height) : 0
         width: 960
-        height: 710
+        height: Math.min(710, parent.height)
     }
 
     Item {
@@ -1424,10 +1428,13 @@ PanelWindow {
                     clip: true
                     opacity: root.isAppExpandedOnScreen ? 1.0 : 0.0
                     visible: opacity > 0.01
+                    onVisibleChanged: {
+                        if (!visible && root.shellState.islandApp === "") root._lastIslandApp = "";
+                    }
 
                     ThemeGradientFill {
                         anchors.fill: parent
-                        enabled: Theme.surfaceGradientEnabled
+                        enabled: Theme.effectiveSurfaceGradient
                         color1: Theme.surfaceBg
                         colorMid: Theme.surfaceBgMid
                         color2: Theme.surfaceBg2
@@ -1444,8 +1451,8 @@ PanelWindow {
                     Loader {
                         id: settingsLoader
                         anchors.fill: parent
-                        active: (Theme.reduceMotion && root._cachedSettings) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "settings")
-                        visible: root.shellState.islandApp === "settings"
+                        active: (Theme.reduceMotion && root._cachedSettings) || ((root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "settings")
+                        visible: root._renderedIslandApp === "settings"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("SettingsView.qml", { shellState: root.shellState });
                         }
@@ -1457,8 +1464,8 @@ PanelWindow {
                     Loader {
                         id: filesLoader
                         anchors.fill: parent
-                        active: (Theme.reduceMotion && root._cachedFiles) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "files")
-                        visible: root.shellState.islandApp === "files"
+                        active: (Theme.reduceMotion && root._cachedFiles) || ((root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "files")
+                        visible: root._renderedIslandApp === "files"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("FilesView.qml", { shellState: root.shellState });
                         }
@@ -1470,8 +1477,8 @@ PanelWindow {
                     Loader {
                         id: musicLoader
                         anchors.fill: parent
-                        active: (Theme.reduceMotion && root._cachedMusic) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "music")
-                        visible: root.shellState.islandApp === "music"
+                        active: (Theme.reduceMotion && root._cachedMusic) || ((root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "music")
+                        visible: root._renderedIslandApp === "music"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("MusicView.qml", { shellState: root.shellState });
                         }
@@ -1483,8 +1490,8 @@ PanelWindow {
                     Loader {
                         id: pickerLoader
                         anchors.fill: parent
-                        active: (Theme.reduceMotion && root._cachedPicker) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "picker")
-                        visible: root.shellState.islandApp === "picker"
+                        active: (Theme.reduceMotion && root._cachedPicker) || ((root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "picker")
+                        visible: root._renderedIslandApp === "picker"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("PickerView.qml", { shellState: root.shellState });
                         }
@@ -1499,8 +1506,8 @@ PanelWindow {
                     Loader {
                         id: portalLoader
                         anchors.fill: parent
-                        active: (root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "portal"
-                        visible: root.shellState.islandApp === "portal"
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "portal"
+                        visible: root._renderedIslandApp === "portal"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("PortalView.qml", { shellState: root.shellState });
                         }
@@ -1512,8 +1519,8 @@ PanelWindow {
                     Loader {
                         id: weatherLoader
                         anchors.fill: parent
-                        active: (Theme.reduceMotion && root._cachedWeather) || ((root.isAppExpandedOnScreen || appBody.visible) && root.shellState.islandApp === "weather")
-                        visible: root.shellState.islandApp === "weather"
+                        active: (Theme.reduceMotion && root._cachedWeather) || ((root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "weather")
+                        visible: root._renderedIslandApp === "weather"
                         function ensureSource() {
                             if (active && source.toString() === "") setSource("WeatherForecastView.qml", { shellState: root.shellState });
                         }
