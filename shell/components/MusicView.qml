@@ -2124,8 +2124,9 @@ FocusScope {
 
                                         Rectangle {
                                             visible: MixcloudService.isDucking
-                                            height: 16
-                                            width: duckBadgeLbl.implicitWidth + 10
+                                            Layout.preferredHeight: 16
+                                            Layout.preferredWidth: duckBadgeLbl.implicitWidth + 10
+                                            Layout.alignment: Qt.AlignVCenter
                                             radius: 5
                                             color: Qt.rgba(Theme.info.r, Theme.info.g, Theme.info.b, 0.16)
                                             border.width: 1
@@ -2145,8 +2146,9 @@ FocusScope {
 
                                         Rectangle {
                                             visible: MixcloudService.isMixing
-                                            height: 16
-                                            width: mixBadgeLbl.implicitWidth + 10
+                                            Layout.preferredHeight: 16
+                                            Layout.preferredWidth: mixBadgeLbl.implicitWidth + 10
+                                            Layout.alignment: Qt.AlignVCenter
                                             radius: 5
                                             color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
                                             border.width: 1
@@ -2448,17 +2450,18 @@ FocusScope {
                                         color: MixcloudService.muted
                                             ? Theme.textMuted
                                             : (MixcloudService.isDucking ? Theme.info : Theme.accent)
-                                        width: Math.max(0, Math.min(parent.width, parent.width * volSlider.volRatio))
+                                        width: volSlider.volRatio <= 0 ? 0 : Math.min(parent.width, volHandle.x + volHandle.width / 2)
                                         Behavior on color { ColorAnimation { duration: 220; easing.type: Easing.OutCubic } }
                                     }
                                 }
 
                                 Rectangle {
+                                    id: volHandle
                                     width: 12
                                     height: 12
                                     radius: 6
                                     anchors.verticalCenter: parent.verticalCenter
-                                    x: Math.max(0, Math.min(parent.width - width, parent.width * volSlider.volRatio - width / 2))
+                                    x: Math.max(0, Math.min(parent.width - width, (parent.width - width) * volSlider.volRatio))
                                     color: MixcloudService.isDucking ? Theme.info : Theme.accent
                                     border.width: 2
                                     border.color: Theme.surfaceRaised

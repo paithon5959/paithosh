@@ -1397,8 +1397,9 @@ Item {
                                         }
 
                                         Rectangle {
-                                            height: 18
-                                            width: stageBadgeLbl.implicitWidth + 12
+                                            Layout.preferredHeight: 18
+                                            Layout.preferredWidth: stageBadgeLbl.implicitWidth + 12
+                                            Layout.alignment: Qt.AlignVCenter
                                             radius: 9
                                             clip: true
                                             color: MixcloudService.isMixing
@@ -1456,13 +1457,14 @@ Item {
                                 }
 
                                 PillButton {
+                                    readonly property bool canMix: MixcloudService.isMixing || (MixcloudService.hasTrack && MixcloudService.peekNextQueueEntry() !== null)
                                     text: MixcloudService.isMixing ? "Cancel" : "Mix Now"
                                     iconName: MixcloudService.isMixing ? "close" : "play"
                                     danger: MixcloudService.isMixing
-                                    active: !MixcloudService.isMixing
+                                    active: !MixcloudService.isMixing && canMix
                                     fixedHeight: 28
                                     radius: 8
-                                    enabled: MixcloudService.isMixing || (MixcloudService.hasTrack && MixcloudService.peekNextQueueEntry() !== null)
+                                    enabled: canMix
                                     onClicked: {
                                         if (MixcloudService.isMixing) MixcloudService.cancelMix();
                                         else MixcloudService.mixNow();
@@ -2022,8 +2024,9 @@ Item {
                             }
 
                             Rectangle {
-                                height: 22
-                                width: duckPillLbl.implicitWidth + 14
+                                Layout.preferredHeight: 22
+                                Layout.preferredWidth: duckPillLbl.implicitWidth + 14
+                                Layout.alignment: Qt.AlignVCenter
                                 radius: 11
                                 color: MixcloudService.isDucking ? Theme.info : Theme.cardBg
                                 border.width: MixcloudService.isDucking ? 0 : 1
@@ -2491,8 +2494,9 @@ Item {
                                 }
 
                                 Rectangle {
-                                    height: 22
-                                    width: sizeChipLbl.implicitWidth + 14
+                                    Layout.preferredHeight: 22
+                                    Layout.preferredWidth: sizeChipLbl.implicitWidth + 14
+                                    Layout.alignment: Qt.AlignVCenter
                                     radius: 11
                                     color: Theme.cardBg
                                     border.width: 1
