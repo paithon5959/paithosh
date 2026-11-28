@@ -3,6 +3,7 @@ import QtQuick.Layouts
 import QtMultimedia
 import ".."
 import "common"
+import "../services"
 
 Item {
     id: root
@@ -18,6 +19,13 @@ Item {
     property real scrubRatio: 0
     property string pulseIcon: ""
     property bool _frameReady: false
+
+    readonly property bool _shouldDuckMusic: root.active
+        && player.playbackState === MediaPlayer.PlayingState
+        && !audioOut.muted
+        && audioOut.volume > 0.01
+
+    on_ShouldDuckMusicChanged: MixcloudService.setExternalDuck("files-video", _shouldDuckMusic, "File Manager Video")
 
     signal openExternalRequested()
 
@@ -82,6 +90,7 @@ Item {
     function stopMedia() {
         player.stop();
         player.source = "";
+        MixcloudService.setExternalDuck("files-video", false, "");
     }
 
     onSourceChanged: {

@@ -87,6 +87,7 @@ Singleton {
     property string duckSource: ""
     property real duckGain: 1.0
     property int duckMonitoredCount: 0
+    property var _externalDuckHolds: ({})
 
     // Progressive Audio Mix Settings + Live Telemetry
     property string mixPreset: "progressive" // "off" | "seamless" | "progressive" | "melodic" | "club" | "custom"
@@ -633,6 +634,32 @@ Singleton {
             fade_up_ms: root.duckFadeUpMs,
             rms_threshold_db: root.duckRmsThresholdDb,
             ignored_apps: ignored
+        });
+        for (const k in root._externalDuckHolds) {
+            _sendDaemon({
+                cmd: "set_duck_hold",
+                key: k,
+                active: true,
+                source: root._externalDuckHolds[k]
+            });
+        }
+    }
+
+    function setExternalDuck(key, active, sourceLabel) {
+        const k = String(key || "internal");
+        const src = String(sourceLabel || "Video");
+        const wasActive = root._externalDuckHolds[k] !== undefined;
+        if (Boolean(active) === wasActive && (!active || root._externalDuckHolds[k] === src)) return;
+        const next = Object.assign({}, root._externalDuckHolds);
+        if (active) next[k] = src;
+        else delete next[k];
+        root._externalDuckHolds = next;
+        if (!daemonProc.running) return;
+        _sendDaemon({
+            cmd: "set_duck_hold",
+            key: k,
+            active: Boolean(active),
+            source: src
         });
     }
 

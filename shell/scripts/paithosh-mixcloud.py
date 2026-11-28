@@ -1297,6 +1297,7 @@ class MixcloudDaemon:
         self._duck_gain = 1.0
         self._duck_active = False
         self._duck_source = ""
+        self._duck_holds: dict[str, str] = {}
         self._duck_ramp_seq = 0
         self._ext_audio_present = False
         self._ext_first_seen_ts = 0.0
@@ -1740,7 +1741,14 @@ class MixcloudDaemon:
                 else:
                     self._stop_all_monitors()
 
-            if mode == "rms" and self._parec_path:
+            with self._duck_lock:
+                hold_src = next(iter(self._duck_holds.values()), "")
+                hold_active = bool(hold_src)
+
+            if hold_active:
+                ext_now = True
+                ext_src = hold_src
+            elif mode == "rms" and self._parec_path:
                 ext_now, ext_src = self._query_rms_audible()
             else:
                 ext_now = len(cached_streams) > 0
@@ -1755,7 +1763,7 @@ class MixcloudDaemon:
                     self._ext_last_seen_ts = now
 
                     if not self._duck_active:
-                        if (now - self._ext_first_seen_ts) >= attack_s:
+                        if hold_active or (now - self._ext_first_seen_ts) >= attack_s:
                             self._duck_active = True
                             self._duck_source = ext_src
                             action = "duck"
@@ -2691,6 +2699,15 @@ class MixcloudDaemon:
             self._need_rescan = True
             self._duck_eval_event.set()
             self._emit_duck()
+        elif cmd == "set_duck_hold":
+            key = str(obj.get("key") or "internal").strip()
+            if key:
+                with self._duck_lock:
+                    if obj.get("active"):
+                        self._duck_holds[key] = str(obj.get("source") or "Video").strip() or "Video"
+                    else:
+                        self._duck_holds.pop(key, None)
+                self._duck_eval_event.set()
         elif cmd == "set_mix_config":
             for k in (
                 "enabled", "duration_s", "curve", "eq_mode", "harmonic_adapt",
