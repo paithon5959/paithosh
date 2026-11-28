@@ -51,8 +51,9 @@ run_self_checks() {
     for sf in "${sh_files[@]}"; do
         bash -n "$sf"
     done
-    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/test-app-chooser.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py"
+    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/test-app-chooser.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py" "$REPO_ROOT/shell/scripts/paithosh-theme-sync.py" "$REPO_ROOT/shell/scripts/test-theme-sync.py"
     python3 "$REPO_ROOT/shell/scripts/test-app-chooser.py" >/dev/null
+    python3 "$REPO_ROOT/shell/scripts/test-theme-sync.py" >/dev/null
     echo "  PASS: syntax checks clean"
 
     echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu/unknown & verify-pkgs..."
@@ -79,6 +80,10 @@ assert "hyprcursor" in pkgs and pkgs["hyprcursor"]["group"] == "core" and pkgs["
 assert "cursor-render" in pkgs and pkgs["cursor-render"]["group"] == "core" and pkgs["cursor-render"].get("required") is True, pkgs.get("cursor-render")
 assert "pillow" in pkgs and pkgs["pillow"]["group"] == "core" and pkgs["pillow"].get("required") is True, pkgs.get("pillow")
 assert "qt6-multimedia" in pkgs and pkgs["qt6-multimedia"]["group"] == "core" and pkgs["qt6-multimedia"].get("required") is True, pkgs.get("qt6-multimedia")
+assert "qt6ct" in pkgs and pkgs["qt6ct"]["group"] == "core" and pkgs["qt6ct"].get("required") is True, pkgs.get("qt6ct")
+assert "qt5ct" in pkgs and pkgs["qt5ct"]["group"] == "core" and pkgs["qt5ct"].get("required") is True, pkgs.get("qt5ct")
+assert "xdg-portal-gtk" in pkgs and pkgs["xdg-portal-gtk"]["group"] == "core" and pkgs["xdg-portal-gtk"].get("required") is True, pkgs.get("xdg-portal-gtk")
+assert "gsettings-proxy" in pkgs and pkgs["gsettings-proxy"]["group"] == "core" and pkgs["gsettings-proxy"].get("required") is True, pkgs.get("gsettings-proxy")
 assert pkgs["wg-quick"]["group"] == "system", pkgs["wg-quick"]
 assert "kdeconnectd" not in all_pkg_strs, all_pkg_strs
 assert "policykit-1" not in all_pkg_strs, all_pkg_strs
@@ -86,6 +91,11 @@ assert "policykit-1" not in all_pkg_strs, all_pkg_strs
 if os_name == "fedora":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-qtsvg"
     assert pkgs["qt6-multimedia"]["pkg"] == "qt6-qtmultimedia"
+    assert pkgs["qt6ct"]["pkg"] == "qt6ct"
+    assert pkgs["qt5ct"]["pkg"] == "qt5ct"
+    assert pkgs["adw-gtk3"]["pkg"] == "adw-gtk3-theme" and pkgs["adw-gtk3"]["group"] == "core" and pkgs["adw-gtk3"].get("required") is True
+    assert pkgs["xdg-portal-gtk"]["pkg"] == "xdg-desktop-portal-gtk"
+    assert pkgs["gsettings-proxy"]["pkg"] == "gsettings-desktop-schemas"
     assert pkgs["kdeconnect-cli"]["pkg"] == "kde-connect"
     assert pkgs["pw-play"]["pkg"] == "pipewire-utils"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
@@ -94,6 +104,11 @@ if os_name == "fedora":
 elif os_name == "arch":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg"
     assert pkgs["qt6-multimedia"]["pkg"] == "qt6-multimedia qt6-multimedia-ffmpeg"
+    assert pkgs["qt6ct"]["pkg"] == "qt6ct"
+    assert pkgs["qt5ct"]["pkg"] == "qt5ct"
+    assert pkgs["adw-gtk3"]["pkg"] == "adw-gtk-theme" and pkgs["adw-gtk3"]["group"] == "core" and pkgs["adw-gtk3"].get("required") is True
+    assert pkgs["xdg-portal-gtk"]["pkg"] == "xdg-desktop-portal-gtk"
+    assert pkgs["gsettings-proxy"]["pkg"] == "gsettings-desktop-schemas"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
     assert pkgs["cursor-render"]["pkg"] == "python-cairo librsvg python-gobject"
     assert pkgs["pillow"]["pkg"] == "python-pillow"
@@ -103,6 +118,11 @@ elif os_name == "arch":
 elif os_name in ("debian", "ubuntu"):
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg-plugins"
     assert pkgs["qt6-multimedia"]["pkg"] == "qml6-module-qtmultimedia"
+    assert pkgs["qt6ct"]["pkg"] == "qt6ct"
+    assert pkgs["qt5ct"]["pkg"] == "qt5ct"
+    assert "adw-gtk3" not in pkgs, pkgs.get("adw-gtk3")
+    assert pkgs["xdg-portal-gtk"]["pkg"] == "xdg-desktop-portal-gtk"
+    assert pkgs["gsettings-proxy"]["pkg"] == "libglib2.0-bin gsettings-desktop-schemas"
     assert pkgs["pkexec"]["pkg"] == "pkexec"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor-util"
     assert pkgs["cursor-render"]["pkg"] == "python3-cairo gir1.2-rsvg-2.0 python3-gi"
@@ -180,6 +200,12 @@ PY
     grep -Fq "org.freedesktop.impl.portal.AppChooser;" "$lua_home/.local/share/xdg-desktop-portal/portals/paithosh.portal"
     grep -Fq "org.freedesktop.impl.portal.FileChooser=paithosh" "$lua_home/.config/xdg-desktop-portal/hyprland-portals.conf"
     grep -Fq "org.freedesktop.impl.portal.AppChooser=paithosh" "$lua_home/.config/xdg-desktop-portal/hyprland-portals.conf"
+    [[ -f "$lua_home/.config/gtk-4.0/paithosh.css" ]]
+    [[ -f "$lua_home/.config/gtk-3.0/paithosh.css" ]]
+    [[ -f "$lua_home/.config/qt6ct/colors/paithosh.conf" ]]
+    [[ -f "$lua_home/.config/qt5ct/colors/paithosh.conf" ]]
+    [[ -f "$lua_home/.config/kdeglobals" ]]
+    grep -Fq "#88c0d0" "$lua_home/.config/gtk-4.0/paithosh.css"
 
     local conf_home="$TMP_HOME/conf"
     mkdir -p "$conf_home/.config/hypr"
@@ -207,6 +233,7 @@ assert "sudo -S -k -p" in txt, "apply.sh must pass -k to sudo -S"
 assert "trap cleanup EXIT INT TERM" in txt, "apply.sh must trap INT and TERM to wipe askpass"
 assert "--sudoloop" in txt, "apply.sh must pass --sudoloop to AUR helpers"
 assert txt.index("sync-hypr.sh") < txt.index("paithosh-cursor-gen.py"), "cursor-gen must run after sync-hypr.sh"
+assert txt.index("sync-hypr.sh") < txt.index("paithosh-theme-sync.py"), "theme-sync must run after sync-hypr.sh"
 PY
     local glob_out
     glob_out="$(HOME="$pkg_only_home" bash "$REPO_ROOT/installer/lib/apply.sh" --packages-only --dry-run --packages "*bad*,git" 2>&1)"

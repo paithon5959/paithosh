@@ -23,6 +23,11 @@ python-pillow         # Bat buoc cho Wallpaper Color Engine
 qt6-svg               # Bat buoc de Qt6 render cac icon .svg trong SvgIcon.qml
 qt6-multimedia        # Bat buoc de phat video trong File Manager (QtMultimedia)
 qt6-multimedia-ffmpeg # Backend FFmpeg cho Qt6 Multimedia tren Arch
+qt6ct                 # Bat buoc de dong bo mau Qt6 voi shell
+qt5ct                 # Bat buoc de dong bo mau Qt5 voi shell
+adw-gtk-theme         # Bat buoc de dong bo mau GTK3/libadwaita
+xdg-desktop-portal-gtk # Bat buoc de dong bo color-scheme & accent cho app GTK4/Libadwaita
+gsettings-desktop-schemas # Bat buoc cho GSettings GTK sync & proxy
 hyprlock
 python
 git
@@ -50,7 +55,6 @@ hyprpolkitagent
 xdg-utils
 unzip
 pciutils
-gsettings-desktop-schemas
 gtk3
 wireguard-tools
 zenity
@@ -68,10 +72,10 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo pacman -S --needed --noconfirm \
-  quickshell hyprland hyprcursor python-cairo librsvg python-gobject python-pillow qt6-svg qt6-multimedia qt6-multimedia-ffmpeg hyprlock python git \
+  quickshell hyprland hyprcursor python-cairo librsvg python-gobject python-pillow qt6-svg qt6-multimedia qt6-multimedia-ffmpeg qt6ct qt5ct adw-gtk-theme xdg-desktop-portal-gtk gsettings-desktop-schemas hyprlock python git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python-dbus python-gobject \
   wireplumber pipewire libpulse brightnessctl networkmanager upower power-profiles-daemon \
-  polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kdeconnect
+  polkit hyprpolkitagent xdg-utils unzip pciutils gtk3 wireguard-tools zenity kdeconnect
 
 # Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):
 sudo pacman -S --needed --noconfirm \
@@ -95,6 +99,11 @@ python3-gobject       # Bat buoc cho `gi` (Rsvg bindings) & file portal
 python3-pillow        # Bat buoc cho Wallpaper Color Engine
 qt6-qtsvg             # Bat buoc de Qt6 render icon .svg
 qt6-qtmultimedia      # Bat buoc de phat video trong File Manager (QtMultimedia)
+qt6ct                 # Bat buoc de dong bo mau Qt6 voi shell
+qt5ct                 # Bat buoc de dong bo mau Qt5 voi shell
+adw-gtk3-theme        # Bat buoc de dong bo mau GTK3/libadwaita
+xdg-desktop-portal-gtk # Bat buoc de dong bo color-scheme & accent cho app GTK4/Libadwaita
+gsettings-desktop-schemas # Bat buoc cho GSettings GTK sync & proxy
 hyprlock              # (COPR lionheartp/Hyprland)
 python3
 git
@@ -122,7 +131,6 @@ hyprpolkitagent       # (COPR lionheartp/Hyprland)
 xdg-utils
 unzip
 pciutils
-gsettings-desktop-schemas
 gtk3
 wireguard-tools
 zenity
@@ -139,10 +147,10 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo dnf5 install -y \
-  quickshell hyprland hyprcursor python3-cairo librsvg2 python3-gobject python3-pillow qt6-qtsvg qt6-qtmultimedia hyprlock python3 git \
+  quickshell hyprland hyprcursor python3-cairo librsvg2 python3-gobject python3-pillow qt6-qtsvg qt6-qtmultimedia qt6ct qt5ct adw-gtk3-theme xdg-desktop-portal-gtk gsettings-desktop-schemas hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gobject \
   wireplumber pipewire-utils pulseaudio-utils brightnessctl NetworkManager upower tuned-ppd \
-  polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kde-connect
+  polkit hyprpolkitagent xdg-utils unzip pciutils gtk3 wireguard-tools zenity kde-connect
 
 # Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):
 sudo dnf5 install -y \
@@ -155,6 +163,7 @@ sudo dnf5 install -y \
 
 # Luu y: `quickshell` CHUA co trong repo apt chinh thuc.
 # Can cai dat / build Quickshell thu cong tai: https://quickshell.org
+# Luu y: `adw-gtk3` khong co san trong repo apt chinh thuc (CSS fallback GTK3 tu dong kich hoat).
 
 # [core]
 # quickshell          # (Build/cai thu cong tu https://quickshell.org)
@@ -166,6 +175,11 @@ python3-gi            # Bat buoc cho `gi` (Rsvg bindings) & file portal
 python3-pillow        # Bat buoc cho Wallpaper Color Engine
 qt6-svg-plugins       # Bat buoc de Qt6 render icon .svg
 qml6-module-qtmultimedia # Bat buoc de phat video trong File Manager (QtMultimedia)
+qt6ct                 # Bat buoc de dong bo mau Qt6 voi shell
+qt5ct                 # Bat buoc de dong bo mau Qt5 voi shell
+xdg-desktop-portal-gtk # Bat buoc de dong bo color-scheme & accent cho app GTK4/Libadwaita
+libglib2.0-bin        # Bat buoc cho lenh `gsettings`
+gsettings-desktop-schemas # Bat buoc cho GSettings GTK sync & proxy
 hyprlock
 python3
 git
@@ -193,8 +207,6 @@ polkit-kde-agent-1
 xdg-utils
 unzip
 pciutils
-libglib2.0-bin
-gsettings-desktop-schemas
 libgtk-3-bin
 wireguard-tools
 zenity
@@ -210,10 +222,10 @@ libnotify-bin
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo apt-get update && sudo apt-get install -y \
-  hyprland hyprcursor-util python3-cairo gir1.2-rsvg-2.0 python3-gi python3-pillow qt6-svg-plugins qml6-module-qtmultimedia hyprlock python3 git \
+  hyprland hyprcursor-util python3-cairo gir1.2-rsvg-2.0 python3-gi python3-pillow qt6-svg-plugins qml6-module-qtmultimedia qt6ct qt5ct xdg-desktop-portal-gtk libglib2.0-bin gsettings-desktop-schemas hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gi \
   wireplumber pipewire-bin pulseaudio-utils brightnessctl network-manager upower power-profiles-daemon \
-  pkexec polkit-kde-agent-1 xdg-utils unzip pciutils libglib2.0-bin gsettings-desktop-schemas libgtk-3-bin \
+  pkexec polkit-kde-agent-1 xdg-utils unzip pciutils libgtk-3-bin \
   wireguard-tools zenity kdeconnect
 
 # Lenh cai dat them nhom [optional] (Font + Btrfs + FFmpeg):

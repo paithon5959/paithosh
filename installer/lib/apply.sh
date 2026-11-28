@@ -382,6 +382,10 @@ if [[ "$DRY_RUN" != "true" ]] && command -v hyprcursor-util >/dev/null 2>&1 && [
     python3 "${REPO_ROOT}/shell/scripts/paithosh-cursor-gen.py" apply --style sharp --size 24 --color-mode auto --no-live >/dev/null 2>&1 || true
 fi
 
+if [[ "$DRY_RUN" != "true" ]] && [[ -f "${REPO_ROOT}/shell/scripts/paithosh-theme-sync.py" ]]; then
+    python3 "${REPO_ROOT}/shell/scripts/paithosh-theme-sync.py" --preset "$THEME_PRESET" --no-live >/dev/null 2>&1 || true
+fi
+
 # 5. Hyprland autostart integration (supports both Hyprland Lua & classic .conf)
 emit_step "5/6" "Configuring Hyprland autostart..."
 AUTOSTART_LUA="${HYPR_DIR}/config/autostart.lua"

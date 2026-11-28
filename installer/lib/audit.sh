@@ -140,6 +140,11 @@ audit_json() {
         "core|pillow|py:pillow|Wallpaper Color Engine (Pillow)"
         "core|qt6-svg|glob:/usr/lib*/qt6/plugins/imageformats/libqsvg.so;/usr/lib/*/qt6/plugins/imageformats/libqsvg.so|Qt6 SVG Plugin (Icons)"
         "core|qt6-multimedia|glob:/usr/lib*/qt6/qml/QtMultimedia/libquickmultimediaplugin.so;/usr/lib/*/qt6/qml/QtMultimedia/libquickmultimediaplugin.so|Qt6 Multimedia (Video Viewer)"
+        "core|qt6ct|bin:qt6ct|Qt6CT (Qt6 Theme Sync)"
+        "core|qt5ct|bin:qt5ct|Qt5CT (Qt5 Theme Sync)"
+        "core|adw-gtk3|glob:/usr/share/themes/adw-gtk3-dark/gtk-3.0/gtk.css;/usr/local/share/themes/adw-gtk3-dark/gtk-3.0/gtk.css|adw-gtk3 (GTK3 Theme Sync)"
+        "core|xdg-portal-gtk|glob:/usr/share/xdg-desktop-portal/portals/gtk.portal|XDG Portal GTK (Theme Sync)"
+        "core|gsettings-proxy|gsettings:org.gnome.desktop.interface|GSettings Schemas (GTK Sync & Proxy)"
         "core|hyprlock|bin:hyprlock|Hyprlock"
         "core|python3|bin:python3|Python 3"
         "core|git|bin:git|Git"
@@ -162,7 +167,6 @@ audit_json() {
         "system|xdg-open|bin:xdg-open|XDG Utils"
         "system|unzip|bin:unzip|Unzip (Archives)"
         "system|lspci|bin:lspci|PCI Utils (GPU Info)"
-        "system|gsettings-proxy|gsettings:org.gnome.system.proxy|GSettings Proxy Schemas"
         "system|gtk-launch|bin:gtk-launch|GTK Launch (App Binds)"
         "system|wg-quick|bin:wg-quick|WireGuard Tools (VPN)"
         "system|zenity|bin:zenity|Zenity (VPN Import)"
@@ -218,6 +222,10 @@ def pkg_name(fam, mgr, item_id):
         "pillow": {"arch": "python-pillow", "fedora": "python3-pillow", "debian": "python3-pillow"},
         "qt6-svg": {"arch": "qt6-svg", "fedora": "qt6-qtsvg", "debian": "qt6-svg-plugins"},
         "qt6-multimedia": {"arch": "qt6-multimedia qt6-multimedia-ffmpeg", "fedora": "qt6-qtmultimedia", "debian": "qml6-module-qtmultimedia"},
+        "qt6ct": {"arch": "qt6ct", "fedora": "qt6ct", "debian": "qt6ct"},
+        "qt5ct": {"arch": "qt5ct", "fedora": "qt5ct", "debian": "qt5ct"},
+        "adw-gtk3": {"arch": "adw-gtk-theme", "fedora": "adw-gtk3-theme"},
+        "xdg-portal-gtk": {"arch": "xdg-desktop-portal-gtk", "fedora": "xdg-desktop-portal-gtk", "debian": "xdg-desktop-portal-gtk"},
         "hyprlock": {"arch": "hyprlock", "fedora": "hyprlock", "debian": "hyprlock"},
         "python3": {"arch": "python", "fedora": "python3", "debian": "python3"},
         "git": {"arch": "git", "fedora": "git", "debian": "git"},

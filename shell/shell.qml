@@ -94,6 +94,7 @@ ShellRoot {
     property string settingsPath: profileDir + "/settings.json"
     readonly property string paishScript: Quickshell.shellDir + "/scripts/paithosh-paish.py"
     readonly property string wallpaperColorScript: Quickshell.shellDir + "/scripts/paithosh-wallpaper-color.py"
+    readonly property string themeSyncScript: Quickshell.shellDir + "/scripts/paithosh-theme-sync.py"
 
     FileView {
         id: settingsFile
@@ -491,6 +492,49 @@ ShellRoot {
     }
 
     Timer {
+        id: toolkitThemeSyncTimer
+        interval: 180
+        repeat: false
+        onTriggered: {
+            const payload = toolkitThemeSyncProc._pendingJson;
+            if (!payload || payload === toolkitThemeSyncProc._lastAppliedJson) return;
+            if (toolkitThemeSyncProc.running) {
+                toolkitThemeSyncProc._queuedJson = payload;
+                return;
+            }
+            toolkitThemeSyncProc._inFlightJson = payload;
+            toolkitThemeSyncProc.errBuf = "";
+            toolkitThemeSyncProc.command = ["python3", root.themeSyncScript, "--json", payload];
+            toolkitThemeSyncProc.running = true;
+        }
+    }
+
+    Process {
+        id: toolkitThemeSyncProc
+        property string _lastAppliedJson: ""
+        property string _pendingJson: ""
+        property string _inFlightJson: ""
+        property string _queuedJson: ""
+        property string errBuf: ""
+        stderr: StdioCollector {
+            onStreamFinished: toolkitThemeSyncProc.errBuf = (this.text || "").trim()
+        }
+        onExited: (code) => {
+            if (code === 0) {
+                toolkitThemeSyncProc._lastAppliedJson = toolkitThemeSyncProc._inFlightJson;
+            } else if (toolkitThemeSyncProc.errBuf !== "") {
+                console.warn("[paithosh] Toolkit theme sync failed:", toolkitThemeSyncProc.errBuf);
+            }
+            if (toolkitThemeSyncProc._queuedJson !== "") {
+                const nxt = toolkitThemeSyncProc._queuedJson;
+                toolkitThemeSyncProc._queuedJson = "";
+                toolkitThemeSyncProc._pendingJson = nxt;
+                Qt.callLater(() => toolkitThemeSyncTimer.restart());
+            }
+        }
+    }
+
+    Timer {
         id: autoForkSaveTimer
         interval: 120
         repeat: false
@@ -691,6 +735,29 @@ ShellRoot {
                 gradientAngle: t.gradientAngle,
                 activeBorderHighlight: activeBorderHighlight
             });
+            const tgt = Theme._targetPalette;
+            const toolkitJson = JSON.stringify({
+                pillBg: t.pillBg,
+                surfaceBg: t.surfaceBg,
+                surfaceRaised: t.surfaceRaised,
+                text: t.text,
+                borderColor: t.borderColor,
+                borderAlpha: t.borderAlpha,
+                cardAlpha: tgt ? tgt.cardAlpha : Theme._liveCardAlpha,
+                hoverAlpha: tgt ? tgt.hoverAlpha : Theme._liveHoverAlpha,
+                accent: t.accent,
+                accent2: t.accent2,
+                accentFg: t.accentFg,
+                ok: Theme.colorToHex(Theme.ok),
+                info: Theme.colorToHex(Theme.info),
+                warn: Theme.colorToHex(Theme.warn),
+                danger: Theme.colorToHex(Theme.danger),
+                dangerText: Theme.colorToHex(Theme.dangerText)
+            });
+            if (toolkitJson !== toolkitThemeSyncProc._lastAppliedJson || toolkitThemeSyncProc.running) {
+                toolkitThemeSyncProc._pendingJson = toolkitJson;
+                toolkitThemeSyncTimer.restart();
+            }
         }
 
         function setThemeColor(slot, hex) {
