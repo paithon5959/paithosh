@@ -183,6 +183,7 @@ FocusScope {
     property bool viewerOpen: false
     property var viewerItems: []
     property int viewerIndex: -1
+    property int viewerStepDir: 0
     readonly property var viewerItem: (viewerIndex >= 0 && viewerIndex < viewerItems.length) ? viewerItems[viewerIndex] : null
 
     readonly property bool isInTrash: virtualMode === "" && (currentPath === FileService.trashDir || currentPath.startsWith(FileService.trashDir + "/"))
@@ -1095,6 +1096,7 @@ FocusScope {
         } else {
             viewerItems = siblings;
         }
+        viewerStepDir = 0;
         viewerIndex = idx;
         viewerOpen = true;
     }
@@ -1107,6 +1109,7 @@ FocusScope {
     function stepMediaViewer(delta) {
         const len = viewerItems ? viewerItems.length : 0;
         if (len <= 1) return;
+        viewerStepDir = delta > 0 ? 1 : -1;
         viewerIndex = ((viewerIndex + delta) % len + len) % len;
         const cur = viewerItems[viewerIndex];
         if (cur && cur.path) selectedPaths = [cur.path];
@@ -3808,8 +3811,14 @@ FocusScope {
                                 Layout.preferredHeight: 176
                                 radius: 12
                                 color: Theme.surfaceRaised
-                                border.width: 1; border.color: Theme.borderSubtle
+                                border.width: 1
+                                border.color: (previewCanvasMouse.enabled && previewCanvasMouse.containsMouse)
+                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45)
+                                    : Theme.borderSubtle
                                 clip: true
+                                scale: (previewCanvasMouse.enabled && previewCanvasMouse.pressed) ? 0.985 : 1.0
+                                Behavior on border.color { ColorAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
                                 AdaptiveClipRect {
                                     readonly property real maxW: Math.max(1, previewCanvas.width - 8)
@@ -3869,7 +3878,9 @@ FocusScope {
                                 }
 
                                 MouseArea {
+                                    id: previewCanvasMouse
                                     anchors.fill: parent
+                                    hoverEnabled: true
                                     enabled: !root.isPicker && root._previewDisplayItem !== null
                                         && (root._previewDisplayItem.type === "image" || root._previewDisplayItem.type === "video")
                                     cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
@@ -4677,6 +4688,7 @@ FocusScope {
                 item.item = Qt.binding(() => root.viewerItem);
                 item.currentIndex = Qt.binding(() => root.viewerIndex);
                 item.totalCount = Qt.binding(() => root.viewerItems ? root.viewerItems.length : 0);
+                item.stepDir = Qt.binding(() => root.viewerStepDir);
                 item.topRadius = Qt.binding(() => root._appTopRadius);
                 item.bottomRadius = Qt.binding(() => root._appBottomRadius);
                 item.closeRequested.connect(() => root.closeMediaViewer());

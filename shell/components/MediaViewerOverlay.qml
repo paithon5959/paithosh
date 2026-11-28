@@ -11,8 +11,12 @@ FocusScope {
     property var item: null
     property int currentIndex: -1
     property int totalCount: 0
+    property int stepDir: 0
     property int topRadius: 0
     property int bottomRadius: 0
+
+    // Deferred entrance flag so first-load via Loader always animates instead of snapping on frame 0
+    property bool _entered: false
 
     readonly property bool isImage: Boolean(item && item.type === "image")
     readonly property bool isVideo: Boolean(item && item.type === "video")
@@ -26,16 +30,26 @@ FocusScope {
     property real panX: 0
     property real panY: 0
     property bool smoothTransform: false
+    property int transformDuration: 180
 
     signal closeRequested()
     signal stepRequested(int delta)
     signal openExternalRequested(string path)
 
-    opacity: open ? 1.0 : 0.0
+    opacity: _entered ? 1.0 : 0.0
     visible: open || opacity > 0.01
-    Behavior on opacity { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+    Behavior on opacity { NumberAnimation { duration: root._entered ? 220 : 180; easing.type: Easing.OutCubic } }
+
+    Component.onCompleted: {
+        if (open) {
+            Qt.callLater(() => {
+                if (root && root.open) root._entered = true;
+            });
+        }
+    }
 
     function resetView(animate) {
+        transformDuration = 190;
         smoothTransform = Boolean(animate);
         zoom = 1.0;
         panX = 0;
@@ -55,11 +69,12 @@ FocusScope {
         };
     }
 
-    function applyZoom(targetZoom, anchorX, anchorY, animate) {
+    function applyZoom(targetZoom, anchorX, anchorY, animate, durationMs) {
         const clamped = Math.max(minZoom, Math.min(maxZoom, targetZoom));
         const prev = zoom;
         if (Math.abs(clamped - prev) < 0.001) return;
 
+        transformDuration = durationMs !== undefined ? durationMs : 180;
         smoothTransform = Boolean(animate);
         let nextX = panX;
         let nextY = panY;
@@ -76,20 +91,29 @@ FocusScope {
         panY = bounded.y;
     }
 
-    function zoomBy(factor, anchorX, anchorY, animate) {
-        applyZoom(zoom * factor, anchorX, anchorY, animate);
+    function zoomBy(factor, anchorX, anchorY, animate, durationMs) {
+        applyZoom(zoom * factor, anchorX, anchorY, animate, durationMs);
     }
 
     onItemChanged: {
         resetView(false);
+        if (_entered && stepDir !== 0) {
+            stageSwitchAnim.restart();
+        }
     }
 
     onOpenChanged: {
         if (open) {
             resetView(false);
             root.forceActiveFocus();
-        } else if (videoLoader.item && videoLoader.item.stopMedia) {
-            videoLoader.item.stopMedia();
+            Qt.callLater(() => {
+                if (root && root.open) root._entered = true;
+            });
+        } else {
+            _entered = false;
+            if (videoLoader.item && videoLoader.item.stopMedia) {
+                videoLoader.item.stopMedia();
+            }
         }
     }
 
@@ -186,17 +210,22 @@ FocusScope {
             anchors.fill: parent
             anchors.margins: 12
             spacing: 10
-            scale: root.open ? 1.0 : 0.96
-            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: 0.9 } }
 
-            // Minimal Top Header Bar
+            // Minimal Top Header Bar (slides gently down on entrance)
             Rectangle {
+                id: topBar
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 radius: 12
                 color: Theme.pillBg
                 border.width: 1; border.color: Theme.borderSubtle
                 clip: true
+                opacity: root._entered ? 1.0 : 0.0
+                transform: Translate {
+                    y: root._entered ? 0 : -10
+                    Behavior on y { NumberAnimation { duration: root._entered ? 260 : 160; easing.type: Easing.OutCubic } }
+                }
+                Behavior on opacity { NumberAnimation { duration: root._entered ? 220 : 150; easing.type: Easing.OutCubic } }
 
                 ThemeGradientFill {
                     anchors.fill: parent
@@ -275,9 +304,32 @@ FocusScope {
 
             // Main Media Stage
             Item {
+                id: mediaStageHost
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
+
+                transform: Translate { id: stageSlide }
+
+                ParallelAnimation {
+                    id: stageSwitchAnim
+                    NumberAnimation {
+                        target: stageSlide
+                        property: "x"
+                        from: root.stepDir * 22
+                        to: 0
+                        duration: 220
+                        easing.type: Easing.OutCubic
+                    }
+                    NumberAnimation {
+                        target: mediaStageHost
+                        property: "opacity"
+                        from: 0.25
+                        to: 1.0
+                        duration: 200
+                        easing.type: Easing.OutCubic
+                    }
+                }
 
                 // 1. IMAGE VIEWER MODE
                 Item {
@@ -295,42 +347,53 @@ FocusScope {
                         root.panX = b.x; root.panY = b.y;
                     }
 
-                    Image {
-                        id: viewerImg
-                        anchors.centerIn: parent
-                        width: imageStage.width
-                        height: imageStage.height
-                        source: (root.open && root.isImage) ? root.mediaUrl : ""
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        smooth: true
-                        mipmap: true
-                        opacity: status === Image.Ready ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                    Item {
+                        id: imageEntranceWrap
+                        anchors.fill: parent
+                        scale: root._entered ? 1.0 : 0.94
+                        opacity: root._entered ? 1.0 : 0.0
+                        Behavior on scale { NumberAnimation { duration: root._entered ? 320 : 170; easing.type: root._entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
+                        Behavior on opacity { NumberAnimation { duration: root._entered ? 220 : 150; easing.type: Easing.OutCubic } }
 
-                        transform: [
-                            Scale {
-                                origin.x: viewerImg.width / 2
-                                origin.y: viewerImg.height / 2
-                                xScale: root.zoom
-                                yScale: root.zoom
-                                Behavior on xScale { enabled: root.smoothTransform; NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                Behavior on yScale { enabled: root.smoothTransform; NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                            },
-                            Translate {
-                                x: root.panX
-                                y: root.panY
-                                Behavior on x { enabled: root.smoothTransform; NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                                Behavior on y { enabled: root.smoothTransform; NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-                            }
-                        ]
+                        Image {
+                            id: viewerImg
+                            anchors.centerIn: parent
+                            width: imageStage.width
+                            height: imageStage.height
+                            source: (root.open && root.isImage) ? root.mediaUrl : ""
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            smooth: true
+                            mipmap: true
+                            opacity: status === Image.Ready ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                            transform: [
+                                Scale {
+                                    origin.x: viewerImg.width / 2
+                                    origin.y: viewerImg.height / 2
+                                    xScale: root.zoom
+                                    yScale: root.zoom
+                                    Behavior on xScale { enabled: root.smoothTransform; NumberAnimation { duration: root.transformDuration; easing.type: Easing.OutCubic } }
+                                    Behavior on yScale { enabled: root.smoothTransform; NumberAnimation { duration: root.transformDuration; easing.type: Easing.OutCubic } }
+                                },
+                                Translate {
+                                    x: root.panX
+                                    y: root.panY
+                                    Behavior on x { enabled: root.smoothTransform; NumberAnimation { duration: root.transformDuration; easing.type: Easing.OutCubic } }
+                                    Behavior on y { enabled: root.smoothTransform; NumberAnimation { duration: root.transformDuration; easing.type: Easing.OutCubic } }
+                                }
+                            ]
+                        }
                     }
 
                     // Error / loading fallback for Image
                     ColumnLayout {
                         anchors.centerIn: parent
                         spacing: 8
-                        visible: viewerImg.status === Image.Error
+                        opacity: viewerImg.status === Image.Error ? 1.0 : 0.0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
                         SvgIcon {
                             Layout.alignment: Qt.AlignHCenter
@@ -390,12 +453,12 @@ FocusScope {
                             const dy = wheel.angleDelta.y;
                             if (dy === 0) return;
                             const factor = dy > 0 ? 1.18 : (1 / 1.18);
-                            root.zoomBy(factor, wheel.x, wheel.y, false);
+                            root.zoomBy(factor, wheel.x, wheel.y, true, 95);
                             wheel.accepted = true;
                         }
                     }
 
-                    // Minimal Floating Zoom Pill
+                    // Minimal Floating Zoom Pill (slides up with spring on entrance)
                     Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.bottom: parent.bottom
@@ -406,6 +469,14 @@ FocusScope {
                         color: Theme.pillBg
                         border.width: 1; border.color: Theme.borderSubtle
                         clip: true
+                        opacity: root._entered ? 1.0 : 0.0
+                        scale: root._entered ? 1.0 : 0.95
+                        transform: Translate {
+                            y: root._entered ? 0 : 14
+                            Behavior on y { NumberAnimation { duration: root._entered ? 300 : 160; easing.type: root._entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
+                        }
+                        Behavior on opacity { NumberAnimation { duration: root._entered ? 220 : 150; easing.type: Easing.OutCubic } }
+                        Behavior on scale { NumberAnimation { duration: root._entered ? 300 : 160; easing.type: root._entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
 
                         ThemeGradientFill {
                             anchors.fill: parent
@@ -459,6 +530,7 @@ FocusScope {
                     onLoaded: {
                         if (item) {
                             item.active = Qt.binding(() => root.open && root.isVideo);
+                            item.entered = Qt.binding(() => root._entered && root.isVideo);
                             item.source = Qt.binding(() => (root.open && root.isVideo) ? root.mediaUrl : "");
                             item.openExternalRequested.connect(() => {
                                 if (root.mediaPath !== "") root.openExternalRequested(root.mediaPath);

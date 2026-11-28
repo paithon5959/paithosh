@@ -9,6 +9,7 @@ Item {
 
     property url source: ""
     property bool active: false
+    property bool entered: false
     property real lastVolume: 0.85
 
     readonly property var speedSteps: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
@@ -16,6 +17,7 @@ Item {
     property bool scrubbing: false
     property real scrubRatio: 0
     property string pulseIcon: ""
+    property bool _frameReady: false
 
     signal openExternalRequested()
 
@@ -35,9 +37,7 @@ Item {
 
     function triggerPulse(iconName) {
         pulseIcon = iconName;
-        pulseBadge.opacity = 0.92;
-        pulseBadge.scale = 1.0;
-        pulseFadeTimer.restart();
+        pulseAnim.restart();
     }
 
     function togglePlay() {
@@ -87,6 +87,7 @@ Item {
     onSourceChanged: {
         scrubbing = false;
         scrubRatio = 0;
+        _frameReady = false;
         player.stop();
         player.source = source;
         player.playbackRate = speedSteps[speedIdx];
@@ -126,14 +127,28 @@ Item {
         audioOutput: audioOut
         videoOutput: videoOut
         playbackRate: root.speedSteps[root.speedIdx]
+        onMediaStatusChanged: {
+            if (mediaStatus === MediaPlayer.LoadedMedia
+                || mediaStatus === MediaPlayer.BufferedMedia
+                || mediaStatus === MediaPlayer.BufferingMedia) {
+                root._frameReady = true;
+            }
+        }
+        onHasVideoChanged: {
+            if (hasVideo) root._frameReady = true;
+        }
     }
 
-    Timer {
-        id: pulseFadeTimer
-        interval: 340
-        onTriggered: {
-            pulseBadge.opacity = 0.0;
-            pulseBadge.scale = 1.12;
+    SequentialAnimation {
+        id: pulseAnim
+        ParallelAnimation {
+            NumberAnimation { target: pulseBadge; property: "opacity"; from: 0.0; to: 0.92; duration: 120; easing.type: Easing.OutCubic }
+            NumberAnimation { target: pulseBadge; property: "scale"; from: 0.78; to: 1.0; duration: 190; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot }
+        }
+        PauseAnimation { duration: 180 }
+        ParallelAnimation {
+            NumberAnimation { target: pulseBadge; property: "opacity"; to: 0.0; duration: 200; easing.type: Easing.OutCubic }
+            NumberAnimation { target: pulseBadge; property: "scale"; to: 1.14; duration: 200; easing.type: Easing.OutCubic }
         }
     }
 
@@ -146,12 +161,18 @@ Item {
         anchors.bottom: controlBar.top
         anchors.bottomMargin: 10
         clip: true
+        scale: root.entered ? 1.0 : 0.95
+        opacity: root.entered ? 1.0 : 0.0
+        Behavior on scale { NumberAnimation { duration: root.entered ? 300 : 170; easing.type: root.entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
+        Behavior on opacity { NumberAnimation { duration: root.entered ? 220 : 160; easing.type: Easing.OutCubic } }
 
         VideoOutput {
             id: videoOut
             anchors.fill: parent
             fillMode: VideoOutput.PreserveAspectFit
-            visible: player.error === MediaPlayer.NoError
+            opacity: (player.error === MediaPlayer.NoError && (root._frameReady || player.playbackState === MediaPlayer.PlayingState)) ? 1.0 : 0.0
+            visible: opacity > 0.01
+            Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
         }
 
         MouseArea {
@@ -169,12 +190,9 @@ Item {
             color: Theme.pillBg
             border.width: 1; border.color: Theme.borderSubtle
             opacity: 0.0
-            scale: 0.88
+            scale: 0.82
             visible: opacity > 0.01
             clip: true
-
-            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
-            Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
 
             SvgIcon {
                 anchors.centerIn: parent
@@ -184,12 +202,14 @@ Item {
             }
         }
 
-        // Error state (monochrome, plain consumer copy)
+        // Error state (monochrome, plain consumer copy, smooth fade)
         ColumnLayout {
             anchors.centerIn: parent
             spacing: 10
-            visible: player.error !== MediaPlayer.NoError
+            opacity: player.error !== MediaPlayer.NoError ? 1.0 : 0.0
+            visible: opacity > 0.01
             width: Math.min(320, parent.width - 32)
+            Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
 
             Rectangle {
                 Layout.alignment: Qt.AlignHCenter
@@ -233,6 +253,14 @@ Item {
         color: Theme.pillBg
         border.width: 1; border.color: Theme.borderSubtle
         clip: true
+        opacity: root.entered ? 1.0 : 0.0
+        scale: root.entered ? 1.0 : 0.96
+        transform: Translate {
+            y: root.entered ? 0 : 14
+            Behavior on y { NumberAnimation { duration: root.entered ? 300 : 170; easing.type: root.entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
+        }
+        Behavior on opacity { NumberAnimation { duration: root.entered ? 220 : 150; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: root.entered ? 300 : 170; easing.type: root.entered ? Easing.OutBack : Easing.OutCubic; easing.overshoot: 0.8 } }
 
         ThemeGradientFill {
             anchors.fill: parent
