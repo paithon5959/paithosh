@@ -55,7 +55,7 @@ FocusScope {
 
     readonly property var previewItem: selectedPaths.length === 1 ? getPrimarySelectedItem() : null
     readonly property var activePreviewHandler: previewHandlerFor(previewItem)
-    readonly property bool showPreviewPanel: activePreviewHandler !== null && !previewDismissed
+    readonly property bool showPreviewPanel: !archiverActive && activePreviewHandler !== null && !previewDismissed
 
     onSelectedPathsChanged: {
         previewDismissed = false;
@@ -134,10 +134,23 @@ FocusScope {
 
     // Archiver & Password modal state
     property bool archiverActive: false
+    property bool archiverLoading: false
     property string archiverArchivePath: ""
     property string archiverArchiveName: ""
     property var archiverEntries: []
-    property string archiverStatus: ""
+    property string archiverError: ""
+    property int _archiveSeq: 0
+
+    readonly property var filteredArchiveEntries: {
+        const list = archiverEntries || [];
+        const q = searchQuery.trim().toLowerCase();
+        if (q === "") return list;
+        const out = [];
+        for (let i = 0; i < list.length; ++i) {
+            if (String(list[i].name || "").toLowerCase().indexOf(q) !== -1) out.push(list[i]);
+        }
+        return out;
+    }
 
     property bool passwordOpen: false
     property string passwordTargetPath: ""
@@ -175,24 +188,31 @@ FocusScope {
     ]
 
     readonly property var breadcrumbSegments: {
-        if (virtualMode === "recent") return [{ label: "Recent Files", path: "", clickable: false }];
-        if (virtualMode === "starred") return [{ label: "Starred Items", path: "", clickable: false }];
-        if (currentPath === FileService.trashDir) return [{ label: "Trash", path: FileService.trashDir, clickable: true }];
-
-        const segs = [];
-        let rel = "";
-        if (currentPath === FileService.homeDir || currentPath.startsWith(FileService.homeDir + "/")) {
-            segs.push({ label: "~", path: FileService.homeDir, clickable: true });
-            rel = currentPath.slice(FileService.homeDir.length);
+        let segs = [];
+        if (virtualMode === "recent") {
+            segs = [{ label: "Recent Files", path: "", clickable: false }];
+        } else if (virtualMode === "starred") {
+            segs = [{ label: "Starred Items", path: "", clickable: false }];
+        } else if (currentPath === FileService.trashDir) {
+            segs = [{ label: "Trash", path: FileService.trashDir, clickable: true }];
         } else {
-            segs.push({ label: "/", path: "/", clickable: true });
-            rel = currentPath === "/" ? "" : currentPath;
+            let rel = "";
+            if (currentPath === FileService.homeDir || currentPath.startsWith(FileService.homeDir + "/")) {
+                segs.push({ label: "~", path: FileService.homeDir, clickable: true });
+                rel = currentPath.slice(FileService.homeDir.length);
+            } else {
+                segs.push({ label: "/", path: "/", clickable: true });
+                rel = currentPath === "/" ? "" : currentPath;
+            }
+            const parts = rel.split("/").filter(Boolean);
+            let acc = segs[0].path;
+            for (let i = 0; i < parts.length; ++i) {
+                acc = (acc === "/" ? "" : acc) + "/" + parts[i];
+                segs.push({ label: parts[i], path: acc, clickable: true });
+            }
         }
-        const parts = rel.split("/").filter(Boolean);
-        let acc = segs[0].path;
-        for (let i = 0; i < parts.length; ++i) {
-            acc = (acc === "/" ? "" : acc) + "/" + parts[i];
-            segs.push({ label: parts[i], path: acc, clickable: true });
+        if (archiverActive && archiverArchiveName !== "") {
+            segs.push({ label: archiverArchiveName, path: "", clickable: false, isArchive: true });
         }
         if (segs.length > 4) {
             return [
@@ -441,6 +461,10 @@ FocusScope {
     }
 
     function refreshCurrent() {
+        if (archiverActive && archiverArchivePath !== "") {
+            openArchiveInspector({ path: archiverArchivePath, name: archiverArchiveName });
+            return;
+        }
         if (virtualMode === "recent") {
             loadRecent();
             return;
@@ -489,6 +513,7 @@ FocusScope {
     function loadRecent() {
         const seq = ++_navSeq;
         virtualMode = "recent";
+        archiverActive = false;
         isDeepSearch = false;
         loadError = "";
         isLoading = true;
@@ -508,6 +533,7 @@ FocusScope {
     function loadStarred() {
         ++_navSeq;
         virtualMode = "starred";
+        archiverActive = false;
         isDeepSearch = false;
         loadError = "";
         isLoading = false;
@@ -758,6 +784,10 @@ FocusScope {
     }
 
     function goUp() {
+        if (archiverActive) {
+            archiverActive = false;
+            return;
+        }
         if (virtualMode !== "") {
             navigateTo(currentPath);
             return;
@@ -829,19 +859,23 @@ FocusScope {
     }
 
     function openArchiveInspector(item) {
+        const seq = ++_archiveSeq;
         archiverArchivePath = item.path;
         archiverArchiveName = item.name;
-        archiverStatus = "Reading archive...";
+        archiverError = "";
         archiverEntries = [];
+        archiverLoading = true;
         archiverActive = true;
+        selectedPaths = [];
+        lastSelectedIdx = -1;
         FileService.inspectArchive(item.path, (ok, entries, err) => {
-            if (!root) return;
+            if (!root || seq !== root._archiveSeq) return;
+            archiverLoading = false;
             if (!ok) {
-                archiverStatus = err || "Unable to list archive (may be encrypted)";
+                archiverError = err || "Unable to list archive (may be encrypted)";
                 return;
             }
             archiverEntries = entries;
-            archiverStatus = entries.length + " entries inside " + item.name;
         });
     }
 
@@ -1337,6 +1371,11 @@ FocusScope {
                 event.accepted = true;
                 return;
             }
+            if (archiverActive) {
+                archiverActive = false;
+                event.accepted = true;
+                return;
+            }
             if (selectedPaths.length > 0) {
                 selectedPaths = [];
                 lastSelectedIdx = -1;
@@ -1364,7 +1403,7 @@ FocusScope {
         } else if (event.key === Qt.Key_F5 || (ctrl && event.key === Qt.Key_R)) {
             refreshCurrent();
             event.accepted = true;
-        } else if (ctrl && event.key === Qt.Key_L && virtualMode === "") {
+        } else if (ctrl && event.key === Qt.Key_L && virtualMode === "" && !archiverActive) {
             pathField.text = currentPath;
             pathEditing = true;
             pathField.forceActiveFocus();
@@ -1374,18 +1413,18 @@ FocusScope {
             searchField.forceActiveFocus();
             searchField.selectAll();
             event.accepted = true;
-        } else if (ctrl && event.key === Qt.Key_H) {
+        } else if (ctrl && event.key === Qt.Key_H && !archiverActive) {
             showHidden = !showHidden;
             FileService.setHiddenPref(showHidden);
             refreshCurrent();
             event.accepted = true;
-        } else if (ctrl && shift && event.key === Qt.Key_N && virtualMode === "" && !isInTrash) {
+        } else if (ctrl && shift && event.key === Qt.Key_N && virtualMode === "" && !isInTrash && !archiverActive) {
             openInputModal("mkdir", "New Folder", "New Folder", "");
             event.accepted = true;
-        } else if (ctrl && event.key === Qt.Key_N && !isPicker && virtualMode === "" && !isInTrash) {
+        } else if (ctrl && event.key === Qt.Key_N && !isPicker && virtualMode === "" && !isInTrash && !archiverActive) {
             openInputModal("mkfile", "New File", "untitled.txt", "");
             event.accepted = true;
-        } else if (ctrl && event.key === Qt.Key_A && (!isPicker || pickerMultiple)) {
+        } else if (ctrl && event.key === Qt.Key_A && !archiverActive && (!isPicker || pickerMultiple)) {
             const all = (visibleItems || []).map(it => it.path);
             selectedPaths = all;
             lastSelectedIdx = all.length - 1;
@@ -1969,7 +2008,7 @@ FocusScope {
                     PillButton {
                         iconName: "arrow-up"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
-                        enabled: root.virtualMode !== "" || root.currentPath !== "/"
+                        enabled: root.archiverActive || root.virtualMode !== "" || root.currentPath !== "/"
                         onClicked: root.goUp()
                     }
                     PillButton {
@@ -1992,7 +2031,7 @@ FocusScope {
 
                         MouseArea {
                             anchors.fill: parent
-                            visible: !root.pathEditing && root.virtualMode === ""
+                            visible: !root.pathEditing && root.virtualMode === "" && !root.archiverActive
                             cursorShape: Qt.IBeamCursor
                             onClicked: {
                                 pathField.text = root.currentPath;
@@ -2034,27 +2073,45 @@ FocusScope {
                                         height: 22
                                         Layout.fillWidth: true
                                         Layout.minimumWidth: index === root.breadcrumbSegments.length - 1 ? 36 : 20
-                                        Layout.preferredWidth: segText.implicitWidth + 12
-                                        Layout.maximumWidth: Math.min(160, segText.implicitWidth + 12)
+                                        Layout.preferredWidth: segText.implicitWidth + (modelData.isArchive ? 28 : 12)
+                                        Layout.maximumWidth: Math.min(200, segText.implicitWidth + (modelData.isArchive ? 28 : 12))
                                         radius: 6
-                                        color: (modelData.clickable && segMouse.containsMouse) ? Theme.cardHover : "transparent"
+                                        color: modelData.isArchive
+                                            ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
+                                            : ((modelData.clickable && segMouse.containsMouse) ? Theme.cardHover : "transparent")
                                         scale: (modelData.clickable && segMouse.pressed) ? 0.95 : 1.0
+                                        clip: true
                                         Behavior on color { ColorAnimation { duration: 110 } }
                                         Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutBack } }
 
-                                        Text {
-                                            id: segText
+                                        RowLayout {
                                             anchors.fill: parent
                                             anchors.leftMargin: 6
                                             anchors.rightMargin: 6
-                                            verticalAlignment: Text.AlignVCenter
-                                            horizontalAlignment: Text.AlignHCenter
-                                            text: modelData.label
-                                            color: index === root.breadcrumbSegments.length - 1 ? Theme.text : Theme.textSub
-                                            font.family: Theme.fontSans
-                                            font.pixelSize: 12
-                                            font.weight: index === root.breadcrumbSegments.length - 1 ? Font.DemiBold : Font.Normal
-                                            elide: Text.ElideMiddle
+                                            spacing: 4
+
+                                            SvgIcon {
+                                                visible: Boolean(modelData.isArchive)
+                                                sourceName: "archive"
+                                                iconSize: 12
+                                                color: Theme.accent
+                                            }
+
+                                            Text {
+                                                id: segText
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                verticalAlignment: Text.AlignVCenter
+                                                horizontalAlignment: modelData.isArchive ? Text.AlignLeft : Text.AlignHCenter
+                                                text: modelData.label
+                                                color: modelData.isArchive
+                                                    ? Theme.accent
+                                                    : (index === root.breadcrumbSegments.length - 1 ? Theme.text : Theme.textSub)
+                                                font.family: Theme.fontSans
+                                                font.pixelSize: 12
+                                                font.weight: (modelData.isArchive || index === root.breadcrumbSegments.length - 1) ? Font.DemiBold : Font.Normal
+                                                elide: Text.ElideMiddle
+                                            }
                                         }
 
                                         MouseArea {
@@ -2066,6 +2123,8 @@ FocusScope {
                                             onClicked: {
                                                 if (modelData.path && modelData.path !== root.currentPath) {
                                                     root.navigateTo(modelData.path);
+                                                } else if (root.archiverActive) {
+                                                    root.archiverActive = false;
                                                 } else if (root.virtualMode === "") {
                                                     pathField.text = root.currentPath;
                                                     root.pathEditing = true;
@@ -2112,12 +2171,14 @@ FocusScope {
                     // Right Action Cluster
                     PillButton {
                         id: sortBtn
+                        visible: !root.archiverActive
                         iconName: "sort"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
                         onClicked: root.openSortMenu(sortBtn)
                     }
 
                     PillButton {
+                        visible: !root.archiverActive
                         iconName: root.showHidden ? "eye" : "eye-off"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8
                         active: root.showHidden
@@ -2130,7 +2191,7 @@ FocusScope {
                     }
 
                     PillButton {
-                        visible: root.isInTrash && !root.isPicker
+                        visible: !root.archiverActive && root.isInTrash && !root.isPicker
                         iconName: "trash"; iconSize: 13
                         text: "Empty"
                         fontSize: 11; horizontalPadding: 9; verticalPadding: 5; radius: 8
@@ -2140,14 +2201,14 @@ FocusScope {
                     }
 
                     PillButton {
-                        visible: root.virtualMode === "" && !root.isInTrash
+                        visible: !root.archiverActive && root.virtualMode === "" && !root.isInTrash
                         iconName: "folder-plus"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
                         onClicked: root.openInputModal("mkdir", "New Folder", "New Folder", "")
                     }
 
                     PillButton {
-                        visible: !root.isPicker && root.virtualMode === "" && !root.isInTrash
+                        visible: !root.archiverActive && !root.isPicker && root.virtualMode === "" && !root.isInTrash
                         iconName: "file-plus"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
                         onClicked: root.openInputModal("mkfile", "New File", "untitled.txt", "")
@@ -2155,6 +2216,7 @@ FocusScope {
 
                     // Segmented View Mode Control (Grid | List)
                     Rectangle {
+                        visible: !root.archiverActive
                         width: 64; height: 30; radius: 9
                         color: Theme.cardBg
                         border.width: 1; border.color: Theme.borderSubtle
@@ -2219,7 +2281,7 @@ FocusScope {
 
                 // Animated Clipboard Banner (Copy / Cut Ready)
                 Rectangle {
-                    readonly property bool showClip: !root.isPicker && FileService.clipboardPaths.length > 0 && root.virtualMode === "" && !root.isInTrash
+                    readonly property bool showClip: !root.isPicker && !root.archiverActive && FileService.clipboardPaths.length > 0 && root.virtualMode === "" && !root.isInTrash
                     visible: Layout.preferredHeight > 1 || opacity > 0.01
                     Layout.fillWidth: true
                     Layout.preferredHeight: showClip ? 36 : 0
@@ -2261,75 +2323,79 @@ FocusScope {
                     }
                 }
 
-                // Animated Inline Archiver Bar
+                // Animated Archive Context Banner (indicates active archive; contents render full-height in filesViewport)
                 Rectangle {
                     visible: Layout.preferredHeight > 1 || opacity > 0.01
                     Layout.fillWidth: true
-                    Layout.preferredHeight: root.archiverActive ? 164 : 0
+                    Layout.preferredHeight: root.archiverActive ? 40 : 0
                     opacity: root.archiverActive ? 1.0 : 0.0
-                    radius: 12
+                    radius: 10
                     color: Theme.surfaceRaised
                     border.width: root.archiverActive ? 1 : 0
-                    border.color: Theme.borderSubtle
+                    border.color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.35)
                     clip: true
 
                     Behavior on Layout.preferredHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    Behavior on opacity { NumberAnimation { duration: 170 } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
 
-                    ColumnLayout {
+                    RowLayout {
                         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
-                        anchors.margins: 12; height: 140; spacing: 8
+                        anchors.leftMargin: 8; anchors.rightMargin: 8; height: 40; spacing: 8
 
-                        RowLayout {
-                            Layout.fillWidth: true; spacing: 8
-                            SvgIcon { sourceName: "archive"; iconSize: 16; color: Theme.accent }
-                            Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: root.archiverArchiveName + " — " + root.archiverStatus; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold; elide: Text.ElideRight }
-                            PillButton {
-                                text: "Extract Here"
-                                iconName: "extract"; iconSize: 12
-                                fontSize: 11; horizontalPadding: 10; verticalPadding: 4; radius: 8
-                                active: true
-                                onClicked: root.beginExtract(root.archiverArchivePath, root.archiverArchiveName, "")
-                            }
-                            PillButton {
-                                iconName: "close"; iconSize: 12
-                                fixedWidth: 26; fixedHeight: 26; radius: 7; subtle: true
-                                onClicked: root.archiverActive = false
+                        PillButton {
+                            iconName: "arrow-left"; iconSize: 13
+                            fixedWidth: 26; fixedHeight: 26; radius: 7; subtle: true
+                            onClicked: root.archiverActive = false
+                        }
+
+                        Rectangle {
+                            height: 20; radius: 5
+                            implicitWidth: archBadgeRow.implicitWidth + 10
+                            color: Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14)
+                            RowLayout {
+                                id: archBadgeRow
+                                anchors.centerIn: parent; spacing: 4
+                                SvgIcon { sourceName: "archive"; iconSize: 11; color: Theme.accent }
+                                Text {
+                                    text: "ARCHIVE"
+                                    color: Theme.accent
+                                    font.family: Theme.fontSans; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 0.5
+                                }
                             }
                         }
 
-                        ListView {
-                            id: archiverList
-                            Layout.fillWidth: true; Layout.fillHeight: true
-                            clip: true; spacing: 4
-                            boundsBehavior: Flickable.StopAtBounds
-                            model: root.archiverEntries
-                            ScrollBar.vertical: ScrollBar {
-                                policy: archiverList.contentHeight > archiverList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-                                width: 4
-                                contentItem: Rectangle {
-                                    implicitWidth: 4; radius: 2
-                                    color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.24)
-                                }
+                        Text {
+                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                            text: root.archiverArchiveName
+                            color: Theme.text
+                            font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.DemiBold
+                            elide: Text.ElideMiddle
+                        }
+
+                        Text {
+                            text: {
+                                if (root.archiverLoading) return "Reading...";
+                                if (root.archiverError !== "") return "Protected";
+                                const total = (root.archiverEntries || []).length;
+                                const shown = (root.filteredArchiveEntries || []).length;
+                                return (shown !== total ? (shown + "/" + total) : total) + (total === 1 ? " entry" : " entries");
                             }
-                            delegate: Rectangle {
-                                required property var modelData
-                                width: Math.max(0, ListView.view.width - (archiverList.contentHeight > archiverList.height ? 8 : 0))
-                                height: 26; radius: 6
-                                color: archRowMouse.containsMouse ? Theme.cardHover : Theme.cardBg
-                                Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
-                                MouseArea {
-                                    id: archRowMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                }
-                                RowLayout {
-                                    anchors.fill: parent; anchors.leftMargin: 10; anchors.rightMargin: 10; spacing: 8
-                                    SvgIcon { sourceName: root.iconFor(modelData.type); iconSize: 13; color: root.iconColorFor(modelData.type) }
-                                    Text { Layout.fillWidth: true; Layout.minimumWidth: 0; text: modelData.name; color: Theme.text; font.family: Theme.fontSans; font.pixelSize: 11; elide: Text.ElideRight }
-                                    Text { text: modelData.meta; color: Theme.textMuted; font.family: Theme.fontMono; font.pixelSize: 10 }
-                                }
-                            }
+                            color: root.archiverError !== "" ? Theme.dangerText : Theme.textSub
+                            font.family: Theme.fontMono; font.pixelSize: 11
+                        }
+
+                        PillButton {
+                            text: "Extract Here"
+                            iconName: "extract"; iconSize: 12
+                            fontSize: 11; horizontalPadding: 10; verticalPadding: 4; radius: 7
+                            active: true
+                            onClicked: root.beginExtract(root.archiverArchivePath, root.archiverArchiveName, "")
+                        }
+
+                        PillButton {
+                            iconName: "close"; iconSize: 11
+                            fixedWidth: 26; fixedHeight: 26; radius: 7; subtle: true
+                            onClicked: root.archiverActive = false
                         }
                     }
                 }
@@ -2425,6 +2491,7 @@ FocusScope {
 
                     MouseArea {
                         anchors.fill: parent
+                        enabled: !root.archiverActive
                         acceptedButtons: Qt.RightButton | Qt.LeftButton
                         onPressed: (mouse) => {
                             root.forceActiveFocus();
@@ -2453,6 +2520,194 @@ FocusScope {
                         }
                     }
 
+                    // Full-Viewport Archive Browser
+                    Item {
+                        id: archiveViewport
+                        anchors.fill: parent
+                        clip: true
+                        z: 4
+                        opacity: root.archiverActive ? 1.0 : 0.0
+                        visible: opacity > 0.01
+                        Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+
+                        transform: Translate {
+                            y: root.archiverActive ? 0 : 8
+                            Behavior on y { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                        }
+
+                        // Loading / Error / Empty Archive State
+                        ColumnLayout {
+                            anchors.centerIn: parent
+                            width: Math.min(340, parent.width - 40)
+                            spacing: 10
+                            opacity: (root.archiverLoading || root.archiverError !== "" || root.filteredArchiveEntries.length === 0) ? 1.0 : 0.0
+                            visible: opacity > 0.01
+                            z: 2
+                            Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                            Rectangle {
+                                Layout.alignment: Qt.AlignHCenter
+                                width: 56; height: 56; radius: 16
+                                color: Theme.cardBg
+                                border.width: 1; border.color: Theme.borderSubtle
+                                SvgIcon {
+                                    anchors.centerIn: parent
+                                    sourceName: root.archiverError !== "" ? "info" : (root.searchQuery.trim() !== "" ? "search" : "archive")
+                                    iconSize: 24
+                                    color: root.archiverError !== "" ? Theme.dangerText : (root.archiverLoading ? Theme.accent : Theme.textMuted)
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                text: root.archiverLoading
+                                    ? "Reading archive..."
+                                    : (root.archiverError !== ""
+                                        ? "Unable to inspect archive"
+                                        : (root.searchQuery.trim() !== "" ? "No matching entries" : "Archive is empty"))
+                                color: Theme.text
+                                font.family: Theme.fontSans; font.pixelSize: 14; font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+
+                            Text {
+                                Layout.fillWidth: true; Layout.minimumWidth: 0
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                text: root.archiverLoading
+                                    ? root.archiverArchiveName
+                                    : (root.archiverError !== ""
+                                        ? root.archiverError
+                                        : (root.searchQuery.trim() !== ""
+                                            ? "Try a different keyword to filter entries inside this archive."
+                                            : "No files or folders were found inside this archive."))
+                                color: Theme.textSub
+                                font.family: Theme.fontSans; font.pixelSize: 11
+                            }
+
+                            RowLayout {
+                                Layout.alignment: Qt.AlignHCenter
+                                spacing: 8
+                                PillButton {
+                                    visible: !root.archiverLoading && root.archiverError !== ""
+                                    text: "Extract Here"
+                                    iconName: "extract"; iconSize: 12
+                                    active: true
+                                    onClicked: root.beginExtract(root.archiverArchivePath, root.archiverArchiveName, "")
+                                }
+                                PillButton {
+                                    visible: !root.archiverLoading && root.archiverError === "" && root.searchQuery.trim() !== ""
+                                    text: "Clear Search"
+                                    iconName: "close"; iconSize: 12
+                                    onClicked: {
+                                        searchField.text = "";
+                                        root.searchQuery = "";
+                                    }
+                                }
+                            }
+                        }
+
+                        ListView {
+                            id: archiverList
+                            anchors.fill: parent
+                            clip: true
+                            spacing: 4
+                            boundsBehavior: Flickable.StopAtBounds
+                            reuseItems: true
+                            cacheBuffer: 240
+                            model: root.archiverActive ? root.filteredArchiveEntries : []
+
+                            ScrollBar.vertical: ScrollBar {
+                                policy: archiverList.contentHeight > archiverList.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+                                width: 8
+                                padding: 2
+                                contentItem: Rectangle {
+                                    implicitWidth: 4; radius: 2
+                                    color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.28)
+                                }
+                            }
+
+                            delegate: Rectangle {
+                                id: archRow
+                                required property var modelData
+                                readonly property string cleanPath: String(modelData.name || "").replace(/\/+$/, "")
+                                readonly property int slashIdx: cleanPath.lastIndexOf("/")
+                                readonly property string entryName: slashIdx >= 0 ? cleanPath.slice(slashIdx + 1) : cleanPath
+                                readonly property string entryDir: slashIdx >= 0 ? cleanPath.slice(0, slashIdx) : ""
+
+                                width: Math.max(0, ListView.view.width - (archiverList.contentHeight > archiverList.height ? 10 : 0))
+                                height: entryDir !== "" ? 42 : 36
+                                radius: 8
+                                clip: true
+                                color: archRowMouse.containsMouse
+                                    ? Theme.cardHover
+                                    : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035)
+                                border.width: 1
+                                border.color: archRowMouse.containsMouse
+                                    ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.16)
+                                    : "transparent"
+                                scale: archRowMouse.pressed ? 0.99 : 1.0
+
+                                Behavior on color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                                Behavior on border.color { ColorAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                MouseArea {
+                                    id: archRowMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 10; anchors.rightMargin: 12
+                                    spacing: 10
+
+                                    Rectangle {
+                                        width: 26; height: 26; radius: 7
+                                        color: Theme.cardBg
+                                        SvgIcon {
+                                            anchors.centerIn: parent
+                                            sourceName: root.iconFor(archRow.modelData.type)
+                                            iconSize: 14
+                                            color: root.iconColorFor(archRow.modelData.type)
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        spacing: 1
+
+                                        Text {
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                            text: archRow.entryName
+                                            color: Theme.text
+                                            font.family: Theme.fontSans; font.pixelSize: 12; font.weight: Font.Medium
+                                            elide: Text.ElideRight
+                                        }
+
+                                        Text {
+                                            visible: archRow.entryDir !== ""
+                                            Layout.fillWidth: true; Layout.minimumWidth: 0
+                                            text: archRow.entryDir
+                                            color: Theme.textMuted
+                                            font.family: Theme.fontMono; font.pixelSize: 10
+                                            elide: Text.ElideMiddle
+                                        }
+                                    }
+
+                                    Text {
+                                        text: archRow.modelData.type === "folder" ? "Folder" : String(archRow.modelData.meta || "Compressed")
+                                        color: Theme.textMuted
+                                        font.family: Theme.fontMono; font.pixelSize: 10
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Rubber-band Marquee Selection Box
                     Rectangle {
                         id: marqueeRect
@@ -2469,7 +2724,7 @@ FocusScope {
                         anchors.centerIn: parent
                         width: Math.min(320, parent.width - 40)
                         spacing: 10
-                        opacity: (!root.isLoading && root._hasLoadedOnce && root.visibleItems.length === 0) ? 1.0 : 0.0
+                        opacity: (!root.archiverActive && !root.isLoading && root._hasLoadedOnce && root.visibleItems.length === 0) ? 1.0 : 0.0
                         visible: opacity > 0.01
                         z: 2
                         Behavior on opacity { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
@@ -2551,7 +2806,7 @@ FocusScope {
                     // Virtualized Grid View (Balanced col math from target width + ScrollBar gutter)
                     GridView {
                         id: filesGrid
-                        opacity: !root.isListView ? 1.0 : 0.0
+                        opacity: (!root.archiverActive && !root.isListView) ? 1.0 : 0.0
                         visible: opacity > 0.01
                         anchors.fill: parent
                         clip: true
@@ -2788,7 +3043,7 @@ FocusScope {
 
                     // Virtualized List View with Sortable Column Header
                     ColumnLayout {
-                        opacity: root.isListView ? 1.0 : 0.0
+                        opacity: (!root.archiverActive && root.isListView) ? 1.0 : 0.0
                         visible: opacity > 0.01
                         anchors.fill: parent
                         spacing: 4
@@ -3367,6 +3622,13 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.minimumWidth: 0
                         text: {
+                            if (root.archiverActive) {
+                                if (root.archiverLoading) return "Reading " + root.archiverArchiveName + "...";
+                                if (root.archiverError !== "") return root.archiverError;
+                                const total = (root.archiverEntries || []).length;
+                                const shown = (root.filteredArchiveEntries || []).length;
+                                return (shown !== total ? (shown + " of " + total) : total) + (total === 1 ? " entry" : " entries") + " inside " + root.archiverArchiveName;
+                            }
                             if (root.isLoading) return "Loading...";
                             if (root.selectedPaths.length > 0) {
                                 const bytesStr = root.selectedTotalBytes();
