@@ -20,6 +20,10 @@ Singleton {
     property bool prefShowHidden: false
     property string prefSortBy: "name" // "name" | "mtime" | "size" | "type"
     property bool prefSortAsc: true
+    // ponytail: in-memory session tabs only; persist in files-state.json if restore-after-restart is needed
+    property var tabs: []
+    property int activeTabIndex: 0
+    property int _nextTabId: 1
     property bool _stateLoaded: false
     signal stateLoaded()
 

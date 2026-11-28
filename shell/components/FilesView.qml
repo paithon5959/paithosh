@@ -259,6 +259,219 @@ FocusScope {
         id: emptyModel
     }
 
+    // Tab state (Manager mode only, synced with FileService for Island <-> Detached persistence)
+    ListModel {
+        id: tabsModel
+    }
+    property int activeTabIndex: 0
+    property bool _switchingTab: false
+
+    function tabMetaFor(path, vMode) {
+        if (vMode === "recent") return { label: "Recent", icon: "clock" };
+        if (vMode === "starred") return { label: "Starred", icon: "star" };
+        const p = path || FileService.homeDir;
+        if (p === FileService.homeDir) return { label: "Home", icon: "home" };
+        if (p === FileService.trashDir) return { label: "Trash", icon: "trash" };
+        if (p === "/") return { label: "/", icon: "hard-drive" };
+        const places = FileService.resolvedPlaces || [];
+        for (let i = 0; i < places.length; ++i) {
+            if (places[i].path === p) return { label: places[i].label, icon: places[i].icon || "folder" };
+        }
+        const parts = p.split("/").filter(Boolean);
+        return { label: parts.length > 0 ? parts[parts.length - 1] : "/", icon: "folder" };
+    }
+
+    function _makeTabObj(targetPath, vMode) {
+        const p = expandUserPath(targetPath || FileService.homeDir);
+        const vm = vMode || "";
+        return {
+            id: FileService._nextTabId++,
+            path: p,
+            virtualMode: vm,
+            history: [p],
+            historyIdx: 0,
+            searchQuery: "",
+            isDeepSearch: false
+        };
+    }
+
+    function _toTabRow(t) {
+        const m = tabMetaFor(t.path, t.virtualMode);
+        return {
+            tabId: Number(t.id),
+            label: String(m.label),
+            icon: String(m.icon),
+            path: String(t.path || ""),
+            virtualMode: String(t.virtualMode || "")
+        };
+    }
+
+    function syncActiveTab() {
+        if (isPicker || _switchingTab) return;
+        const list = FileService.tabs || [];
+        if (activeTabIndex < 0 || activeTabIndex >= list.length) return;
+        const cur = list[activeTabIndex];
+        cur.path = currentPath;
+        cur.virtualMode = virtualMode;
+        cur.history = (history || [currentPath]).slice();
+        cur.historyIdx = historyIdx;
+        cur.searchQuery = searchQuery;
+        cur.isDeepSearch = isDeepSearch;
+        if (activeTabIndex < tabsModel.count) {
+            const m = tabMetaFor(cur.path, cur.virtualMode);
+            if (tabsModel.get(activeTabIndex).label !== m.label) tabsModel.setProperty(activeTabIndex, "label", m.label);
+            if (tabsModel.get(activeTabIndex).icon !== m.icon) tabsModel.setProperty(activeTabIndex, "icon", m.icon);
+            if (tabsModel.get(activeTabIndex).path !== cur.path) tabsModel.setProperty(activeTabIndex, "path", cur.path);
+            if (tabsModel.get(activeTabIndex).virtualMode !== cur.virtualMode) tabsModel.setProperty(activeTabIndex, "virtualMode", cur.virtualMode);
+        }
+    }
+
+    function initTabs() {
+        if (isPicker) return;
+        let list = (FileService.tabs || []).slice();
+        const start = FileService.lastPath || FileService.homeDir;
+        if (list.length === 0) {
+            list = [_makeTabObj(start, "")];
+            FileService.tabs = list;
+            FileService.activeTabIndex = 0;
+        }
+        const idx = Math.max(0, Math.min(FileService.activeTabIndex || 0, list.length - 1));
+        FileService.activeTabIndex = idx;
+        tabsModel.clear();
+        for (let i = 0; i < list.length; ++i) {
+            tabsModel.append(_toTabRow(list[i]));
+        }
+        activeTabIndex = idx;
+        if (FileService.pendingSelectPath !== "") {
+            const t = list[idx];
+            t.path = start;
+            t.virtualMode = "";
+            if (t.history[t.historyIdx] !== start) {
+                t.history = t.history.slice(0, t.historyIdx + 1);
+                t.history.push(start);
+                t.historyIdx = t.history.length - 1;
+            }
+            const m = tabMetaFor(start, "");
+            tabsModel.setProperty(idx, "label", m.label);
+            tabsModel.setProperty(idx, "icon", m.icon);
+            tabsModel.setProperty(idx, "path", start);
+            tabsModel.setProperty(idx, "virtualMode", "");
+        }
+        _applyTabAt(idx);
+    }
+
+    function _applyTabAt(idx) {
+        const list = FileService.tabs || [];
+        if (idx < 0 || idx >= list.length) return;
+        const t = list[idx];
+        _switchingTab = true;
+        activeTabIndex = idx;
+        FileService.activeTabIndex = idx;
+        archiverActive = false;
+        pathEditing = false;
+        loadError = "";
+        selectedPaths = [];
+        lastSelectedIdx = -1;
+        currentPath = t.path || FileService.homeDir;
+        virtualMode = t.virtualMode || "";
+        history = (t.history && t.history.length > 0) ? t.history.slice() : [currentPath];
+        historyIdx = Math.max(0, Math.min(t.historyIdx || 0, history.length - 1));
+        searchQuery = t.searchQuery || "";
+        isDeepSearch = Boolean(t.isDeepSearch);
+        if (searchField && searchField.text !== searchQuery) searchField.text = searchQuery;
+        _switchingTab = false;
+        if (virtualMode === "") FileService.lastPath = currentPath;
+        if (isDeepSearch && searchQuery.trim() !== "" && virtualMode === "") {
+            runDeepSearch();
+        } else {
+            refreshCurrent();
+        }
+        if (tabList) Qt.callLater(() => { if (tabList && idx < tabsModel.count) tabList.positionViewAtIndex(idx, ListView.Contain); });
+    }
+
+    function switchTab(idx) {
+        if (isPicker) return;
+        const list = FileService.tabs || [];
+        if (idx < 0 || idx >= list.length || idx === activeTabIndex) return;
+        syncActiveTab();
+        _applyTabAt(idx);
+    }
+
+    function openTab(targetPath, vMode, activate) {
+        if (isPicker) return;
+        syncActiveTab();
+        const t = _makeTabObj(targetPath || currentPath || FileService.homeDir, vMode || "");
+        const list = (FileService.tabs || []).slice();
+        list.push(t);
+        FileService.tabs = list;
+        tabsModel.append(_toTabRow(t));
+        const newIdx = list.length - 1;
+        if (activate !== false) {
+            _applyTabAt(newIdx);
+        } else if (tabList) {
+            Qt.callLater(() => { if (tabList && newIdx < tabsModel.count) tabList.positionViewAtIndex(newIdx, ListView.Contain); });
+        }
+    }
+
+    function closeTab(idx) {
+        if (isPicker) return;
+        const list = (FileService.tabs || []).slice();
+        if (list.length <= 1 || idx < 0 || idx >= list.length) return;
+        if (idx === activeTabIndex) syncActiveTab();
+        list.splice(idx, 1);
+        FileService.tabs = list;
+        tabsModel.remove(idx, 1);
+        if (idx === activeTabIndex) {
+            _applyTabAt(Math.min(idx, list.length - 1));
+        } else if (idx < activeTabIndex) {
+            activeTabIndex = activeTabIndex - 1;
+            FileService.activeTabIndex = activeTabIndex;
+        }
+    }
+
+    function closeOtherTabs(keepIdx) {
+        if (isPicker) return;
+        const list = (FileService.tabs || []).slice();
+        if (list.length <= 1 || keepIdx < 0 || keepIdx >= list.length) return;
+        syncActiveTab();
+        const kept = list[keepIdx];
+        for (let i = tabsModel.count - 1; i >= 0; --i) {
+            if (i !== keepIdx) tabsModel.remove(i, 1);
+        }
+        FileService.tabs = [kept];
+        if (activeTabIndex !== keepIdx) {
+            _applyTabAt(0);
+        } else {
+            activeTabIndex = 0;
+            FileService.activeTabIndex = 0;
+        }
+    }
+
+    function nextTab() {
+        if (isPicker || tabsModel.count <= 1) return;
+        switchTab((activeTabIndex + 1) % tabsModel.count);
+    }
+
+    function prevTab() {
+        if (isPicker || tabsModel.count <= 1) return;
+        switchTab((activeTabIndex - 1 + tabsModel.count) % tabsModel.count);
+    }
+
+    function openTabContextMenu(srcItem, mouse, tabIdx) {
+        if (isPicker) return;
+        const list = FileService.tabs || [];
+        if (tabIdx < 0 || tabIdx >= list.length) return;
+        const pt = srcItem.mapToItem(root, mouse.x, mouse.y);
+        const t = list[tabIdx];
+        ctxMenu.menuWidth = 200;
+        ctxMenu.openAt(pt.x, pt.y, [
+            { text: "Duplicate Tab", iconName: "copy", action: () => openTab(t.path, t.virtualMode, true) },
+            { separator: true },
+            { text: "Close Tab", iconName: "close", shortcut: "Ctrl+W", enabled: list.length > 1, action: () => closeTab(tabIdx) },
+            { text: "Close Other Tabs", iconName: "close", enabled: list.length > 1, action: () => closeOtherTabs(tabIdx) }
+        ]);
+    }
+
     property string _lastModelContext: ""
     property bool _transitionsEnabled: false
 
@@ -520,6 +733,7 @@ FocusScope {
         selectedPaths = [];
         lastSelectedIdx = -1;
         currentItems = [];
+        syncActiveTab();
         if (isPicker && pickerDirectory) nameField.text = "";
         FileService.listRecent((ok, items) => {
             if (!root || seq !== root._navSeq) return;
@@ -561,6 +775,7 @@ FocusScope {
             });
         }
         currentItems = out;
+        syncActiveTab();
         statusMessage = out.length + " starred items";
     }
 
@@ -571,6 +786,7 @@ FocusScope {
         isLoading = true;
         loadError = "";
         isDeepSearch = true;
+        syncActiveTab();
         FileService.searchFiles(currentPath, q, showHidden, (ok, items, err) => {
             if (!root || seq !== root._navSeq) return;
             isLoading = false;
@@ -604,6 +820,7 @@ FocusScope {
         currentPath = target;
         currentItems = [];
         if (!isPicker) FileService.lastPath = target;
+        syncActiveTab();
         refreshCurrent();
     }
 
@@ -764,6 +981,7 @@ FocusScope {
             currentPath = history[historyIdx];
             currentItems = [];
             if (!isPicker) FileService.lastPath = currentPath;
+            syncActiveTab();
             refreshCurrent();
         }
     }
@@ -779,6 +997,7 @@ FocusScope {
             currentPath = history[historyIdx];
             currentItems = [];
             if (!isPicker) FileService.lastPath = currentPath;
+            syncActiveTab();
             refreshCurrent();
         }
     }
@@ -1229,6 +1448,7 @@ FocusScope {
             if (single) {
                 menu.push({ text: sel.type === "archive" ? "Inspect Archive" : "Open", iconName: "external-link", shortcut: "Enter", action: () => openItem(sel) });
                 if (sel.type === "folder") {
+                    menu.push({ text: "Open in New Tab", iconName: "plus", action: () => openTab(sel.path, "", true) });
                     menu.push({ text: "Open in Terminal", iconName: "terminal", action: () => FileService.openTerminal(sel.path) });
                 }
                 menu.push({ separator: true });
@@ -1311,11 +1531,7 @@ FocusScope {
         libraryOpen = !isPicker;
         applyServicePrefs(false);
         if (!isPicker) {
-            const start = FileService.lastPath || FileService.homeDir;
-            currentPath = start;
-            history = [start];
-            historyIdx = 0;
-            refreshCurrent();
+            initTabs();
         }
     }
 
@@ -1388,6 +1604,29 @@ FocusScope {
         }
 
         if (searchField.activeFocus || pathField.activeFocus || nameField.activeFocus) {
+            return;
+        }
+
+        if (!isPicker && ctrl && event.key === Qt.Key_T) {
+            openTab(currentPath, "", true);
+            event.accepted = true;
+            return;
+        } else if (!isPicker && ctrl && event.key === Qt.Key_W) {
+            if (tabsModel.count > 1) closeTab(activeTabIndex);
+            event.accepted = true;
+            return;
+        } else if (!isPicker && ctrl && (event.key === Qt.Key_Tab || event.key === Qt.Key_PageDown) && !shift) {
+            nextTab();
+            event.accepted = true;
+            return;
+        } else if (!isPicker && ctrl && (event.key === Qt.Key_Backtab || event.key === Qt.Key_PageUp || (shift && event.key === Qt.Key_Tab))) {
+            prevTab();
+            event.accepted = true;
+            return;
+        } else if (!isPicker && (ctrl || alt) && event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
+            const targetIdx = (event.key === Qt.Key_9) ? (tabsModel.count - 1) : (event.key - Qt.Key_1);
+            if (targetIdx >= 0 && targetIdx < tabsModel.count) switchTab(targetIdx);
+            event.accepted = true;
             return;
         }
 
@@ -1546,7 +1785,9 @@ FocusScope {
                             font.pixelSize: 12
                             clip: true
                             onTextChanged: {
+                                if (root._switchingTab) return;
                                 root.searchQuery = text;
+                                root.syncActiveTab();
                                 if (text.trim() === "" && root.isDeepSearch) {
                                     root.refreshCurrent();
                                 }
@@ -1739,7 +1980,11 @@ FocusScope {
                                         MouseArea {
                                             id: pMouse
                                             anchors.fill: parent; enabled: root.placesOpen; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.navigateTo(modelData.path)
+                                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                            onClicked: (mouse) => {
+                                                if (!root.isPicker && mouse.button === Qt.MiddleButton) root.openTab(modelData.path, "", true);
+                                                else root.navigateTo(modelData.path);
+                                            }
                                         }
                                     }
                                 }
@@ -1842,9 +2087,15 @@ FocusScope {
                                         MouseArea {
                                             id: lMouse
                                             anchors.fill: parent; enabled: root.libraryOpen; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                if (modelData.key === "recent") root.loadRecent();
-                                                else root.loadStarred();
+                                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                            onClicked: (mouse) => {
+                                                if (!root.isPicker && mouse.button === Qt.MiddleButton) {
+                                                    root.openTab(root.currentPath, modelData.key, true);
+                                                } else if (modelData.key === "recent") {
+                                                    root.loadRecent();
+                                                } else {
+                                                    root.loadStarred();
+                                                }
                                             }
                                         }
                                     }
@@ -1892,7 +2143,11 @@ FocusScope {
                             MouseArea {
                                 id: rootMouse
                                 anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
-                                onClicked: root.navigateTo("/")
+                                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                                onClicked: (mouse) => {
+                                    if (!root.isPicker && mouse.button === Qt.MiddleButton) root.openTab("/", "", true);
+                                    else root.navigateTo("/");
+                                }
                             }
                         }
                     }
@@ -2212,6 +2467,13 @@ FocusScope {
                         iconName: "file-plus"; iconSize: 14
                         fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
                         onClicked: root.openInputModal("mkfile", "New File", "untitled.txt", "")
+                    }
+
+                    PillButton {
+                        visible: !root.archiverActive && !root.isPicker && tabsModel.count <= 1
+                        iconName: "plus"; iconSize: 14
+                        fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
+                        onClicked: root.openTab(root.currentPath, "", true)
                     }
 
                     // Segmented View Mode Control (Grid | List)
@@ -3023,9 +3285,11 @@ FocusScope {
                                 MouseArea {
                                     id: gMouse
                                     anchors.fill: parent; hoverEnabled: true
-                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                                     onClicked: (mouse) => {
-                                        if (mouse.button === Qt.RightButton) {
+                                        if (mouse.button === Qt.MiddleButton) {
+                                            if (!root.isPicker && gridDelegate.type === "folder") root.openTab(gridDelegate.path, "", true);
+                                        } else if (mouse.button === Qt.RightButton) {
                                             root.handleItemRightClick(this, mouse, gridDelegate.itemObj, index);
                                         } else {
                                             root.handleItemClick(gridDelegate.itemObj, index, mouse);
@@ -3363,7 +3627,7 @@ FocusScope {
                                     MouseArea {
                                         id: rowMouse
                                         anchors.fill: parent; hoverEnabled: true
-                                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
                                         property bool _marqueeActive: false
                                         onPressed: (mouse) => {
                                             _marqueeActive = false;
@@ -3398,7 +3662,9 @@ FocusScope {
                                                 filesViewport._selMoved = false;
                                                 return;
                                             }
-                                            if (mouse.button === Qt.RightButton) {
+                                            if (mouse.button === Qt.MiddleButton) {
+                                                if (!root.isPicker && listDelegate.type === "folder") root.openTab(listDelegate.path, "", true);
+                                            } else if (mouse.button === Qt.RightButton) {
                                                 root.handleItemRightClick(this, mouse, listDelegate.itemObj, index);
                                             } else {
                                                 root.handleItemClick(listDelegate.itemObj, index, mouse);
@@ -3607,6 +3873,171 @@ FocusScope {
                         }
                     }
                 }
+                }
+
+                // Bottom Tab Bar (auto-hides when <= 1 tab)
+                Item {
+                    readonly property bool showTabs: !root.isPicker && tabsModel.count > 1
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: showTabs ? 30 : 0
+                    opacity: showTabs ? 1.0 : 0.0
+                    visible: Layout.preferredHeight > 1 || opacity > 0.01
+                    clip: true
+
+                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                    Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+
+                    RowLayout {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        height: 30
+                        spacing: 5
+
+                        ListView {
+                            id: tabList
+                            Layout.fillWidth: true
+                            Layout.minimumWidth: 0
+                            Layout.preferredHeight: 30
+                            orientation: ListView.Horizontal
+                            spacing: 4
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: tabsModel
+
+                            add: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation { property: "opacity"; from: 0.0; to: 1.0; duration: 180; easing.type: Easing.OutCubic }
+                                    NumberAnimation { property: "scale"; from: 0.92; to: 1.0; duration: 220; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot }
+                                }
+                            }
+                            remove: Transition {
+                                ParallelAnimation {
+                                    NumberAnimation { property: "opacity"; to: 0.0; duration: 150; easing.type: Easing.OutCubic }
+                                    NumberAnimation { property: "scale"; to: 0.90; duration: 150; easing.type: Easing.OutCubic }
+                                }
+                            }
+                            displaced: Transition {
+                                NumberAnimation { properties: "x"; duration: 200; easing.type: Easing.OutCubic }
+                            }
+
+                            WheelHandler {
+                                enabled: tabList.contentWidth > tabList.width
+                                onWheel: (event) => {
+                                    const delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y;
+                                    const maxX = Math.max(0, tabList.contentWidth - tabList.width);
+                                    tabList.contentX = Math.max(0, Math.min(maxX, tabList.contentX - delta * 0.5));
+                                }
+                            }
+
+                            delegate: Rectangle {
+                                id: tabPill
+                                required property int index
+                                required property int tabId
+                                required property string label
+                                required property string icon
+
+                                readonly property bool isActive: index === root.activeTabIndex
+                                readonly property bool showClose: tabsModel.count > 1 && (isActive || tabMouse.containsMouse || closeTabMouse.containsMouse)
+
+                                height: 30
+                                width: Math.max(104, Math.floor((tabList.width - Math.max(0, tabsModel.count - 1) * tabList.spacing) / Math.max(1, tabsModel.count)))
+                                radius: 8
+                                clip: true
+                                color: isActive ? Theme.surfaceRaised : (tabMouse.containsMouse ? Theme.cardBg : "transparent")
+                                border.width: 1
+                                border.color: isActive
+                                    ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.42)
+                                    : (tabMouse.containsMouse ? Theme.borderSubtle : "transparent")
+                                scale: tabMouse.pressed ? 0.96 : 1.0
+
+                                Behavior on width { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                Behavior on border.color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                Behavior on scale { NumberAnimation { duration: 160; easing.type: Easing.OutBack; easing.overshoot: Theme.springOvershoot } }
+
+                                MouseArea {
+                                    id: tabMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                                    onClicked: (mouse) => {
+                                        if (mouse.button === Qt.MiddleButton) {
+                                            if (tabsModel.count > 1) root.closeTab(tabPill.index);
+                                        } else if (mouse.button === Qt.RightButton) {
+                                            root.openTabContextMenu(tabPill, mouse, tabPill.index);
+                                        } else {
+                                            root.switchTab(tabPill.index);
+                                        }
+                                    }
+                                }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 9
+                                    anchors.rightMargin: 6
+                                    spacing: 6
+
+                                    SvgIcon {
+                                        sourceName: tabPill.icon || "folder"
+                                        iconSize: 12
+                                        color: tabPill.isActive ? Theme.accent : Theme.textMuted
+                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        text: tabPill.label
+                                        color: tabPill.isActive ? Theme.text : Theme.textSub
+                                        font.family: Theme.fontSans
+                                        font.pixelSize: 11
+                                        font.weight: tabPill.isActive ? Font.DemiBold : Font.Normal
+                                        elide: Text.ElideRight
+                                        Behavior on color { ColorAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                                    }
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 18
+                                        Layout.preferredHeight: 18
+                                        radius: 5
+                                        clip: true
+                                        opacity: tabPill.showClose ? 1.0 : 0.0
+                                        color: closeTabMouse.containsMouse ? Theme.cardHover : "transparent"
+                                        scale: closeTabMouse.pressed ? 0.88 : 1.0
+
+                                        Behavior on opacity { NumberAnimation { duration: 130; easing.type: Easing.OutCubic } }
+                                        Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                        Behavior on scale { NumberAnimation { duration: 130; easing.type: Easing.OutBack } }
+
+                                        SvgIcon {
+                                            anchors.centerIn: parent
+                                            sourceName: "close"
+                                            iconSize: 10
+                                            color: closeTabMouse.containsMouse ? Theme.text : Theme.textMuted
+                                            Behavior on color { ColorAnimation { duration: 120; easing.type: Easing.OutCubic } }
+                                        }
+
+                                        MouseArea {
+                                            id: closeTabMouse
+                                            anchors.fill: parent
+                                            enabled: tabsModel.count > 1
+                                            hoverEnabled: true
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: root.closeTab(tabPill.index)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        PillButton {
+                            iconName: "plus"; iconSize: 13
+                            fixedWidth: 30; fixedHeight: 30; radius: 8; subtle: true
+                            onClicked: root.openTab(root.currentPath, "", true)
+                        }
+                    }
                 }
 
                 // Footer Divider
