@@ -647,7 +647,7 @@ cmd_pre_update() {
     step "pkg_upgrade" "info" "Running $tool package upgrade..."
     local rc=0
     if [ "$tool" = "dnf5" ] || [ "$tool" = "dnf" ]; then
-        local -a flags=()
+        local -a flags=("--refresh")
         [ "$beta" = "1" ] && flags+=("--enablerepo=updates-testing")
         if [ "$all" = "1" ]; then
             "$tool" upgrade -y "${flags[@]}" || rc=$?

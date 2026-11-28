@@ -409,7 +409,7 @@ Singleton {
             'TOOL="$1"; ALL="$2"; USE_BETA="$3"; IGNORE_CSV="$4"; shift 4',
             'if [ "$TOOL" = "dnf5" ] || [ "$TOOL" = "dnf" ]; then',
             '    BETA_FLAG=""; [ "$USE_BETA" = "1" ] && BETA_FLAG="--enablerepo=updates-testing"',
-            '    if [ "$ALL" = "1" ]; then exec "$TOOL" upgrade -y $BETA_FLAG; else exec "$TOOL" upgrade -y $BETA_FLAG -- "$@"; fi',
+            '    if [ "$ALL" = "1" ]; then exec "$TOOL" upgrade -y --refresh $BETA_FLAG; else exec "$TOOL" upgrade -y --refresh $BETA_FLAG -- "$@"; fi',
             'elif [ "$TOOL" = "pacman" ]; then',
             '    if [ -n "$IGNORE_CSV" ]; then exec pacman -Syu --noconfirm --ignore "$IGNORE_CSV"; else exec pacman -Syu --noconfirm; fi',
             'elif [ "$TOOL" = "apt" ]; then',
