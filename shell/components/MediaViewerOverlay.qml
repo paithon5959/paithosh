@@ -413,6 +413,7 @@ FocusScope {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton
                         hoverEnabled: true
+                        preventStealing: true
                         cursorShape: root.zoom > 1.01
                             ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor)
                             : Qt.ArrowCursor

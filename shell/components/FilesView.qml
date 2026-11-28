@@ -3136,6 +3136,7 @@ FocusScope {
                         }
 
                         WheelHandler {
+                            enabled: !root.anyModalOpen && !root.archiverActive
                             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                             onWheel: (event) => {
                                 const maxY = Math.max(0, filesGrid.contentHeight - filesGrid.height);
@@ -3234,6 +3235,7 @@ FocusScope {
 
                                 DragHandler {
                                     id: gridDragHandler
+                                    enabled: !root.anyModalOpen && !root.archiverActive
                                     target: null
                                     acceptedButtons: Qt.LeftButton
                                     onActiveChanged: {
@@ -3466,6 +3468,7 @@ FocusScope {
                             model: root.isListView ? viewModel : emptyModel
 
                             WheelHandler {
+                                enabled: !root.anyModalOpen && !root.archiverActive
                                 acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
                                 onWheel: (event) => {
                                     const maxY = Math.max(0, filesList.contentHeight - filesList.height);
@@ -3564,6 +3567,7 @@ FocusScope {
                                         width: listDelegate.isSel ? parent.width : Math.min(parent.width - 176, 46 + listNameText.implicitWidth + 16)
                                         DragHandler {
                                             id: listDragHandler
+                                            enabled: !root.anyModalOpen && !root.archiverActive
                                             target: null
                                             acceptedButtons: Qt.LeftButton
                                             onActiveChanged: {
@@ -3986,7 +3990,7 @@ FocusScope {
                             }
 
                             WheelHandler {
-                                enabled: tabList.contentWidth > tabList.width
+                                enabled: !root.anyModalOpen && tabList.contentWidth > tabList.width
                                 onWheel: (event) => {
                                     const delta = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y;
                                     const maxX = Math.max(0, tabList.contentWidth - tabList.width);
