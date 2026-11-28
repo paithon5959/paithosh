@@ -21,6 +21,8 @@ librsvg               # Bat buoc de render SVG cursor & icon
 python-gobject        # Bat buoc cho `gi` (Rsvg bindings) & file portal
 python-pillow         # Bat buoc cho Wallpaper Color Engine
 qt6-svg               # Bat buoc de Qt6 render cac icon .svg trong SvgIcon.qml
+qt6-multimedia        # Bat buoc de phat video trong File Manager (QtMultimedia)
+qt6-multimedia-ffmpeg # Backend FFmpeg cho Qt6 Multimedia tren Arch
 hyprlock
 python
 git
@@ -66,7 +68,7 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo pacman -S --needed --noconfirm \
-  quickshell hyprland hyprcursor python-cairo librsvg python-gobject python-pillow qt6-svg hyprlock python git \
+  quickshell hyprland hyprcursor python-cairo librsvg python-gobject python-pillow qt6-svg qt6-multimedia qt6-multimedia-ffmpeg hyprlock python git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python-dbus python-gobject \
   wireplumber pipewire libpulse brightnessctl networkmanager upower power-profiles-daemon \
   polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kdeconnect
@@ -92,6 +94,7 @@ librsvg2              # Bat buoc de render SVG cursor & icon
 python3-gobject       # Bat buoc cho `gi` (Rsvg bindings) & file portal
 python3-pillow        # Bat buoc cho Wallpaper Color Engine
 qt6-qtsvg             # Bat buoc de Qt6 render icon .svg
+qt6-qtmultimedia      # Bat buoc de phat video trong File Manager (QtMultimedia)
 hyprlock              # (COPR lionheartp/Hyprland)
 python3
 git
@@ -136,7 +139,7 @@ libnotify
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo dnf5 install -y \
-  quickshell hyprland hyprcursor python3-cairo librsvg2 python3-gobject python3-pillow qt6-qtsvg hyprlock python3 git \
+  quickshell hyprland hyprcursor python3-cairo librsvg2 python3-gobject python3-pillow qt6-qtsvg qt6-qtmultimedia hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gobject \
   wireplumber pipewire-utils pulseaudio-utils brightnessctl NetworkManager upower tuned-ppd \
   polkit hyprpolkitagent xdg-utils unzip pciutils gsettings-desktop-schemas gtk3 wireguard-tools zenity kde-connect
@@ -162,6 +165,7 @@ gir1.2-rsvg-2.0       # Bat buoc de render SVG cursor & icon
 python3-gi            # Bat buoc cho `gi` (Rsvg bindings) & file portal
 python3-pillow        # Bat buoc cho Wallpaper Color Engine
 qt6-svg-plugins       # Bat buoc de Qt6 render icon .svg
+qml6-module-qtmultimedia # Bat buoc de phat video trong File Manager (QtMultimedia)
 hyprlock
 python3
 git
@@ -206,7 +210,7 @@ libnotify-bin
 
 # Lenh cai dat nhanh (Recommended = core + wayland + system):
 sudo apt-get update && sudo apt-get install -y \
-  hyprland hyprcursor-util python3-cairo gir1.2-rsvg-2.0 python3-gi python3-pillow qt6-svg-plugins hyprlock python3 git \
+  hyprland hyprcursor-util python3-cairo gir1.2-rsvg-2.0 python3-gi python3-pillow qt6-svg-plugins qml6-module-qtmultimedia hyprlock python3 git \
   grim slurp wl-clipboard cliphist wf-recorder xdg-desktop-portal-hyprland python3-dbus python3-gi \
   wireplumber pipewire-bin pulseaudio-utils brightnessctl network-manager upower power-profiles-daemon \
   pkexec polkit-kde-agent-1 xdg-utils unzip pciutils libglib2.0-bin gsettings-desktop-schemas libgtk-3-bin \

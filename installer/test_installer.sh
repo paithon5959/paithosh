@@ -77,12 +77,14 @@ assert "pw-play" in pkgs, os_name
 assert "hyprcursor" in pkgs and pkgs["hyprcursor"]["group"] == "core" and pkgs["hyprcursor"].get("required") is True, pkgs.get("hyprcursor")
 assert "cursor-render" in pkgs and pkgs["cursor-render"]["group"] == "core" and pkgs["cursor-render"].get("required") is True, pkgs.get("cursor-render")
 assert "pillow" in pkgs and pkgs["pillow"]["group"] == "core" and pkgs["pillow"].get("required") is True, pkgs.get("pillow")
+assert "qt6-multimedia" in pkgs and pkgs["qt6-multimedia"]["group"] == "core" and pkgs["qt6-multimedia"].get("required") is True, pkgs.get("qt6-multimedia")
 assert pkgs["wg-quick"]["group"] == "system", pkgs["wg-quick"]
 assert "kdeconnectd" not in all_pkg_strs, all_pkg_strs
 assert "policykit-1" not in all_pkg_strs, all_pkg_strs
 
 if os_name == "fedora":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-qtsvg"
+    assert pkgs["qt6-multimedia"]["pkg"] == "qt6-qtmultimedia"
     assert pkgs["kdeconnect-cli"]["pkg"] == "kde-connect"
     assert pkgs["pw-play"]["pkg"] == "pipewire-utils"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
@@ -90,6 +92,7 @@ if os_name == "fedora":
     assert pkgs["pillow"]["pkg"] == "python3-pillow"
 elif os_name == "arch":
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg"
+    assert pkgs["qt6-multimedia"]["pkg"] == "qt6-multimedia qt6-multimedia-ffmpeg"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor"
     assert pkgs["cursor-render"]["pkg"] == "python-cairo librsvg python-gobject"
     assert pkgs["pillow"]["pkg"] == "python-pillow"
@@ -98,6 +101,7 @@ elif os_name == "arch":
         assert d["distro"]["aurWarning"]
 elif os_name in ("debian", "ubuntu"):
     assert pkgs["qt6-svg"]["pkg"] == "qt6-svg-plugins"
+    assert pkgs["qt6-multimedia"]["pkg"] == "qml6-module-qtmultimedia"
     assert pkgs["pkexec"]["pkg"] == "pkexec"
     assert pkgs["hyprcursor"]["pkg"] == "hyprcursor-util"
     assert pkgs["cursor-render"]["pkg"] == "python3-cairo gir1.2-rsvg-2.0 python3-gi"

@@ -139,6 +139,7 @@ audit_json() {
         "core|cursor-render|py:cairo_rsvg|Cursor Renderer (Cairo/Rsvg)"
         "core|pillow|py:pillow|Wallpaper Color Engine (Pillow)"
         "core|qt6-svg|glob:/usr/lib*/qt6/plugins/imageformats/libqsvg.so;/usr/lib/*/qt6/plugins/imageformats/libqsvg.so|Qt6 SVG Plugin (Icons)"
+        "core|qt6-multimedia|glob:/usr/lib*/qt6/qml/QtMultimedia/libquickmultimediaplugin.so;/usr/lib/*/qt6/qml/QtMultimedia/libquickmultimediaplugin.so|Qt6 Multimedia (Video Viewer)"
         "core|hyprlock|bin:hyprlock|Hyprlock"
         "core|python3|bin:python3|Python 3"
         "core|git|bin:git|Git"
@@ -216,6 +217,7 @@ def pkg_name(fam, mgr, item_id):
         "cursor-render": {"arch": "python-cairo librsvg python-gobject", "fedora": "python3-cairo librsvg2 python3-gobject", "debian": "python3-cairo gir1.2-rsvg-2.0 python3-gi"},
         "pillow": {"arch": "python-pillow", "fedora": "python3-pillow", "debian": "python3-pillow"},
         "qt6-svg": {"arch": "qt6-svg", "fedora": "qt6-qtsvg", "debian": "qt6-svg-plugins"},
+        "qt6-multimedia": {"arch": "qt6-multimedia qt6-multimedia-ffmpeg", "fedora": "qt6-qtmultimedia", "debian": "qml6-module-qtmultimedia"},
         "hyprlock": {"arch": "hyprlock", "fedora": "hyprlock", "debian": "hyprlock"},
         "python3": {"arch": "python", "fedora": "python3", "debian": "python3"},
         "git": {"arch": "git", "fedora": "git", "debian": "git"},

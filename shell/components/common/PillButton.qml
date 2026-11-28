@@ -20,6 +20,7 @@ Item {
     property int radius: 10
     property int fontSize: 12
     property int fontWeight: Font.DemiBold
+    property string fontFamily: Theme.fontSans
     property bool fillWidth: false
 
     signal clicked()
@@ -101,7 +102,7 @@ Item {
                 id: label
                 visible: root.text !== ""
                 text: root.text
-                font.family: Theme.fontSans
+                font.family: root.fontFamily
                 font.pixelSize: root.fontSize
                 font.weight: root.fontWeight
                 color: {

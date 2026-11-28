@@ -179,8 +179,14 @@ FocusScope {
     property string propsPath: ""
     property var propsData: null
 
+    // Built-in media viewer state (image & video)
+    property bool viewerOpen: false
+    property var viewerItems: []
+    property int viewerIndex: -1
+    readonly property var viewerItem: (viewerIndex >= 0 && viewerIndex < viewerItems.length) ? viewerItems[viewerIndex] : null
+
     readonly property bool isInTrash: virtualMode === "" && (currentPath === FileService.trashDir || currentPath.startsWith(FileService.trashDir + "/"))
-    readonly property bool anyModalOpen: passwordOpen || inputModalOpen || confirmOpen || propsOpen
+    readonly property bool anyModalOpen: passwordOpen || inputModalOpen || confirmOpen || propsOpen || viewerOpen
 
     readonly property var libraryItems: [
         { key: "recent", label: "Recent", icon: "clock" },
@@ -1072,9 +1078,38 @@ FocusScope {
             navigateTo(item.path);
         } else if (item.type === "archive") {
             openArchiveInspector(item);
+        } else if (item.type === "image" || item.type === "video") {
+            openMediaViewer(item);
         } else {
             FileService.openFile(item.path);
         }
+    }
+
+    function openMediaViewer(item) {
+        if (!item || (item.type !== "image" && item.type !== "video")) return;
+        const siblings = (visibleItems || []).filter(it => it && (it.type === "image" || it.type === "video"));
+        let idx = siblings.findIndex(it => it.path === item.path);
+        if (idx < 0) {
+            viewerItems = [item];
+            idx = 0;
+        } else {
+            viewerItems = siblings;
+        }
+        viewerIndex = idx;
+        viewerOpen = true;
+    }
+
+    function closeMediaViewer() {
+        viewerOpen = false;
+        root.forceActiveFocus();
+    }
+
+    function stepMediaViewer(delta) {
+        const len = viewerItems ? viewerItems.length : 0;
+        if (len <= 1) return;
+        viewerIndex = ((viewerIndex + delta) % len + len) % len;
+        const cur = viewerItems[viewerIndex];
+        if (cur && cur.path) selectedPaths = [cur.path];
     }
 
     function openArchiveInspector(item) {
@@ -1446,7 +1481,16 @@ FocusScope {
             const menu = [];
 
             if (single) {
-                menu.push({ text: sel.type === "archive" ? "Inspect Archive" : "Open", iconName: "external-link", shortcut: "Enter", action: () => openItem(sel) });
+                const isMedia = (sel.type === "image" || sel.type === "video");
+                menu.push({
+                    text: sel.type === "archive" ? "Inspect Archive" : (isMedia ? "View" : "Open"),
+                    iconName: isMedia ? "eye" : "external-link",
+                    shortcut: "Enter",
+                    action: () => openItem(sel)
+                });
+                if (isMedia) {
+                    menu.push({ text: "Open Externally", iconName: "external-link", action: () => FileService.openFile(sel.path) });
+                }
                 if (sel.type === "folder") {
                     menu.push({ text: "Open in New Tab", iconName: "plus", action: () => openTab(sel.path, "", true) });
                     menu.push({ text: "Open in Terminal", iconName: "terminal", action: () => FileService.openTerminal(sel.path) });
@@ -1564,6 +1608,7 @@ FocusScope {
                 inputModalOpen = false;
                 confirmOpen = false;
                 propsOpen = false;
+                viewerOpen = false;
                 root.forceActiveFocus();
                 event.accepted = true;
             }
@@ -3822,6 +3867,14 @@ FocusScope {
                                     color: root._previewDisplayItem ? root.iconColorFor(root._previewDisplayItem.type) : Theme.textSub
                                     Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
                                 }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: !root.isPicker && root._previewDisplayItem !== null
+                                        && (root._previewDisplayItem.type === "image" || root._previewDisplayItem.type === "video")
+                                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onClicked: root.openMediaViewer(root._previewDisplayItem)
+                                }
                             }
 
                             // File Name & Meta
@@ -4607,6 +4660,29 @@ FocusScope {
                     Item { Layout.fillWidth: true }
                     PillButton { text: "Close"; active: true; onClicked: { root.propsOpen = false; root.forceActiveFocus(); } }
                 }
+            }
+        }
+    }
+
+    // Built-in Image Viewer & Video Watcher (z: 85 — root-hoisted, lazy-loaded)
+    Loader {
+        id: mediaViewerLoader
+        anchors.fill: parent
+        z: 85
+        active: root.viewerOpen || (item !== null && item.opacity > 0.01)
+        source: "MediaViewerOverlay.qml"
+        onLoaded: {
+            if (item) {
+                item.open = Qt.binding(() => root.viewerOpen);
+                item.item = Qt.binding(() => root.viewerItem);
+                item.currentIndex = Qt.binding(() => root.viewerIndex);
+                item.totalCount = Qt.binding(() => root.viewerItems ? root.viewerItems.length : 0);
+                item.topRadius = Qt.binding(() => root._appTopRadius);
+                item.bottomRadius = Qt.binding(() => root._appBottomRadius);
+                item.closeRequested.connect(() => root.closeMediaViewer());
+                item.stepRequested.connect((delta) => root.stepMediaViewer(delta));
+                item.openExternalRequested.connect((path) => FileService.openFile(path));
+                if (root.viewerOpen) item.forceActiveFocus();
             }
         }
     }
