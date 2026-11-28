@@ -16,8 +16,25 @@ Item {
     property var workspaces: []
     property int selectedIdx: 0
 
+    readonly property int totalWindows: {
+        let total = 0;
+        for (let i = 0; i < workspaces.length; ++i) {
+            total += workspaces[i].windows ? workspaces[i].windows.length : 0;
+        }
+        return total;
+    }
+
+    readonly property bool multiMonitor: Quickshell.screens.length > 1
+
+    readonly property var keyHints: [
+        { key: "1–0", label: "Jump" },
+        { key: "↑↓←→", label: "Move" },
+        { key: "↵", label: "Focus" },
+        { key: "Esc", label: "Close" }
+    ]
+
     implicitWidth: 1060
-    implicitHeight: headerRow.implicitHeight + 14 + grid.implicitHeight + 12 + 40
+    implicitHeight: headerRow.implicitHeight + 12 + grid.implicitHeight + 10 + previewStrip.implicitHeight
 
     function refresh() {
         workspaces = CompositorService.workspaceOverviewModel();
@@ -57,12 +74,12 @@ Item {
         }
     }
 
-    function totalWindowCount() {
-        let total = 0;
-        for (let i = 0; i < workspaces.length; ++i) {
-            total += workspaces[i].windows ? workspaces[i].windows.length : 0;
+    function primaryAppLabel(winList) {
+        if (!winList || winList.length === 0) return "Empty";
+        for (let i = 0; i < winList.length; ++i) {
+            if (winList[i].focused) return winList[i].appClass || winList[i].title || "Window";
         }
-        return total;
+        return winList[0].appClass || winList[0].title || "Window";
     }
 
     Timer {
@@ -142,7 +159,25 @@ Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
+        implicitHeight: 30
         spacing: 10
+
+        Rectangle {
+            Layout.preferredWidth: 30
+            Layout.preferredHeight: 30
+            radius: 8
+            clip: true
+            color: Theme.surfaceRaised
+            border.width: 1
+            border.color: Theme.borderSubtle
+
+            SvgIcon {
+                anchors.centerIn: parent
+                sourceName: "layers"
+                iconSize: 15
+                color: Theme.textSub
+            }
+        }
 
         Text {
             text: "Workspaces"
@@ -155,18 +190,18 @@ Item {
         }
 
         Rectangle {
-            height: 22
-            width: countText.implicitWidth + 16
+            Layout.preferredHeight: 22
+            Layout.preferredWidth: countText.implicitWidth + 16
             radius: 11
             clip: true
-            color: Theme.cardBg
+            color: Theme.surfaceRaised
             border.width: 1
             border.color: Theme.borderSubtle
 
             Text {
                 id: countText
                 anchors.centerIn: parent
-                text: root.totalWindowCount() + " windows"
+                text: root.totalWindows + (root.totalWindows === 1 ? " window" : " windows")
                 color: Theme.textSub
                 font.family: Theme.fontMono
                 font.pixelSize: 11
@@ -176,14 +211,44 @@ Item {
 
         Item { Layout.fillWidth: true }
 
-        Text {
-            text: "1–0 Jump  •  Arrows Navigate  •  Enter Focus  •  Esc Close"
-            color: Theme.textMuted
-            font.family: Theme.fontSans
-            font.pixelSize: 11
-            elide: Text.ElideRight
-            Layout.minimumWidth: 0
-            Layout.maximumWidth: 420
+        RowLayout {
+            spacing: 10
+
+            Repeater {
+                model: root.keyHints
+
+                delegate: RowLayout {
+                    required property var modelData
+                    spacing: 5
+
+                    Rectangle {
+                        Layout.preferredHeight: 20
+                        Layout.preferredWidth: hintKey.implicitWidth + 10
+                        radius: 5
+                        clip: true
+                        color: Theme.surfaceRaised
+                        border.width: 1
+                        border.color: Theme.borderSubtle
+
+                        Text {
+                            id: hintKey
+                            anchors.centerIn: parent
+                            text: modelData.key
+                            color: Theme.textSub
+                            font.family: Theme.fontMono
+                            font.pixelSize: 10
+                            font.weight: Font.Medium
+                        }
+                    }
+
+                    Text {
+                        text: modelData.label
+                        color: Theme.textMuted
+                        font.family: Theme.fontSans
+                        font.pixelSize: 11
+                    }
+                }
+            }
         }
     }
 
@@ -191,12 +256,12 @@ Item {
     GridLayout {
         id: grid
         anchors.top: headerRow.bottom
-        anchors.topMargin: 14
+        anchors.topMargin: 12
         anchors.left: parent.left
         anchors.right: parent.right
         columns: 5
-        columnSpacing: 12
-        rowSpacing: 12
+        columnSpacing: 10
+        rowSpacing: 10
 
         Repeater {
             model: root.workspaces
@@ -212,29 +277,39 @@ Item {
                 readonly property bool hasWindows: winList.length > 0
 
                 Layout.fillWidth: true
-                Layout.preferredHeight: 158
+                Layout.preferredHeight: 154
                 radius: 16
                 clip: true
 
                 color: {
-                    if (wsMouse.containsMouse) return Theme.cardHover;
-                    if (isFocused) return Qt.rgba(1, 1, 1, 0.11);
-                    return Theme.cardBg;
+                    if (isFocused) {
+                        return wsMouse.containsMouse
+                            ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.18)
+                            : Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14);
+                    }
+                    if (wsMouse.containsMouse || isSelected) return Theme.cardHover;
+                    if (hasWindows) return Theme.cardBg;
+                    return Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035);
                 }
-                border.width: (isFocused || isSelected) ? 1.5 : 1
+                border.width: isFocused ? 1.5 : 1
                 border.color: {
                     if (isFocused) return Theme.accent;
-                    if (isSelected) return Qt.rgba(1, 1, 1, 0.48);
+                    if (isSelected || wsMouse.containsMouse) {
+                        return Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45);
+                    }
                     return Theme.borderSubtle;
                 }
 
-                scale: wsMouse.pressed ? 0.95 : 1.0
+                scale: wsMouse.pressed ? 0.96 : 1.0
 
                 Behavior on color {
                     ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
                 }
                 Behavior on border.color {
                     ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
+                Behavior on border.width {
+                    NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
                 Behavior on scale {
                     NumberAnimation {
@@ -258,26 +333,38 @@ Item {
                     anchors.margins: 8
                     spacing: 6
 
-                    // Mini Desktop Geometry Preview
+                    // Mini Desktop Geometry Preview (concentric: 16 - 8 = 8)
                     Rectangle {
                         id: previewArea
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        radius: 10
+                        radius: 8
                         clip: true
                         color: Theme.surfaceBg
                         border.width: 1
-                        border.color: Qt.rgba(1, 1, 1, 0.06)
+                        border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, wsCard.hasWindows ? 0.10 : 0.06)
+
+                        Behavior on border.color {
+                            ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                        }
 
                         // Empty Workspace Watermark
                         Text {
                             anchors.centerIn: parent
                             visible: !wsCard.hasWindows
                             text: wsCard.modelData.id
-                            color: wsCard.isFocused ? Theme.textSub : Theme.textMuted
+                            color: wsCard.isFocused ? Theme.accent : Theme.textMuted
+                            opacity: (wsCard.isFocused || wsCard.isSelected || wsMouse.containsMouse) ? 0.85 : 0.35
                             font.family: Theme.fontMono
                             font.pixelSize: 20
                             font.weight: Font.Bold
+
+                            Behavior on opacity {
+                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
+                            Behavior on color {
+                                ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
                         }
 
                         // Miniature Window Tiles
@@ -296,19 +383,26 @@ Item {
                                 y: pad + modelData.relY * areaH
                                 width: Math.max(22, Math.min(areaW - (x - pad), modelData.relW * areaW))
                                 height: Math.max(18, Math.min(areaH - (y - pad), modelData.relH * areaH))
-                                radius: 7
+                                radius: 5
                                 clip: true
 
                                 color: {
-                                    if (winMouse.containsMouse) return Qt.rgba(1, 1, 1, 0.24);
-                                    if (modelData.focused) return Qt.rgba(1, 1, 1, 0.20);
-                                    return Qt.rgba(1, 1, 1, 0.11);
+                                    if (winMouse.containsMouse) return Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.20);
+                                    if (modelData.focused) return Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.15);
+                                    return Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.09);
                                 }
                                 border.width: 1
-                                border.color: modelData.focused ? Theme.accent : Qt.rgba(1, 1, 1, 0.18)
+                                border.color: {
+                                    if (modelData.focused) return Theme.accent;
+                                    if (winMouse.containsMouse) return Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45);
+                                    return Theme.borderSubtle;
+                                }
                                 scale: winMouse.pressed ? 0.94 : 1.0
 
                                 Behavior on color {
+                                    ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                                }
+                                Behavior on border.color {
                                     ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
                                 }
                                 Behavior on scale {
@@ -329,12 +423,15 @@ Item {
                                     visible: captureSource !== null && hasContent
                                 }
 
-                                // Subtle hover tint over thumbnail
+                                // Subtle hover scrim over live thumbnail
                                 Rectangle {
                                     anchors.fill: parent
                                     visible: liveThumb.visible
-                                    color: winMouse.containsMouse ? Qt.rgba(0, 0, 0, 0.18) : Qt.rgba(0, 0, 0, 0.08)
-                                    Behavior on color { ColorAnimation { duration: 140 } }
+                                    color: Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, winMouse.containsMouse ? 0.24 : 0.08)
+
+                                    Behavior on color {
+                                        ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                                    }
                                 }
 
                                 MouseArea {
@@ -343,6 +440,7 @@ Item {
                                     hoverEnabled: true
                                     acceptedButtons: Qt.LeftButton | Qt.MiddleButton
                                     cursorShape: Qt.PointingHandCursor
+                                    onEntered: root.selectedIdx = wsCard.index
                                     onClicked: function(mouse) {
                                         if (mouse.button === Qt.MiddleButton) {
                                             CompositorService.closeWindow(winTile.modelData.address);
@@ -361,9 +459,11 @@ Item {
                                     anchors.bottom: parent.bottom
                                     anchors.margins: 4
                                     height: 16
-                                    radius: 5
+                                    radius: 4
                                     clip: true
-                                    color: liveThumb.visible ? Qt.rgba(0, 0, 0, 0.72) : "transparent"
+                                    color: liveThumb.visible
+                                        ? Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.78)
+                                        : "transparent"
 
                                     Text {
                                         anchors.fill: parent
@@ -379,10 +479,11 @@ Item {
                                     }
                                 }
 
-                                // Hover Close Button (top-right)
+                                // Hover Close Button (top-right, animated opacity & scale)
                                 Rectangle {
                                     id: closeBtn
-                                    visible: winMouse.containsMouse && winTile.width >= 36 && winTile.height >= 24
+                                    readonly property bool shouldShow: (winMouse.containsMouse || closeMouse.containsMouse)
+                                        && winTile.width >= 36 && winTile.height >= 24
                                     anchors.top: parent.top
                                     anchors.right: parent.right
                                     anchors.margins: 4
@@ -390,11 +491,26 @@ Item {
                                     height: 16
                                     radius: 8
                                     clip: true
-                                    color: closeMouse.containsMouse ? Theme.danger : Qt.rgba(0, 0, 0, 0.72)
-                                    scale: closeMouse.pressed ? 0.88 : 1.0
+                                    opacity: shouldShow ? 1.0 : 0.0
+                                    visible: opacity > 0.01
+                                    color: closeMouse.containsMouse
+                                        ? Theme.danger
+                                        : Qt.rgba(Theme.pillBg.r, Theme.pillBg.g, Theme.pillBg.b, 0.80)
+                                    scale: closeMouse.pressed ? 0.88 : (shouldShow ? 1.0 : 0.82)
 
-                                    Behavior on color { ColorAnimation { duration: 120 } }
-                                    Behavior on scale { NumberAnimation { duration: 140; easing.type: Easing.OutBack } }
+                                    Behavior on opacity {
+                                        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                                    }
+                                    Behavior on color {
+                                        ColorAnimation { duration: 120; easing.type: Easing.OutCubic }
+                                    }
+                                    Behavior on scale {
+                                        NumberAnimation {
+                                            duration: 160
+                                            easing.type: Easing.OutBack
+                                            easing.overshoot: Theme.springOvershoot
+                                        }
+                                    }
 
                                     SvgIcon {
                                         anchors.centerIn: parent
@@ -424,46 +540,81 @@ Item {
                         spacing: 6
 
                         Rectangle {
-                            width: 20
-                            height: 18
-                            radius: 6
+                            Layout.preferredWidth: 20
+                            Layout.preferredHeight: 18
+                            radius: 5
                             clip: true
-                            color: wsCard.isFocused ? Theme.accent : Qt.rgba(1, 1, 1, 0.10)
+                            color: wsCard.isFocused
+                                ? Theme.accent
+                                : (wsCard.hasWindows ? Theme.surfaceRaised : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.06))
 
-                            Behavior on color { ColorAnimation { duration: 160 } }
+                            Behavior on color {
+                                ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
 
                             Text {
                                 anchors.centerIn: parent
                                 text: wsCard.modelData.id
-                                color: wsCard.isFocused ? Theme.accentFg : Theme.text
+                                color: wsCard.isFocused
+                                    ? Theme.accentFg
+                                    : (wsCard.hasWindows ? Theme.text : Theme.textMuted)
                                 font.family: Theme.fontMono
-                                font.pixelSize: 11
+                                font.pixelSize: 10
                                 font.weight: Font.Bold
+
+                                Behavior on color {
+                                    ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                                }
                             }
                         }
 
                         Text {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
-                            text: {
-                                if (wsCard.winList.length === 0) return "Empty";
-                                if (wsCard.winList.length === 1) return wsCard.winList[0].appClass || "1 window";
-                                return wsCard.winList.length + " windows";
-                            }
-                            color: wsCard.isFocused ? Theme.text : Theme.textSub
+                            text: root.primaryAppLabel(wsCard.winList)
+                            color: wsCard.isFocused
+                                ? Theme.text
+                                : (wsCard.hasWindows ? Theme.textSub : Theme.textMuted)
                             font.family: Theme.fontSans
                             font.pixelSize: 11
                             font.weight: wsCard.isFocused ? Font.DemiBold : Font.Normal
                             elide: Text.ElideRight
+
+                            Behavior on color {
+                                ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                            }
                         }
 
                         Rectangle {
-                            visible: wsCard.modelData.monitorName !== "" && wsCard.hasWindows
-                            height: 16
-                            width: Math.min(54, monTxt.implicitWidth + 8)
+                            visible: wsCard.winList.length > 1
+                            Layout.preferredHeight: 16
+                            Layout.preferredWidth: winCountTxt.implicitWidth + 8
                             radius: 5
                             clip: true
-                            color: Qt.rgba(1, 1, 1, 0.08)
+                            color: Theme.surfaceRaised
+                            border.width: 1
+                            border.color: Theme.borderSubtle
+
+                            Text {
+                                id: winCountTxt
+                                anchors.centerIn: parent
+                                text: "+" + (wsCard.winList.length - 1)
+                                color: Theme.textSub
+                                font.family: Theme.fontMono
+                                font.pixelSize: 9
+                                font.weight: Font.Medium
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.multiMonitor && wsCard.modelData.monitorName !== "" && wsCard.hasWindows
+                            Layout.preferredHeight: 16
+                            Layout.preferredWidth: Math.min(54, monTxt.implicitWidth + 8)
+                            radius: 5
+                            clip: true
+                            color: Theme.surfaceRaised
+                            border.width: 1
+                            border.color: Theme.borderSubtle
 
                             Text {
                                 id: monTxt
@@ -483,17 +634,17 @@ Item {
         }
     }
 
-    // Hovered / Selected Workspace Preview Strip
+    // Selected Workspace Inspector Strip
     Rectangle {
         id: previewStrip
         anchors.top: grid.bottom
         anchors.topMargin: 10
         anchors.left: parent.left
         anchors.right: parent.right
-        implicitHeight: 38
-        radius: 12
+        implicitHeight: 40
+        radius: 14
         clip: true
-        color: Theme.cardBg
+        color: Theme.surfaceRaised
         border.width: 1
         border.color: Theme.borderSubtle
 
@@ -501,33 +652,42 @@ Item {
             ? root.workspaces[root.selectedIdx]
             : null
         readonly property var selWins: (selWs && selWs.windows) ? selWs.windows : []
+        readonly property bool selFocused: Boolean(selWs && selWs.isFocused)
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: 12
-            anchors.rightMargin: 12
+            anchors.leftMargin: 10
+            anchors.rightMargin: 10
             spacing: 8
 
             Rectangle {
-                width: 22
-                height: 20
+                Layout.preferredWidth: 22
+                Layout.preferredHeight: 20
                 radius: 6
                 clip: true
-                color: (previewStrip.selWs && previewStrip.selWs.isFocused) ? Theme.accent : Qt.rgba(1, 1, 1, 0.12)
+                color: previewStrip.selFocused ? Theme.accent : Theme.cardBg
+
+                Behavior on color {
+                    ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
 
                 Text {
                     anchors.centerIn: parent
                     text: previewStrip.selWs ? previewStrip.selWs.id : (root.selectedIdx + 1)
-                    color: (previewStrip.selWs && previewStrip.selWs.isFocused) ? Theme.accentFg : Theme.text
+                    color: previewStrip.selFocused ? Theme.accentFg : Theme.text
                     font.family: Theme.fontMono
                     font.pixelSize: 11
                     font.weight: Font.Bold
+
+                    Behavior on color {
+                        ColorAnimation { duration: 160; easing.type: Easing.OutCubic }
+                    }
                 }
             }
 
             Text {
                 visible: previewStrip.selWins.length === 0
-                text: "Workspace " + (root.selectedIdx + 1) + " — Empty"
+                text: "Workspace " + (root.selectedIdx + 1) + " • Empty"
                 color: Theme.textMuted
                 font.family: Theme.fontSans
                 font.pixelSize: 12
@@ -546,16 +706,41 @@ Item {
                     model: previewStrip.selWins.slice(0, 4)
 
                     delegate: Rectangle {
+                        id: winChip
                         required property var modelData
+
                         Layout.fillWidth: true
-                        Layout.maximumWidth: 210
-                        Layout.minimumWidth: 60
-                        height: 24
-                        radius: 8
+                        Layout.maximumWidth: 220
+                        Layout.minimumWidth: 64
+                        Layout.preferredHeight: 26
+                        radius: 7
                         clip: true
-                        color: modelData.focused ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(1, 1, 1, 0.08)
+                        color: {
+                            if (chipMouse.containsMouse) return Theme.cardHover;
+                            if (modelData.focused) return Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.14);
+                            return Theme.cardBg;
+                        }
                         border.width: 1
-                        border.color: modelData.focused ? Theme.accent : Qt.rgba(1, 1, 1, 0.10)
+                        border.color: {
+                            if (modelData.focused) return Theme.accent;
+                            if (chipMouse.containsMouse) return Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.45);
+                            return Theme.borderSubtle;
+                        }
+                        scale: chipMouse.pressed ? 0.95 : 1.0
+
+                        Behavior on color {
+                            ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on border.color {
+                            ColorAnimation { duration: 140; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: 160
+                                easing.type: Easing.OutBack
+                                easing.overshoot: Theme.springOvershoot
+                            }
+                        }
 
                         Text {
                             anchors.fill: parent
@@ -569,12 +754,28 @@ Item {
                             font.weight: modelData.focused ? Font.DemiBold : Font.Normal
                             elide: Text.ElideRight
                         }
+
+                        MouseArea {
+                            id: chipMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: function(mouse) {
+                                if (mouse.button === Qt.MiddleButton) {
+                                    CompositorService.closeWindow(winChip.modelData.address);
+                                    refreshDebounce.restart();
+                                } else {
+                                    root.activateWindow(winChip.modelData.address);
+                                }
+                            }
+                        }
                     }
                 }
 
                 Text {
                     visible: previewStrip.selWins.length > 4
-                    text: "+" + (previewStrip.selWins.length - 4) + " more"
+                    text: "+" + (previewStrip.selWins.length - 4)
                     color: Theme.textMuted
                     font.family: Theme.fontMono
                     font.pixelSize: 11
