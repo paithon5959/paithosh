@@ -256,6 +256,7 @@ ShellRoot {
         "components/WorkspaceOverview.qml",
         "components/PickerView.qml",
         "components/PortalView.qml",
+        "components/AppChooserView.qml",
         "components/ModalOverlay.qml",
         "components/DetachedAppWindow.qml",
         "components/LockScreen.qml"
@@ -774,7 +775,7 @@ ShellRoot {
 
         property var activeScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         property string openPopover: "" // "" | "launcher" | "dashboard" | "search" | "overview"
-        property string islandApp: "" // "" | "settings" | "files" | "music" | "picker"
+        property string islandApp: "" // "" | "settings" | "files" | "music" | "picker" | "portal" | "appchooser"
         property string detachedApp: "" // "" | "settings" | "files" | "music" | "picker"
         property string dashboardTab: "mission" // "mission" | "tasks" | "kde" | "power"
         property string settingsPage: "home"
@@ -793,6 +794,16 @@ ShellRoot {
         property int pickerRequestId: 0
         property string pickerReturnSettingsPage: ""
         property bool pickerReturnDetached: false
+        property string appChooserResultPath: ""
+        property string appChooserUri: ""
+        property string appChooserScheme: ""
+        property string appChooserContentType: ""
+        property string appChooserFilename: ""
+        property string appChooserCallerApp: ""
+        property bool appChooserNoMatch: false
+        property string appChooserLastChoice: ""
+        property var appChooserApps: []
+        property int appChooserRequestId: 0
         property bool manualHideBar: false
         property bool hideBarFullscreen: true
         property bool autoHideOnOverlap: true
@@ -1254,11 +1265,26 @@ ShellRoot {
             Quickshell.execDetached(["sh", "-c", "printf '%s\\n' '{\"status\":\"cancel\"}' > \"$1\"", "_", resPath]);
         }
 
+        function cancelPendingAppChooser() {
+            const resPath = appChooserResultPath;
+            if (!resPath || resPath === "") return;
+            appChooserResultPath = "";
+            Quickshell.execDetached(["sh", "-c", "printf '%s\\n' '{\"status\":\"cancel\"}' > \"$1\"", "_", resPath]);
+        }
+
+        function _cleanupAppChooserOnLeave(nextApp) {
+            if (islandApp === "appchooser" && nextApp !== "appchooser") {
+                cancelPendingAppChooser();
+                resetAppChooserState();
+            }
+        }
+
         function closePopovers() {
             if (islandApp === "picker" && detachedApp !== "picker") {
                 cancelPendingPortalPicker();
                 resetFilePickerState();
             }
+            _cleanupAppChooserOnLeave("");
             openPopover = "";
             searchQuery = "";
             islandApp = "";
@@ -1272,6 +1298,7 @@ ShellRoot {
                 cancelPendingPortalPicker();
                 resetFilePickerState();
             }
+            _cleanupAppChooserOnLeave("");
             islandApp = "";
             if (openPopover === kind && (!scr || activeScreen === scr)) {
                 closePopovers();
@@ -1382,6 +1409,7 @@ ShellRoot {
                 cancelPendingPortalPicker();
                 resetFilePickerState();
             }
+            _cleanupAppChooserOnLeave(appKind);
             if (detachedApp === appKind) detachedApp = "";
             islandApp = appKind;
         }
@@ -1399,6 +1427,7 @@ ShellRoot {
                     cancelPendingPortalPicker();
                     resetFilePickerState();
                 }
+                _cleanupAppChooserOnLeave(appKind);
                 if (detachedApp === appKind) detachedApp = "";
                 islandApp = appKind;
             }
@@ -1470,6 +1499,7 @@ ShellRoot {
                     return;
                 }
             }
+            _cleanupAppChooserOnLeave("");
             islandApp = "";
         }
 
@@ -1593,6 +1623,122 @@ ShellRoot {
             pickerFilters = [];
             pickerReturnSettingsPage = "";
             pickerReturnDetached = false;
+        }
+
+        function resetAppChooserState() {
+            appChooserResultPath = "";
+            appChooserUri = "";
+            appChooserScheme = "";
+            appChooserContentType = "";
+            appChooserFilename = "";
+            appChooserCallerApp = "";
+            appChooserNoMatch = false;
+            appChooserLastChoice = "";
+            appChooserApps = [];
+        }
+
+        function openAppChooserFromPortal(requestPath) {
+            if (!requestPath) return;
+            FileService.runCmd(["cat", requestPath], (ok, out) => {
+                if (!ok || !out) return;
+                try {
+                    const req = JSON.parse(out);
+                    cancelPendingAppChooser();
+                    appChooserUri = String(req.uri || "");
+                    appChooserScheme = String(req.scheme || "");
+                    appChooserContentType = String(req.contentType || "");
+                    appChooserFilename = String(req.filename || "");
+                    appChooserCallerApp = String(req.callerApp || "Application");
+                    appChooserNoMatch = Boolean(req.noMatch);
+                    appChooserLastChoice = String(req.lastChoice || "");
+                    appChooserApps = Array.isArray(req.apps) ? req.apps : [];
+                    appChooserResultPath = String(req.resultPath || "");
+                    appChooserRequestId += 1;
+                    showIslandApp("appchooser", null);
+                } catch (e) {
+                    console.warn("Failed to parse app chooser request:", e);
+                }
+            });
+        }
+
+        function updateAppChooserFromPortal(payloadPath) {
+            if (!payloadPath || islandApp !== "appchooser") return;
+            FileService.runCmd(["cat", payloadPath], (ok, out) => {
+                if (!ok || !out || islandApp !== "appchooser") return;
+                try {
+                    const req = JSON.parse(out);
+                    if (typeof req.noMatch === "boolean") appChooserNoMatch = req.noMatch;
+                    if (Array.isArray(req.apps)) appChooserApps = req.apps;
+                } catch (e) {
+                    console.warn("Failed to parse updated app chooser payload:", e);
+                }
+            });
+        }
+
+        function openAppChooserPreview(mode) {
+            cancelPendingAppChooser();
+            const isNoMatch = (String(mode || "").toLowerCase() !== "multi");
+            const sysApps = AppService.searchApps("", "All");
+            const tls = (CompositorService.isHyprland && Hyprland.toplevels && Hyprland.toplevels.values)
+                ? Hyprland.toplevels.values
+                : [];
+            const items = [];
+            for (let i = 0; i < sysApps.length; ++i) {
+                const a = sysApps[i];
+                const aid = String(a.id || "").replace(/\.desktop$/i, "");
+                const aidLower = aid.toLowerCase();
+                const tail = aidLower.indexOf(".") !== -1 ? aidLower.split(".").pop() : aidLower;
+                let winAddr = "";
+                let winCls = "";
+                let winTitle = "";
+                let winWs = 0;
+                for (let j = 0; j < tls.length; ++j) {
+                    const tl = tls[j];
+                    if (!tl) continue;
+                    const ipc = tl.lastIpcObject || {};
+                    const cls = String(ipc.class || (tl.wayland && tl.wayland.appId) || "").toLowerCase();
+                    if (cls && (cls === aidLower || cls === tail || aidLower.indexOf(cls) !== -1)) {
+                        winAddr = tl.address ? String(tl.address) : String(ipc.address || "");
+                        winCls = cls;
+                        winTitle = String(tl.title || "");
+                        winWs = (tl.workspace && tl.workspace.id) ? tl.workspace.id : 1;
+                        break;
+                    }
+                }
+                items.push({
+                    id: aid,
+                    name: a.name || aid,
+                    genericName: (a.entry && a.entry.genericName) ? String(a.entry.genericName) : "",
+                    comment: (a.entry && a.entry.comment) ? String(a.entry.comment) : "",
+                    icon: a.iconName || "",
+                    category: a.category || "System",
+                    fallbackSvg: a.fallbackSvg || "external-link",
+                    recommended: !isNoMatch && i < 2,
+                    running: winAddr !== "",
+                    windowAddress: winAddr,
+                    windowClass: winCls,
+                    windowTitle: winTitle,
+                    windowWorkspace: winWs
+                });
+            }
+            items.sort((x, y) => {
+                if (x.recommended !== y.recommended) return x.recommended ? -1 : 1;
+                if (x.running !== y.running) return x.running ? -1 : 1;
+                return String(x.name || "").localeCompare(String(y.name || ""));
+            });
+            appChooserResultPath = "";
+            appChooserCallerApp = "Brave";
+            appChooserUri = isNoMatch
+                ? "acme-studio://oauth/callback?code=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9_paithosh_preview_token_2026&state=verify"
+                : "myapp://oauth/callback?code=paithosh_session_token&workspace=default";
+            appChooserScheme = isNoMatch ? "acme-studio" : "myapp";
+            appChooserContentType = isNoMatch ? "x-scheme-handler/acme-studio" : "x-scheme-handler/myapp";
+            appChooserFilename = "";
+            appChooserNoMatch = isNoMatch;
+            appChooserLastChoice = "";
+            appChooserApps = items;
+            appChooserRequestId += 1;
+            showIslandApp("appchooser", null);
         }
 
         function closeModal() {
@@ -2292,6 +2438,34 @@ ShellRoot {
                 stateObj.pickerResultPath = "";
                 stateObj.collapseIslandApp();
             }
+        }
+    }
+
+    IpcHandler {
+        target: "appchooser"
+
+        function openFromPortal(requestPath: string): void {
+            stateObj.openAppChooserFromPortal(requestPath);
+        }
+
+        function updateChoices(payloadPath: string): void {
+            stateObj.updateAppChooserFromPortal(payloadPath);
+        }
+
+        function closeFromPortal(): void {
+            if (stateObj.islandApp === "appchooser") {
+                stateObj.appChooserResultPath = "";
+                stateObj.collapseIslandApp();
+            }
+        }
+
+        function focusAndNotify(address: string, message: string): void {
+            if (address !== "") CompositorService.focusWindow(address);
+            if (message !== "") stateObj.notifyStatus(message);
+        }
+
+        function preview(mode: string): void {
+            stateObj.openAppChooserPreview(mode);
         }
     }
 }

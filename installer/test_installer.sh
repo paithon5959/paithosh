@@ -51,7 +51,8 @@ run_self_checks() {
     for sf in "${sh_files[@]}"; do
         bash -n "$sf"
     done
-    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py"
+    python3 -m py_compile "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$REPO_ROOT/shell/scripts/test-app-chooser.py" "$REPO_ROOT/shell/scripts/paithosh-pak.py" "$REPO_ROOT/shell/scripts/paithosh-cursor-gen.py"
+    python3 "$REPO_ROOT/shell/scripts/test-app-chooser.py" >/dev/null
     echo "  PASS: syntax checks clean"
 
     echo "[2/7] Checking audit.sh JSON across arch/fedora/debian/ubuntu/unknown & verify-pkgs..."
@@ -176,7 +177,9 @@ PY
     [[ -L "$lua_home/.local/bin/hyprland-share-picker" ]]
     grep -Fq "$REPO_ROOT/shell/scripts/paithosh-file-portal.py" "$lua_home/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.paithosh.service"
     [[ -f "$lua_home/.local/share/xdg-desktop-portal/portals/paithosh.portal" ]]
+    grep -Fq "org.freedesktop.impl.portal.AppChooser;" "$lua_home/.local/share/xdg-desktop-portal/portals/paithosh.portal"
     grep -Fq "org.freedesktop.impl.portal.FileChooser=paithosh" "$lua_home/.config/xdg-desktop-portal/hyprland-portals.conf"
+    grep -Fq "org.freedesktop.impl.portal.AppChooser=paithosh" "$lua_home/.config/xdg-desktop-portal/hyprland-portals.conf"
 
     local conf_home="$TMP_HOME/conf"
     mkdir -p "$conf_home/.config/hypr"

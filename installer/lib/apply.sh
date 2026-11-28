@@ -513,7 +513,7 @@ elif [[ "$SYNC_HYPR" == "true" ]]; then
     fi
 fi
 
-# 6. XDG Desktop Portals (Screen Share picker + FileChooser D-Bus service)
+# 6. XDG Desktop Portals (Screen Share picker + FileChooser & AppChooser D-Bus service)
 emit_step "6/6" "Registering XDG Desktop Portals..."
 if [[ "$SETUP_PORTALS" == "true" ]]; then
     LOCAL_BIN="${HOME}/.local/bin"
@@ -526,7 +526,7 @@ if [[ "$SETUP_PORTALS" == "true" ]]; then
         echo "[dry-run] Symlink ${LOCAL_BIN}/hyprland-share-picker -> ${REPO_ROOT}/shell/scripts/xdph-share-picker.sh"
         echo "[dry-run] Write ${DBUS_DIR}/org.freedesktop.impl.portal.desktop.paithosh.service"
         echo "[dry-run] Write ${PORTALS_DIR}/paithosh.portal"
-        echo "[dry-run] Ensure FileChooser=paithosh in ${PORTALS_CONF}"
+        echo "[dry-run] Ensure FileChooser=paithosh & AppChooser=paithosh in ${PORTALS_CONF}"
     else
         mkdir -p "$LOCAL_BIN" "$DBUS_DIR" "$PORTALS_DIR" "$XDP_CFG_DIR"
         ln -sf "${REPO_ROOT}/shell/scripts/xdph-share-picker.sh" "${LOCAL_BIN}/hyprland-share-picker"
@@ -540,7 +540,7 @@ EOF
         cat > "${PORTALS_DIR}/paithosh.portal" <<'EOF'
 [portal]
 DBusName=org.freedesktop.impl.portal.desktop.paithosh
-Interfaces=org.freedesktop.impl.portal.FileChooser;
+Interfaces=org.freedesktop.impl.portal.FileChooser;org.freedesktop.impl.portal.AppChooser;
 UseIn=Hyprland;hyprland
 EOF
 
@@ -548,11 +548,15 @@ EOF
 import os, re, sys
 
 conf_path = sys.argv[1]
-target_line = "org.freedesktop.impl.portal.FileChooser=paithosh\n"
+target_ifaces = (
+    "org.freedesktop.impl.portal.FileChooser",
+    "org.freedesktop.impl.portal.AppChooser",
+)
+target_lines = [f"{iface}=paithosh\n" for iface in target_ifaces]
 
 if not os.path.exists(conf_path):
     with open(conf_path, "w", encoding="utf-8") as f:
-        f.write("[preferred]\ndefault=hyprland;gtk\n" + target_line)
+        f.write("[preferred]\ndefault=hyprland;gtk\n" + "".join(target_lines))
     sys.exit(0)
 
 with open(conf_path, "r", encoding="utf-8") as f:
@@ -574,21 +578,24 @@ if pref_start is None:
         lines[-1] += "\n"
     if lines and lines[-1].strip() != "":
         lines.append("\n")
-    lines.extend(["[preferred]\n", "default=hyprland;gtk\n", target_line])
+    lines.extend(["[preferred]\n", "default=hyprland;gtk\n"] + target_lines)
 else:
-    replaced = False
-    for idx in range(pref_start + 1, pref_end):
-        if re.match(r'^\s*org\.freedesktop\.impl\.portal\.FileChooser\s*=', lines[idx]):
-            lines[idx] = target_line
-            replaced = True
-            break
-    if not replaced:
-        insert_at = pref_end
-        while insert_at > pref_start + 1 and lines[insert_at - 1].strip() == "":
-            insert_at -= 1
-        if insert_at > 0 and not lines[insert_at - 1].endswith("\n"):
-            lines[insert_at - 1] += "\n"
-        lines.insert(insert_at, target_line)
+    for iface, target_line in zip(target_ifaces, target_lines):
+        pattern = re.compile(rf'^\s*{re.escape(iface)}\s*=')
+        replaced = False
+        for idx in range(pref_start + 1, pref_end):
+            if pattern.match(lines[idx]):
+                lines[idx] = target_line
+                replaced = True
+                break
+        if not replaced:
+            insert_at = pref_end
+            while insert_at > pref_start + 1 and lines[insert_at - 1].strip() == "":
+                insert_at -= 1
+            if insert_at > 0 and not lines[insert_at - 1].endswith("\n"):
+                lines[insert_at - 1] += "\n"
+            lines.insert(insert_at, target_line)
+            pref_end += 1
 
 with open(conf_path, "w", encoding="utf-8") as f:
     f.writelines(lines)

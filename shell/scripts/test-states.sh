@@ -145,6 +145,10 @@ ipc openPicker "upload"
 sleep 0.35
 ipc openPicker "download"
 sleep 0.35
+qs ipc -p "$SHELL_DIR" call appchooser preview "nomatch"
+sleep 0.45
+qs ipc -p "$SHELL_DIR" call appchooser preview "multi"
+sleep 0.45
 ipc applyState normal
 
 echo "[8/8] Auditing Quickshell logs for QML/JS errors..."

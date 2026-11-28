@@ -95,6 +95,7 @@ PanelWindow {
             return shellState.pickerMode === "download" ? "Save Location (Island)" : "Upload Location (Island)";
         }
         if (shellState.islandApp === "portal") return "Screen Share (Island)";
+        if (shellState.islandApp === "appchooser") return "Choose Application (Island)";
         if (shellState.islandApp === "weather") return "Weather Forecast";
         return "";
     }
@@ -191,23 +192,31 @@ PanelWindow {
         }
     }
 
+    function _syncExpandedIslandFocus() {
+        const app = root.shellState.islandApp;
+        if (app === "settings" && settingsLoader.item) {
+            settingsLoader.item.openPage(root.shellState.settingsPage || "home");
+            expandedFocusItem.forceActiveFocus();
+        } else if (app === "picker" && pickerLoader.item) {
+            pickerLoader.item.initFromState();
+            Qt.callLater(() => { if (pickerLoader.item) pickerLoader.item.forceActiveFocus(); });
+        } else if (app === "appchooser" && appChooserLoader.item) {
+            appChooserLoader.item.initFromState();
+            Qt.callLater(() => { if (appChooserLoader.item) appChooserLoader.item.forceActiveFocus(); });
+        } else if (app === "files" && filesLoader.item) {
+            Qt.callLater(() => { if (filesLoader.item) filesLoader.item.forceActiveFocus(); });
+        } else if (app === "music" && musicLoader.item) {
+            Qt.callLater(() => { if (musicLoader.item) musicLoader.item.forceActiveFocus(); });
+        } else {
+            expandedFocusItem.forceActiveFocus();
+        }
+    }
+
     onIsAppExpandedOnScreenChanged: {
         if (isAppExpandedOnScreen) {
             if (shellState.islandApp !== "") _lastIslandApp = shellState.islandApp;
             _markAppCached(shellState.islandApp);
-            if (shellState.islandApp === "settings" && settingsLoader.item) {
-                settingsLoader.item.openPage(shellState.settingsPage || "home");
-                expandedFocusItem.forceActiveFocus();
-            } else if (shellState.islandApp === "picker" && pickerLoader.item) {
-                pickerLoader.item.initFromState();
-                Qt.callLater(() => { if (pickerLoader.item) pickerLoader.item.forceActiveFocus(); });
-            } else if (shellState.islandApp === "files" && filesLoader.item) {
-                Qt.callLater(() => { if (filesLoader.item) filesLoader.item.forceActiveFocus(); });
-            } else if (shellState.islandApp === "music" && musicLoader.item) {
-                Qt.callLater(() => { if (musicLoader.item) musicLoader.item.forceActiveFocus(); });
-            } else {
-                expandedFocusItem.forceActiveFocus();
-            }
+            _syncExpandedIslandFocus();
         }
     }
 
@@ -217,17 +226,7 @@ PanelWindow {
             if (root.shellState.islandApp !== "") root._lastIslandApp = root.shellState.islandApp;
             if (root.isAppExpandedOnScreen) {
                 root._markAppCached(root.shellState.islandApp);
-                if (root.shellState.islandApp === "settings" && settingsLoader.item) {
-                    settingsLoader.item.openPage(root.shellState.settingsPage || "home");
-                    expandedFocusItem.forceActiveFocus();
-                } else if (root.shellState.islandApp === "picker" && pickerLoader.item) {
-                    pickerLoader.item.initFromState();
-                    Qt.callLater(() => { if (pickerLoader.item) pickerLoader.item.forceActiveFocus(); });
-                } else if (root.shellState.islandApp === "files" && filesLoader.item) {
-                    Qt.callLater(() => { if (filesLoader.item) filesLoader.item.forceActiveFocus(); });
-                } else if (root.shellState.islandApp === "music" && musicLoader.item) {
-                    Qt.callLater(() => { if (musicLoader.item) musicLoader.item.forceActiveFocus(); });
-                }
+                root._syncExpandedIslandFocus();
             }
         }
     }
@@ -366,7 +365,7 @@ PanelWindow {
 
     Rectangle {
         anchors.fill: parent
-        color: (root.isAppExpandedOnScreen && root.shellState.islandApp === "portal")
+        color: (root.isAppExpandedOnScreen && (root.shellState.islandApp === "portal" || root.shellState.islandApp === "appchooser"))
             ? Qt.rgba(0, 0, 0, 0.72)
             : "transparent"
 
@@ -1375,7 +1374,7 @@ PanelWindow {
                     x: 0
                     y: root.isBottom ? (appHeaderSep.y - height) : (appHeaderSep.y + appHeaderSep.height)
                     width: parent.width
-                    height: (root.isAppExpandedOnScreen && root.shellState.islandApp !== "weather") ? 26 : 0
+                    height: (root.isAppExpandedOnScreen && root.shellState.islandApp !== "weather" && root.shellState.islandApp !== "portal" && root.shellState.islandApp !== "appchooser") ? 26 : 0
                     color: Qt.rgba(1, 1, 1, 0.04)
                     clip: true
                     visible: height > 0
@@ -1514,6 +1513,22 @@ PanelWindow {
                         Component.onCompleted: ensureSource()
                         onActiveChanged: ensureSource()
                         onLoaded: if (item) item.refreshSources()
+                    }
+
+                    Loader {
+                        id: appChooserLoader
+                        anchors.fill: parent
+                        active: (root.isAppExpandedOnScreen || appBody.visible) && root._renderedIslandApp === "appchooser"
+                        visible: root._renderedIslandApp === "appchooser"
+                        function ensureSource() {
+                            if (active && source.toString() === "") setSource("AppChooserView.qml", { shellState: root.shellState });
+                        }
+                        Component.onCompleted: ensureSource()
+                        onActiveChanged: ensureSource()
+                        onLoaded: if (item) {
+                            item.initFromState();
+                            if (root.isAppExpandedOnScreen) Qt.callLater(() => { if (item) item.forceActiveFocus(); });
+                        }
                     }
 
                     Loader {
